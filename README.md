@@ -1,4 +1,4 @@
-# SushiDL - Manga Downloader
+# SushiDL - Sushiscan.net Manga Downloader
 
 &#x20;
 
@@ -8,7 +8,7 @@
 
 ### Introduction
 
-SushiDL est un script Python pour télécharger automatiquement les volumes de manga depuis SushiScan.
+SushiDL est un script Python pour télécharger automatiquement les volumes de manga depuis SushiScan.net.
 
 Basé sur [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
 
@@ -74,7 +74,7 @@ Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus d'i
 
 ### Introduction
 
-SushiDL is a Python script for automatically downloading manga volumes from SushiScan.
+SushiDL is a Python script for automatically downloading manga volumes from SushiScan.net.
 
 Based on [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
 
