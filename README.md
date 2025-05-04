@@ -32,6 +32,7 @@
 🙏 Merci d’utiliser SushiDL !  
 🙏 Thanks for using SushiDL! 🍣
 
+---
 
 # SushiDL - Sushiscan.net Manga Downloader
 
