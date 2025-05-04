@@ -21,13 +21,9 @@
   🇫🇷 Affichage clair de l’état CBZ (activée ✅ / désactivée ❌) + sauvegarde automatique visible.  
   🇬🇧 Log clearly shows CBZ status (enabled ✅ / disabled ❌) and confirms auto-saving.
 
----
-
 ### 🎯 Objectif | Goal:
 🇫🇷 Offrir plus de contrôle à l’utilisateur tout en maintenant une expérience stable et intuitive.  
 🇬🇧 Give users more control while ensuring a smooth and reliable experience.
-
----
 
 🙏 Merci d’utiliser SushiDL !  
 🙏 Thanks for using SushiDL! 🍣
