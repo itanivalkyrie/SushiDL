@@ -92,20 +92,29 @@ Assurez-vous que le service est démarré à l’adresse `http://localhost:8191`
 
    * Copiez la valeur du champ `User-Agent`
    * Cherchez les cookies, et copiez la valeur de `cf_clearance`
-6. Collez-les dans l'application SushiDL dans les champs prévus à cet effet
 
-```bash
-python SushiDL_V7.py
-```
+#### 🚀 Démarrer l'application et lancer le téléchargement
 
-1. Renseigner l'URL d'un manga
-2. Entrer les cookies `.fr` & `.net`, User-Agent et URL FlareSolverr
-3. Cliquer sur **Analyser les volumes**
-4. Choisir les tomes souhaités
-5. Lancer le téléchargement
-6. Les fichiers `.cbz` seront dans `DL SushiScan/`
+1. Clonez le dépôt :
 
----
+   ```bash
+   git clone https://github.com/itanivalkyrie/SushiDL.git
+   cd SushiDL
+   pip install -r requirements.txt
+   ```
+2. Lancez l'application avec la commande :
+
+   ```bash
+   python SushiDL_V7.py
+   ```
+3. Collez les valeurs de `cf_clearance` et `User-Agent` dans les champs prévus
+4. Renseignez également l'adresse de FlareSolverr (ex. `http://localhost:8191`)
+5. Cliquez sur le bouton **Sauver Cookies & UA**
+6. Entrez l'URL du manga à télécharger
+7. Cliquez sur **Analyser les volumes**
+8. Sélectionnez les chapitres ou volumes souhaités
+9. Lancez le téléchargement
+10. Les fichiers `.cbz` seront disponibles dans le dossier `DL SushiScan/`
 
 ## 🇬🇧 English
 
@@ -166,27 +175,30 @@ Make sure the service is running at `http://localhost:8191` (customizable in Sus
    * Copy the value of `User-Agent`
    * Look for cookies and copy the value of `cf_clearance`
 6. Paste them into the SushiDL application in the appropriate fields
+7. Click the **Sauver Cookies & UA** button to save your preferences
+
+### 🚀 Getting Started
 
 ```bash
-python SushiDL_V7.py
+git clone https://github.com/toniohc/SushiDL.git
+cd SushiDL
+pip install -r requirements.txt
 ```
 
-1. Paste a manga URL (e.g., sushiscan.fr or sushiscan.net)
-2. Fill `.fr` and `.net` cookies, User-Agent and FlareSolverr URL
-3. Click **Analyser les volumes**
-4. Select desired volumes
-5. Start download
-6. `.cbz` files will be stored in `DL SushiScan/`
+1. Launch the SushiDL application:
+
+   ```bash
+   python SushiDL_V7.py
+   ```
+2. Fill in the `.fr` and `.net` cookies, User-Agent and FlareSolverr URL
+3. Click on **Sauver Cookies & UA** to save your preferences
+4. Paste a manga URL (e.g., sushiscan.fr or sushiscan.net)
+5. Click **Analyser les volumes**
+6. Select desired volumes
+7. Start download
+8. `.cbz` files will be stored in `DL SushiScan/`
 
 ---
-
-### 💼 Licence
-
-MIT License. See [LICENSE](LICENSE).
-
----
-
-
 
 <p align="center">
   🔗 https://ko-fi.com/itanivalkyrie
@@ -209,3 +221,12 @@ MIT License. See [LICENSE](LICENSE).
 <p align="center">
   🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
 </p>
+
+---
+
+### 💼 Licence
+
+MIT License. See [LICENSE](LICENSE).
+
+---
+
