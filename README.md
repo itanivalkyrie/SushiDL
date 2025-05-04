@@ -6,25 +6,30 @@
 
 ## 🇫🇷 Nouveautés de la version 7 | 🇬🇧 What's New in v7
 
-* ✅ **Support multi-domaine : sushiscan.fr & sushiscan.net**
-  🇫🇷 Deux champs pour les cookies, détection automatique selon le domaine.
-  🇬🇧 Two cookie fields, auto-selected based on URL.
+### ✅ Support multi-domaine : sushiscan.fr & sushiscan.net
 
-* ⚡ **Contournement Cloudflare via FlareSolverr**
-  🇫🇷 Compatible avec les challenges Cloudflare, URL personnalisable.
-  🇬🇧 FlareSolverr integration, configurable URL.
+* 🇫🇷 Deux champs pour les cookies, détection automatique selon le domaine.
+* 🇬🇧 Two cookie fields, auto-selected based on URL.
 
-* 🔍 **Fallback automatique HTML si JSON manquant**
-  🇫🇷 Sécurise le téléchargement même si le script principal échoue.
-  🇬🇧 Secure download even if main JSON parser fails.
+### ⚡ Contournement Cloudflare via FlareSolverr
 
-* 📊 **Retry intelligent des échecs**
-  🇫🇷 Deuxième tentative automatique pour les volumes en erreur.
-  🇬🇧 Retry failed chapters automatically.
+* 🇫🇷 Compatible avec les challenges Cloudflare, URL personnalisable.
+* 🇬🇧 FlareSolverr integration, configurable URL.
 
-* 🔒 **Sauvegarde des cookies, User-Agent, CBZ & FlareSolverr URL**
-  🇫🇷 Enregistré dans `cookie_cache.json` entre chaque session.
-  🇬🇧 Stored in `cookie_cache.json` for reuse.
+### 🔍 Fallback automatique HTML si JSON manquant
+
+* 🇫🇷 Sécurise le téléchargement même si le script principal échoue.
+* 🇬🇧 Secure download even if main JSON parser fails.
+
+### 📊 Retry intelligent des échecs
+
+* 🇫🇷 Deuxième tentative automatique pour les volumes en erreur.
+* 🇬🇧 Retry failed chapters automatically.
+
+### 🔒 Sauvegarde des cookies, User-Agent, CBZ & FlareSolverr URL
+
+* 🇫🇷 Enregistré dans `cookie_cache.json` entre chaque session.
+* 🇬🇧 Stored in `cookie_cache.json` for reuse.
 
 ---
 
@@ -175,6 +180,14 @@ python SushiDL_V7.py
 
 ---
 
+### 💼 Licence
+
+MIT License. See [LICENSE](LICENSE).
+
+---
+
+
+
 <p align="center">
   🔗 https://ko-fi.com/itanivalkyrie
 </p>
@@ -193,10 +206,6 @@ python SushiDL_V7.py
   <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi | If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
 </p>
 
----
-
-### 💼 Licence
-
-MIT License. See [LICENSE](LICENSE).
-
----
+<p align="center">
+  🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
+</p>
