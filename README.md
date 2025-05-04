@@ -32,8 +32,7 @@
 * 🇬🇧 Stored in `cookie_cache.json` for reuse.
 
 ---
-<p align="center">[image](https://github.com/user-attachments/assets/1052c2f2-3347-4048-b388-1b5f9078ffed)</p>
-
+![python_39GoFkfpek](https://github.com/user-attachments/assets/ccc5b54d-5582-41bc-af1a-b8ee9390200a)
 ---
 
 ## 🇫🇷 Français
