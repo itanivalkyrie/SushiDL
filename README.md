@@ -1,6 +1,6 @@
 # 🌟 SushiDL v7
 
-> Manga Downloader pour **SushiScan.fr** et **SushiScan.net** avec bypass Cloudflare ✨
+> Manga Downloader pour **SushiScan.fr** et **SushiScan.net** avec bypass Cloudflare (FlareSolverr) ✨
 
 ---
 
