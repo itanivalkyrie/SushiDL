@@ -15,7 +15,7 @@ Basé sur [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
 ### Fonctionnalités principales
 
 * **Analyse des volumes** disponibles d'une série manga à partir d'une URL donnée.
-* **Sélection interactive** des chapitres à télécharger via une interface Tkinter.
+* **Sélection interactive** des chapitres/tomes à télécharger via une interface Tkinter.
 * **Téléchargement multi-threads** des images de chaque chapitre.
 * **Conversion** des images WebP en JPEG.
 * **Création d'archives CBZ** pour chaque volume téléchargé.
@@ -55,7 +55,7 @@ python SushiDL_V3.py
 1. Saisir l'URL du manga (ex : `https://sushiscan.net/catalogue/.../`).
 2. Entrer votre cookie `cf_clearance` et User-Agent.
 3. Cliquer sur « Analyser les volumes ».
-4. Sélectionner les chapitres à télécharger.
+4. Sélectionner les chapitres/tomes à télécharger.
 5. Cliquer sur « Télécharger la sélection ».
 6. Les archives CBZ seront créées dans le dossier **DL SushiScan**.
 
@@ -81,7 +81,7 @@ Based on [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
 ### Key Features
 
 * **Volume parsing** from a given manga URL on SushiScan.
-* **Interactive selection** of chapters via a Tkinter GUI.
+* **Interactive selection** of chapters/volumes via a Tkinter GUI.
 * **Multi-threaded downloads** of chapter images.
 * **WebP to JPEG conversion** for downloaded images.
 * **CBZ archive creation** for each downloaded volume.
@@ -121,7 +121,7 @@ python SushiDL_V3.py
 1. Enter the manga URL (e.g., `https://sushiscan.net/catalogue/.../`).
 2. Input your `cf_clearance` cookie and User-Agent.
 3. Click **"Analyser les volumes"** (Analyze volumes).
-4. Select the chapters to download.
+4. Select the chapters/volumes to download.
 5. Click **"Télécharger la sélection"** (Download selection).
 6. CBZ archives will be created in the **DL SushiScan** folder.
 
