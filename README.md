@@ -64,6 +64,18 @@ pip install -r requirements.txt
 
 ### 📖 Utilisation
 
+#### 🔐 Comment récupérer votre `cf_clearance` et `User-Agent`
+
+1. Ouvrez votre navigateur (Chrome, Firefox, etc.) et allez sur `https://sushiscan.fr` ou `https://sushiscan.net`
+2. Appuyez sur `F12` pour ouvrir les outils de développement
+3. Allez dans l'onglet **Réseau (Network)** et rechargez la page (F5)
+4. Cliquez sur une requête de type `document` (souvent la première de la liste)
+5. Dans l'onglet **En-têtes (Headers)** :
+
+   * Copiez la valeur du champ `User-Agent`
+   * Cherchez les cookies, et copiez la valeur de `cf_clearance`
+6. Collez-les dans l'application SushiDL dans les champs prévus à cet effet
+
 ```bash
 python SushiDL_V7.py
 ```
@@ -113,6 +125,18 @@ pip install -r requirements.txt
 ```
 
 ### 📖 How to Use
+
+#### 🔐 How to get your `cf_clearance` and `User-Agent`
+
+1. Open your browser (Chrome, Firefox, etc.) and go to `https://sushiscan.fr` or `https://sushiscan.net`
+2. Press `F12` to open developer tools
+3. Go to the **Network** tab and refresh the page (F5)
+4. Click on the first `document`-type request
+5. In the **Headers** section:
+
+   * Copy the value of `User-Agent`
+   * Look for cookies and copy the value of `cf_clearance`
+6. Paste them into the SushiDL application in the appropriate fields
 
 ```bash
 python SushiDL_V7.py
