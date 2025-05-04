@@ -175,14 +175,6 @@ python SushiDL_V7.py
 
 ---
 
-### 💼 Licence
-
-MIT License. See [LICENSE](LICENSE).
-
----
-
-
-
 <p align="center">
   🔗 https://ko-fi.com/itanivalkyrie
 </p>
@@ -200,3 +192,11 @@ MIT License. See [LICENSE](LICENSE).
 <p align="center">
   <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi | If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
 </p>
+
+---
+
+### 💼 Licence
+
+MIT License. See [LICENSE](LICENSE).
+
+---
