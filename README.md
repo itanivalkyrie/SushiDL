@@ -28,6 +28,8 @@
 
 ---
 
+---
+
 ## 🇫🇷 Français
 
 ### 📚 Présentation
@@ -179,4 +181,22 @@ MIT License. See [LICENSE](LICENSE).
 
 ---
 
-🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
+
+
+<p align="center">
+  🔗 https://ko-fi.com/itanivalkyrie
+</p>
+
+<p align="center">
+  <strong>❤️ Merci de votre soutien · Thank you for your support ❤️</strong>
+</p>
+
+<p align="center">
+  <a href="https://ko-fi.com/itanivalkyrie" target="_blank">
+    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Ko-Fi" />
+  </a>
+</p>
+
+<p align="center">
+  <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi | If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
+</p>
