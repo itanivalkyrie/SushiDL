@@ -81,7 +81,7 @@ pip install -r requirements.txt
 ### Utilisation
 
 ```bash
-python SushiDL_V3.py
+python SushiDL_V4.py
 ```
 
 1. Saisir l'URL du manga (ex : `https://sushiscan.net/catalogue/.../`).
@@ -147,7 +147,7 @@ pip install -r requirements.txt
 ### Usage
 
 ```bash
-python SushiDL_V3.py
+python SushiDL_V4.py
 ```
 
 1. Enter the manga URL (e.g., `https://sushiscan.net/catalogue/.../`).
