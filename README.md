@@ -35,7 +35,7 @@ Basé sur [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
 ### Installation
 
 ```bash
-git clone https://github.com/votre-utilisateur/SushiDL.git
+git clone https://github.com/toniohc/SushiDL.git
 cd SushiDL
 pip install -r requirements.txt
 ```
@@ -95,7 +95,7 @@ Based on [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
 ### Installation
 
 ```bash
-git clone https://github.com/your-username/SushiDL.git
+git clone https://github.com/toniohc/SushiDL.git
 cd SushiDL
 pip install -r requirements.txt
 ```
