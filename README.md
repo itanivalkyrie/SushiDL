@@ -82,6 +82,19 @@ Certains chapitres ou volumes ne peuvent être téléchargés qu’en utilisant 
 
 Assurez-vous que le service est démarré à l’adresse `http://localhost:8191` (modifiable dans SushiDL).
 
+#### ⚠️ Cloudflare Protection Notice
+
+🛡️ La détection et suppression de la protection **Cloudflare** peut prendre jusqu'à **⏱️ 40 secondes**.
+
+🌐 Sur certains sites comme **sushiscan.fr**, il est possible qu’un **nouveau cookie `cf_clearance`** soit nécessaire après plusieurs téléchargements.
+
+🔁 **Conseils :**
+- 📝 Notez les chapitres/volumes manquants.
+- 🔄 Relancez le script.
+- 🍪 Récupérez un **nouveau cookie** et recommencez le téléchargement.
+
+---
+
 #### 🔐 Comment récupérer votre `cf_clearance` et `User-Agent`
 
 1. Ouvrez votre navigateur (Chrome, Firefox, etc.) et allez sur `https://sushiscan.fr` ou `https://sushiscan.net`
@@ -163,6 +176,19 @@ Some chapters/volumes are only accessible via **FlareSolverr** to bypass Cloudfl
 * Recommended Docker image: `21hsmw/flaresolverr:nodriver`
 
 Make sure the service is running at `http://localhost:8191` (customizable in SushiDL).
+
+#### ⚠️ Cloudflare Protection Notice
+
+🛡️ Bypassing **Cloudflare protection** may take up to **⏱️ 40 seconds**.
+
+🌐 On sites like **sushiscan.fr**, a **new `cf_clearance` cookie** may be required after multiple downloads.
+
+🔁 **Tips:**
+- 📝 Note which chapters/volumes are missing.
+- 🔄 Restart the script.
+- 🍪 Get a **fresh cookie** and try downloading again.
+
+---
 
 #### 🔐 How to get your `cf_clearance` and `User-Agent`
 
