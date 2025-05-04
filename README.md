@@ -1,3 +1,38 @@
+## 🎉 SushiDL v4 - Mise à jour majeure | Major Update
+
+### 🇫🇷 Nouveautés | 🇬🇧 What's New:
+- ✅ **Création de fichier .CBZ optionnelle**  
+  🇫🇷 Vous pouvez activer ou désactiver la génération automatique d’un fichier `.cbz` après le téléchargement.  
+  🇬🇧 You can now enable or disable automatic `.cbz` archive creation after downloading.
+
+- 💾 **Sauvegarde automatique des préférences**  
+  🇫🇷 Le cookie `cf_clearance`, le `User-Agent` **et** l’état de l’option `.cbz` sont sauvegardés dans `cookie_cache.json`.  
+  🇬🇧 The `cf_clearance` cookie, `User-Agent`, **and** CBZ option state are now saved in `cookie_cache.json`.
+
+- 🔁 **Préférence CBZ persistante**  
+  🇫🇷 L’option reste mémorisée entre chaque session.  
+  🇬🇧 The CBZ option is preserved across sessions.
+
+- 👁️‍🗨️ **Nouvelle case à cocher dans l’interface**  
+  🇫🇷 Activez ou désactivez facilement la création du `.cbz`.  
+  🇬🇧 A new checkbox lets you easily toggle CBZ creation.
+
+- 📝 **Logs améliorés**  
+  🇫🇷 Affichage clair de l’état CBZ (activée ✅ / désactivée ❌) + sauvegarde automatique visible.  
+  🇬🇧 Log clearly shows CBZ status (enabled ✅ / disabled ❌) and confirms auto-saving.
+
+---
+
+### 🎯 Objectif | Goal:
+🇫🇷 Offrir plus de contrôle à l’utilisateur tout en maintenant une expérience stable et intuitive.  
+🇬🇧 Give users more control while ensuring a smooth and reliable experience.
+
+---
+
+🙏 Merci d’utiliser SushiDL !  
+🙏 Thanks for using SushiDL! 🍣
+
+
 # SushiDL - Sushiscan.net Manga Downloader
 
 &#x20;
@@ -133,38 +168,4 @@ python SushiDL_V3.py
 ### License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-## 🎉 SushiDL v4 - Mise à jour majeure | Major Update
-
-### 🇫🇷 Nouveautés | 🇬🇧 What's New:
-- ✅ **Création de fichier .CBZ optionnelle**  
-  🇫🇷 Vous pouvez activer ou désactiver la génération automatique d’un fichier `.cbz` après le téléchargement.  
-  🇬🇧 You can now enable or disable automatic `.cbz` archive creation after downloading.
-
-- 💾 **Sauvegarde automatique des préférences**  
-  🇫🇷 Le cookie `cf_clearance`, le `User-Agent` **et** l’état de l’option `.cbz` sont sauvegardés dans `cookie_cache.json`.  
-  🇬🇧 The `cf_clearance` cookie, `User-Agent`, **and** CBZ option state are now saved in `cookie_cache.json`.
-
-- 🔁 **Préférence CBZ persistante**  
-  🇫🇷 L’option reste mémorisée entre chaque session.  
-  🇬🇧 The CBZ option is preserved across sessions.
-
-- 👁️‍🗨️ **Nouvelle case à cocher dans l’interface**  
-  🇫🇷 Activez ou désactivez facilement la création du `.cbz`.  
-  🇬🇧 A new checkbox lets you easily toggle CBZ creation.
-
-- 📝 **Logs améliorés**  
-  🇫🇷 Affichage clair de l’état CBZ (activée ✅ / désactivée ❌) + sauvegarde automatique visible.  
-  🇬🇧 Log clearly shows CBZ status (enabled ✅ / disabled ❌) and confirms auto-saving.
-
----
-
-### 🎯 Objectif | Goal:
-🇫🇷 Offrir plus de contrôle à l’utilisateur tout en maintenant une expérience stable et intuitive.  
-🇬🇧 Give users more control while ensuring a smooth and reliable experience.
-
----
-
-🙏 Merci d’utiliser SushiDL !  
-🙏 Thanks for using SushiDL! 🍣
 
