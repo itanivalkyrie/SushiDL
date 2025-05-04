@@ -1,4 +1,5 @@
 ## 🎉 SushiDL v4 - Mise à jour majeure | Major Update
+![image](https://github.com/user-attachments/assets/a9d1fe7b-76d6-4329-b51a-20770733e90d)
 
 ### 🇫🇷 Nouveautés | 🇬🇧 What's New:
 - ✅ **Création de fichier .CBZ optionnelle**  
