@@ -1,6 +1,6 @@
 # SushiDL - Manga Downloader
 
-[![Python Version](https://img.shields.io/badge/python-3.7%2B-blue.svg)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+&#x20;
 
 ---
 
@@ -31,6 +31,12 @@ Basé sur [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
   ```bash
   pip install -r requirements.txt
   ```
+
+  * `Pillow`
+  * `curl-cffi`
+  * `tk` (soit via `pip install tk`, soit via le gestionnaire de paquets de votre OS, p.ex. `sudo apt install python3-tk`)
+
+Note : sur certains systèmes, il peut être nécessaire d'installer `tkinter` via le gestionnaire de paquets OS.
 
 ### Installation
 
@@ -91,6 +97,12 @@ Based on [SushiScan-DLer](http://github.com/zyioump/SushiScan-DLer).
   ```bash
   pip install -r requirements.txt
   ```
+
+  * `Pillow`
+  * `curl-cffi`
+  * `tk` (via `pip install tk`, or use your OS package manager, e.g., `sudo apt install python3-tk`)
+
+Note: on some systems you may need to install `tkinter` through your OS package manager.
 
 ### Installation
 
