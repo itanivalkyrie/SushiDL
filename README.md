@@ -64,6 +64,17 @@ pip install -r requirements.txt
 
 ### 📖 Utilisation
 
+#### ⚠️ FlareSolverr obligatoire dans certains cas
+
+Certains chapitres ou volumes ne peuvent être téléchargés qu’en utilisant **FlareSolverr** pour contourner Cloudflare.
+
+🔧 Guide d'installation :
+
+* GitHub officiel : [https://github.com/FlareSolverr/FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
+* Image Docker recommandée : `21hsmw/flaresolverr:nodriver`
+
+Assurez-vous que le service est démarré à l’adresse `http://localhost:8191` (modifiable dans SushiDL).
+
 #### 🔐 Comment récupérer votre `cf_clearance` et `User-Agent`
 
 1. Ouvrez votre navigateur (Chrome, Firefox, etc.) et allez sur `https://sushiscan.fr` ou `https://sushiscan.net`
@@ -125,6 +136,17 @@ pip install -r requirements.txt
 ```
 
 ### 📖 How to Use
+
+#### ⚠️ FlareSolverr is required for some downloads
+
+Some chapters/volumes are only accessible via **FlareSolverr** to bypass Cloudflare protection.
+
+🔧 Installation guide:
+
+* Official GitHub: [https://github.com/FlareSolverr/FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
+* Recommended Docker image: `21hsmw/flaresolverr:nodriver`
+
+Make sure the service is running at `http://localhost:8191` (customizable in SushiDL).
 
 #### 🔐 How to get your `cf_clearance` and `User-Agent`
 
