@@ -93,8 +93,6 @@ Assurez-vous que le service est démarré à l’adresse `http://localhost:8191`
 - 🔄 Relancez le script.
 - 🍪 Récupérez un **nouveau cookie** et recommencez le téléchargement.
 
----
-
 #### 🔐 Comment récupérer votre `cf_clearance` et `User-Agent`
 
 1. Ouvrez votre navigateur (Chrome, Firefox, etc.) et allez sur `https://sushiscan.fr` ou `https://sushiscan.net`
@@ -128,6 +126,8 @@ Assurez-vous que le service est démarré à l’adresse `http://localhost:8191`
 8. Sélectionnez les chapitres ou volumes souhaités
 9. Lancez le téléchargement
 10. Les fichiers `.cbz` seront disponibles dans le dossier `DL SushiScan/`
+
+---
 
 ## 🇬🇧 English
 
@@ -187,8 +187,6 @@ Make sure the service is running at `http://localhost:8191` (customizable in Sus
 - 📝 Note which chapters/volumes are missing.
 - 🔄 Restart the script.
 - 🍪 Get a **fresh cookie** and try downloading again.
-
----
 
 #### 🔐 How to get your `cf_clearance` and `User-Agent`
 
