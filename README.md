@@ -164,6 +164,7 @@ Il arrive que certains chapitres (notamment sur `sushiscan.fr`) incluent à la f
 Un script complémentaire est fourni dans ce dépôt : `remove_last_images_cbz.py`  
 Il permet de **supprimer automatiquement les 7 dernières images de chaque fichier `.cbz`** dans un dossier.
 Il suffit de modifier ces deux lignes pour pouvoir choisir +/- le nombre d'images.
+
 ```bash
 6 : def remove_last_images_from_cbz(cbz_path, num_to_remove=7):
 45 : def process_folder(folder_path, num_to_remove=7):
