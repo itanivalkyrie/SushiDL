@@ -61,16 +61,16 @@ pip install -r requirements.txt
 
 ```bash
 cd chemin\vers\le\dossier
-python SushiDL_V7.py
+python SushiDL_V8.py
 ```
 
-Ou simplement : **double-cliquez** sur `SushiDL_V7.py`
+Ou simplement : **double-cliquez** sur `SushiDL_V8.py`
 
 ### 🐧 Sous Linux
 
 ```bash
 cd /chemin/vers/le/dossier
-python3 SushiDL_V7.py
+python3 SushiDL_V8.py
 ```
 
 ---
@@ -135,7 +135,7 @@ docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
 
 ## 🔧 Utilisation
 
-1. Lancez `SushiDL_V7.py`
+1. Lancez `SushiDL_V8.py`
 2. Entrez une URL de manga depuis sushiscan.fr ou sushiscan.net
 3. Cliquez sur **Analyser les volumes**
 4. Filtrez, sélectionnez ou inversez les chapitres
