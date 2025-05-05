@@ -89,15 +89,6 @@ docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
 
 ---
 
-## 📦 Exemple de `requirements.txt`
-
-```
-Pillow
-curl_cffi
-```
-
----
-
 ## 🧠 Détails techniques
 
 - Conversion automatique d’images `.webp` en `.jpg`
