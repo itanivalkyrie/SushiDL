@@ -162,7 +162,7 @@ docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
 Il arrive que certains chapitres (notamment sur `sushiscan.fr`) incluent à la fin du fichier `.cbz` **7 images publicitaires ou hors contenu**.
 
 Un script complémentaire est fourni dans ce dépôt : `remove_last_images_cbz.py`  
-Il permet de **supprimer automatiquement les 7 dernières images de chaque fichier `.cbz`** dans un dossier.
+Il permet de **supprimer automatiquement les 7 dernières images de chaque fichier `.cbz`** dans un dossier.  
 Il suffit de modifier ces deux lignes pour pouvoir choisir +/- le nombre d'images.
 
 ```bash
