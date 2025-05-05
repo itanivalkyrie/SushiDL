@@ -198,8 +198,9 @@ Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/2
 ---
 
 ## 🖼️ Aperçu
-
-![image](https://github.com/user-attachments/assets/cd75053b-28ef-4042-8465-c691f4f374ba)
+<p align="center">
+    <img src="https://github.com/user-attachments/assets/cd75053b-28ef-4042-8465-c691f4f374ba">
+</p>
 
 ---
 
