@@ -199,7 +199,7 @@ Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/2
 
 ## 🖼️ Aperçu
 
-![interface](https://github.com/itanivalkyrie/SushiDL/raw/main/screenshots/sushidl_ui.png)
+![image](https://github.com/user-attachments/assets/cd75053b-28ef-4042-8465-c691f4f374ba)
 
 ---
 
