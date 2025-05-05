@@ -64,7 +64,7 @@ pip install -r requirements.txt
 ### 📝 Installation
 
 ```bash
-git clone https://github.com/toniohc/SushiDL.git
+git clone https://github.com/itanivalkyrie/SushiDL.git
 cd SushiDL
 pip install -r requirements.txt
 ```
@@ -204,7 +204,7 @@ Make sure the service is running at `http://localhost:8191` (customizable in Sus
 ### 🚀 Getting Started
 
 ```bash
-git clone https://github.com/toniohc/SushiDL.git
+git clone https://github.com/itanivalkyrie/SushiDL.git
 cd SushiDL
 pip install -r requirements.txt
 ```
