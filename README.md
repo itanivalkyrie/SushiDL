@@ -91,6 +91,48 @@ python3 SushiDL_V7.py
 
 ---
 
+## 🔐 Récupérer `User-Agent` et `cf_clearance`
+
+### 📎 Depuis Google Chrome
+
+1. Visitez [https://sushiscan.fr](https://sushiscan.fr)
+2. Ouvrez les outils de développement `F12` → **Réseau**
+3. Rechargez la page
+4. Cliquez sur la première ligne (document)
+5. Dans **En-têtes (Headers)** :
+   - Copiez le champ `User-Agent`
+   - Recherchez `cf_clearance` dans les cookies
+
+### 🦊 Depuis Firefox
+
+1. Rendez-vous sur [https://sushiscan.net](https://sushiscan.net)
+2. `Ctrl+Maj+I` → Onglet **Réseau**
+3. Rechargez
+4. Cliquez sur la première requête
+5. Copiez :
+   - Le `User-Agent`
+   - Le cookie `cf_clearance`
+
+🧠 Collez ces infos dans l'application → **Sauvegarder Paramètres**
+
+---
+
+## 🛡️ FlareSolverr – contournement Cloudflare (recommandé)
+
+> ⚠️ Indispensable pour `sushiscan.fr` dans la plupart des cas.
+
+### 🐳 Lancer FlareSolverr avec Docker
+
+```bash
+docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
+```
+
+- Lancez-le en arrière-plan avec Docker
+- Dans SushiDL, indiquez son URL (ex : `http://localhost:8191`)
+- Cloudflare sera contourné automatiquement
+
+---
+
 ## 🔧 Utilisation
 
 1. Lancez `SushiDL_V7.py`
@@ -99,7 +141,7 @@ python3 SushiDL_V7.py
 4. Filtrez, sélectionnez ou inversez les chapitres
 5. Cliquez sur **Télécharger** pour générer vos `.cbz`
 
-📁 Les fichiers seront placés dans le dossier `downloads/`.
+📁 Les fichiers seront placés dans le dossier `DL SushiScan/`.
 
 ---
 
@@ -182,3 +224,74 @@ Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/2
 <p align="center">
   🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
 </p>
+
+
+---
+
+## 🧹 Suppression automatique des images parasites
+
+Il arrive que certains chapitres (notamment sur `sushiscan.fr`) incluent à la fin du fichier `.cbz` **7 images publicitaires ou hors contenu**.
+
+Un script complémentaire est fourni dans ce dépôt : `remove_last_images_cbz.py`  
+Il permet de **supprimer automatiquement les 7 dernières images de chaque fichier `.cbz`** dans un dossier.
+
+### 🔐 Récupérer `User-Agent` et `cf_clearance`
+
+### 📎 Depuis Google Chrome
+
+1. Visitez [https://sushiscan.fr](https://sushiscan.fr)
+2. Ouvrez les outils de développement `F12` → **Réseau**
+3. Rechargez la page
+4. Cliquez sur la première ligne (document)
+5. Dans **En-têtes (Headers)** :
+   - Copiez le champ `User-Agent`
+   - Recherchez `cf_clearance` dans les cookies
+
+### 🦊 Depuis Firefox
+
+1. Rendez-vous sur [https://sushiscan.net](https://sushiscan.net)
+2. `Ctrl+Maj+I` → Onglet **Réseau**
+3. Rechargez
+4. Cliquez sur la première requête
+5. Copiez :
+   - Le `User-Agent`
+   - Le cookie `cf_clearance`
+
+🧠 Collez ces infos dans l'application → **Sauvegarder Paramètres**
+
+---
+
+## 🛡️ FlareSolverr – contournement Cloudflare (recommandé)
+
+> ⚠️ Indispensable pour `sushiscan.fr` dans la plupart des cas.
+
+### 🐳 Lancer FlareSolverr avec Docker
+
+```bash
+docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
+```
+
+- Lancez-le en arrière-plan avec Docker
+- Dans SushiDL, indiquez son URL (ex : `http://localhost:8191`)
+- Cloudflare sera contourné automatiquement
+
+---
+
+## 🔧 Utilisation
+
+1. Ouvrez un terminal
+2. Lancez le script :
+
+```bash
+python remove_last_images_cbz.py
+```
+
+3. Entrez le chemin vers le dossier contenant vos `.cbz`
+4. Le script :
+   - extrait temporairement le fichier
+   - supprime les **7 dernières images**
+   - sauvegarde l'ancien fichier sous `.bak`
+   - recrée un `.cbz` propre
+
+> 💡 Ce script est **optionnel**, mais très utile pour les chapitres affectés par des ajouts indésirables d'images.
+
