@@ -1,226 +1,127 @@
-# 🌟 SushiDL v7
+# 📚 SushiDL – Téléchargeur de mangas avec interface graphique
 
-> Manga Downloader pour **SushiScan.fr** et **SushiScan.net** avec bypass Cloudflare (FlareSolverr) ✨
-
----
-
-## 🇫🇷 Nouveautés de la version 7 | 🇬🇧 What's New in v7
-
-### ✅ Support multi-domaine : sushiscan.fr & sushiscan.net
-
-* 🇫🇷 Deux champs pour les cookies, détection automatique selon le domaine.
-* 🇬🇧 Two cookie fields, auto-selected based on URL.
-
-### ⚡ Contournement Cloudflare via FlareSolverr
-
-* 🇫🇷 Compatible avec les challenges Cloudflare, URL personnalisable.
-* 🇬🇧 FlareSolverr integration, configurable URL.
-
-### 🔍 Fallback automatique HTML si JSON manquant
-
-* 🇫🇷 Sécurise le téléchargement même si le script principal échoue.
-* 🇬🇧 Secure download even if main JSON parser fails.
-
-### 📊 Retry intelligent des échecs
-
-* 🇫🇷 Deuxième tentative automatique pour les volumes en erreur.
-* 🇬🇧 Retry failed chapters automatically.
-
-### 🔒 Sauvegarde des cookies, User-Agent, CBZ & FlareSolverr URL
-
-* 🇫🇷 Enregistré dans `cookie_cache.json` entre chaque session.
-* 🇬🇧 Stored in `cookie_cache.json` for reuse.
-
----
-![python_39GoFkfpek](https://github.com/user-attachments/assets/ccc5b54d-5582-41bc-af1a-b8ee9390200a)
----
-
-## 🇫🇷 Français
-
-### 📚 Présentation
-
-SushiDL est un utilitaire Python permettant de télécharger des mangas depuis **SushiScan.fr** ou **SushiScan.net**, avec interface graphique.
-
-### ✨ Fonctionnalités principales
-
-* Analyse automatique des volumes
-* Interface Tkinter interactive
-* Multi-threading pour téléchargement rapide
-* Conversion WebP → JPEG
-* Création de fichiers `.cbz` (optionnelle)
-* Détection intelligente des images JSON et HTML
-* FlareSolverr pour contourner les protections Cloudflare
-* Sauvegarde automatique des préférences
-
-### ⚖️ Prérequis
-
-* Python 3.7+
-* Modules : `Pillow`, `curl-cffi`, `tk`
-
-```bash
-pip install -r requirements.txt
-```
-
-### 📝 Installation
-
-```bash
-git clone https://github.com/itanivalkyrie/SushiDL.git
-cd SushiDL
-pip install -r requirements.txt
-```
-
-### 📖 Utilisation
-
-#### ⚠️ FlareSolverr obligatoire dans certains cas
-
-Certains chapitres ou volumes ne peuvent être téléchargés qu’en utilisant **FlareSolverr** pour contourner Cloudflare.
-
-🔧 Guide d'installation :
-
-* GitHub officiel : [https://github.com/FlareSolverr/FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
-* Image Docker recommandée : `21hsmw/flaresolverr:nodriver`
-
-Assurez-vous que le service est démarré à l’adresse `http://localhost:8191` (modifiable dans SushiDL).
-
-#### ⚠️ Cloudflare Protection Notice
-
-🛡️ La détection et suppression de la protection **Cloudflare** peut prendre jusqu'à **⏱️ 40 secondes**.
-
-🌐 Sur certains sites comme **sushiscan.fr**, il est possible qu’un **nouveau cookie `cf_clearance`** soit nécessaire après plusieurs téléchargements.
-
-🔁 **Conseils :**
-- 📝 Notez les chapitres/volumes manquants.
-- 🔄 Relancez le script.
-- 🍪 Récupérez un **nouveau cookie** et recommencez le téléchargement.
-
-#### 🔐 Comment récupérer votre `cf_clearance` et `User-Agent`
-
-1. Ouvrez votre navigateur (Chrome, Firefox, etc.) et allez sur `https://sushiscan.fr` ou `https://sushiscan.net`
-2. Appuyez sur `F12` pour ouvrir les outils de développement
-3. Allez dans l'onglet **Réseau (Network)** et rechargez la page (F5)
-4. Cliquez sur une requête de type `document` (souvent la première de la liste)
-5. Dans l'onglet **En-têtes (Headers)** :
-
-   * Copiez la valeur du champ `User-Agent`
-   * Cherchez les cookies, et copiez la valeur de `cf_clearance`
-
-#### 🚀 Démarrer l'application et lancer le téléchargement
-
-1. Clonez le dépôt :
-
-   ```bash
-   git clone https://github.com/itanivalkyrie/SushiDL.git
-   cd SushiDL
-   pip install -r requirements.txt
-   ```
-2. Lancez l'application avec la commande :
-
-   ```bash
-   python SushiDL_V7.py
-   ```
-3. Collez les valeurs de `cf_clearance` et `User-Agent` dans les champs prévus
-4. Renseignez également l'adresse de FlareSolverr (ex. `http://localhost:8191`)
-5. Cliquez sur le bouton **Sauver Cookies & UA**
-6. Entrez l'URL du manga à télécharger
-7. Cliquez sur **Analyser les volumes**
-8. Sélectionnez les chapitres ou volumes souhaités
-9. Lancez le téléchargement
-10. Les fichiers `.cbz` seront disponibles dans le dossier `DL SushiScan/`
+**SushiDL** est une application Python moderne avec interface Tkinter permettant de télécharger automatiquement des chapitres ou volumes de mangas depuis **[sushiscan.fr](https://sushiscan.fr)** et **[sushiscan.net](https://sushiscan.net)**.  
+Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avancées comme la gestion de cookies Cloudflare, la compatibilité FlareSolverr, la conversion en `.cbz`, et une interface filtrable dynamique.
 
 ---
 
-## 🇬🇧 English
+## ✨ Fonctionnalités
 
-### 📚 Overview
+- 🖥️ Interface graphique claire (Tkinter)
+- 🔍 Analyse automatique de volumes/chapitres depuis une URL
+- 🎯 Filtrage instantané par mot-clé
+- ✅ Boutons *Tout sélectionner*, *Inverser la sélection*
+- 🧩 Téléchargement intelligent des images (Cloudflare-compatible)
+- 🖼️ Conversion `.webp` → `.jpg`
+- 📦 Génération automatique de fichiers `.cbz`
+- 💾 Sauvegarde automatique de l'URL du dernier manga
+- 🧠 Paramètres persistants (cookies, UA, FlareSolverr)
+- 📊 Barre de progression par volume
+- 🔐 Compatible FlareSolverr pour contourner Cloudflare
 
-SushiDL is a Python GUI script to download manga volumes from **SushiScan.fr** and **SushiScan.net**.
+---
 
-### ✨ Main Features
+## 🚀 Installation
 
-* Automatic volume parsing from given URL
-* User-friendly Tkinter interface
-* Fast multithreaded downloads
-* WebP to JPG conversion
-* Optional `.cbz` file creation
-* Cookie selection based on domain (.fr / .net)
-* Cloudflare bypass using FlareSolverr
-* Auto-retry failed chapters
-* Preferences stored in cache file
-
-### ⚖️ Requirements
-
-* Python 3.7+
-* Packages: `Pillow`, `curl-cffi`, `tk`
+1. Assurez-vous d’avoir **Python 3.10+**
+2. Installez les dépendances :
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 📁 Installation
+> 💡 Sous Linux, ajoutez `tkinter` si besoin :  
+> `sudo apt install python3-tk`
+
+---
+
+## 🔧 Utilisation
+
+1. Lancez `SushiDL_V7.py`
+2. Entrez une URL de manga depuis sushiscan.fr ou sushiscan.net
+3. Cliquez sur **Analyser les volumes**
+4. Filtrez, sélectionnez ou inversez les chapitres
+5. Cliquez sur **Télécharger** pour générer vos `.cbz`
+
+📁 Les fichiers seront placés dans le dossier `downloads/`.
+
+---
+
+## 🔐 Récupérer `User-Agent` et `cf_clearance`
+
+### 📎 Depuis Google Chrome
+
+1. Visitez [https://sushiscan.fr](https://sushiscan.fr)
+2. Ouvrez les outils de développement `F12` → **Réseau**
+3. Rechargez la page
+4. Cliquez sur la première ligne (document)
+5. Dans **En-têtes (Headers)** :
+   - Copiez le champ `User-Agent`
+   - Recherchez `cf_clearance` dans les cookies
+
+### 🦊 Depuis Firefox
+
+1. Rendez-vous sur [https://sushiscan.net](https://sushiscan.net)
+2. `Ctrl+Maj+I` → Onglet **Réseau**
+3. Rechargez
+4. Cliquez sur la première requête
+5. Copiez :
+   - Le `User-Agent`
+   - Le cookie `cf_clearance`
+
+🧠 Collez ces infos dans l'application → **Sauvegarder Paramètres**
+
+---
+
+## 🛡️ FlareSolverr – contournement Cloudflare (recommandé)
+
+> ⚠️ Indispensable pour `sushiscan.fr` dans la plupart des cas.
+
+### 🐳 Lancer FlareSolverr avec Docker
 
 ```bash
-git clone https://github.com/toniohc/SushiDL.git
-cd SushiDL
-pip install -r requirements.txt
+docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
 ```
 
-### 📖 How to Use
+- Lancez-le en arrière-plan avec Docker
+- Dans SushiDL, indiquez son URL (ex : `http://localhost:8191`)
+- Cloudflare sera contourné automatiquement
 
-#### ⚠️ FlareSolverr is required for some downloads
+---
 
-Some chapters/volumes are only accessible via **FlareSolverr** to bypass Cloudflare protection.
+## 📦 Exemple de `requirements.txt`
 
-🔧 Installation guide:
-
-* Official GitHub: [https://github.com/FlareSolverr/FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
-* Recommended Docker image: `21hsmw/flaresolverr:nodriver`
-
-Make sure the service is running at `http://localhost:8191` (customizable in SushiDL).
-
-#### ⚠️ Cloudflare Protection Notice
-
-🛡️ Bypassing **Cloudflare protection** may take up to **⏱️ 40 seconds**.
-
-🌐 On sites like **sushiscan.fr**, a **new `cf_clearance` cookie** may be required after multiple downloads.
-
-🔁 **Tips:**
-- 📝 Note which chapters/volumes are missing.
-- 🔄 Restart the script.
-- 🍪 Get a **fresh cookie** and try downloading again.
-
-#### 🔐 How to get your `cf_clearance` and `User-Agent`
-
-1. Open your browser (Chrome, Firefox, etc.) and go to `https://sushiscan.fr` or `https://sushiscan.net`
-2. Press `F12` to open developer tools
-3. Go to the **Network** tab and refresh the page (F5)
-4. Click on the first `document`-type request
-5. In the **Headers** section:
-
-   * Copy the value of `User-Agent`
-   * Look for cookies and copy the value of `cf_clearance`
-6. Paste them into the SushiDL application in the appropriate fields
-7. Click the **Sauver Cookies & UA** button to save your preferences
-
-### 🚀 Getting Started
-
-```bash
-git clone https://github.com/itanivalkyrie/SushiDL.git
-cd SushiDL
-pip install -r requirements.txt
+```
+Pillow
+curl_cffi
 ```
 
-1. Launch the SushiDL application:
+---
 
-   ```bash
-   python SushiDL_V7.py
-   ```
-2. Fill in the `.fr` and `.net` cookies, User-Agent and FlareSolverr URL
-3. Click on **Sauver Cookies & UA** to save your preferences
-4. Paste a manga URL (e.g., sushiscan.fr or sushiscan.net)
-5. Click **Analyser les volumes**
-6. Select desired volumes
-7. Start download
-8. `.cbz` files will be stored in `DL SushiScan/`
+## 🧠 Détails techniques
+
+- Conversion automatique d’images `.webp` en `.jpg`
+- Génération propre de `.cbz` avec suppression du dossier temporaire
+- Interface fluide avec log d’activité intégré
+- Sauvegarde persistante dans `cookie_cache.json`
+- Prise en charge de `sushiscan.fr` **et** `sushiscan.net`
+- Filtrage dynamique en temps réel
+- Barre de progression remise à 0 à chaque volume
+
+---
+
+## ❤️ Remerciements
+
+
+Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/21hsmw/flaresolverr) pour cette image optimisée.
+
+---
+
+## 🖼️ Aperçu
+
+![interface](https://github.com/itanivalkyrie/SushiDL/raw/main/screenshots/sushidl_ui.png)
+
+
 
 ---
 
@@ -239,10 +140,3 @@ pip install -r requirements.txt
 </p>
 
 ---
-
-### 💼 Licence
-
-MIT License. See [LICENSE](LICENSE).
-
----
-
