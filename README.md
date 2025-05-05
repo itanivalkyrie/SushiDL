@@ -5,6 +5,76 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 
 ---
 
+## 🐍 Installer Python
+
+### 🪟 Sur Windows
+
+1. Rendez-vous sur le site officiel :  
+   👉 [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/)
+2. Téléchargez la dernière version **Python 3.10 ou supérieure**
+3. **IMPORTANT** : cochez la case ✅ **"Add Python to PATH"** avant de cliquer sur "Install Now"
+4. Une fois l'installation terminée, ouvrez l'invite de commandes (`cmd`) et vérifiez :
+
+```bash
+python --version
+```
+
+### 🐧 Sur Linux (Debian/Ubuntu)
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip python3-tk
+```
+
+Puis vérifiez :
+
+```bash
+python3 --version
+```
+
+---
+
+## 🚀 Installation
+
+### 📥 Cloner le dépôt depuis GitHub
+
+```bash
+git clone https://github.com/itanivalkyrie/SushiDL.git
+cd SushiDL
+```
+
+
+1. Assurez-vous d’avoir **Python 3.10+**
+2. Installez les dépendances :
+
+```bash
+pip install -r requirements.txt
+```
+
+> 💡 Sous Linux, utilisez `pip3` si nécessaire
+
+---
+
+## ▶️ Exécution du script
+
+### 🪟 Sous Windows
+
+```bash
+cd chemin\vers\le\dossier
+python SushiDL_V7.py
+```
+
+Ou simplement : **double-cliquez** sur `SushiDL_V7.py`
+
+### 🐧 Sous Linux
+
+```bash
+cd /chemin/vers/le/dossier
+python3 SushiDL_V7.py
+```
+
+---
+
 ## ✨ Fonctionnalités
 
 - 🖥️ Interface graphique claire (Tkinter)
@@ -18,20 +88,6 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 - 🧠 Paramètres persistants (cookies, UA, FlareSolverr)
 - 📊 Barre de progression par volume
 - 🔐 Compatible FlareSolverr pour contourner Cloudflare
-
----
-
-## 🚀 Installation
-
-1. Assurez-vous d’avoir **Python 3.10+**
-2. Installez les dépendances :
-
-```bash
-pip install -r requirements.txt
-```
-
-> 💡 Sous Linux, ajoutez `tkinter` si besoin :  
-> `sudo apt install python3-tk`
 
 ---
 
@@ -103,7 +159,6 @@ docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
 
 ## ❤️ Remerciements
 
-
 Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/21hsmw/flaresolverr) pour cette image optimisée.
 
 ---
@@ -111,8 +166,6 @@ Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/2
 ## 🖼️ Aperçu
 
 ![interface](https://github.com/itanivalkyrie/SushiDL/raw/main/screenshots/sushidl_ui.png)
-
-
 
 ---
 
@@ -129,5 +182,3 @@ Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/2
 <p align="center">
   🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
 </p>
-
----
