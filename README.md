@@ -76,7 +76,11 @@ python3 SushiDL_V8.py
 ---
 
 ## ✨ Fonctionnalités
-
+- 🧠 Analyse des chapitres améliorée : prise en charge des chapitres sans `ts_reader.run(...)` via parsing du DOM `#readerarea`
+- 🛡️ Détection automatique de `sushiscan.fr` pour activer FlareSolverr
+- 🔁 Analyse lancée en thread : interface non bloquante pendant le chargement
+- ⏳ Affichage dynamique du message “Chargement de la couverture...” sous le bouton Analyser
+- 🧼 Suppression automatique de l’image de couverture précédente avant affichage de la nouvelle
 - 🖥️ Interface graphique claire (Tkinter)
 - 🔍 Analyse automatique de volumes/chapitres depuis une URL
 - 🎯 Filtrage instantané par mot-clé
@@ -95,7 +99,7 @@ python3 SushiDL_V8.py
 
 ### 📎 Depuis Google Chrome
 
-1. Visitez [https://sushiscan.fr](https://sushiscan.fr)
+1. Visitez [https://sushiscan.fr](https://sushiscan.fr) ou [https://sushiscan.net](https://sushiscan.net)
 2. Ouvrez les outils de développement `F12` → **Réseau**
 3. Rechargez la page
 4. Cliquez sur la première ligne (document)
@@ -105,7 +109,7 @@ python3 SushiDL_V8.py
 
 ### 🦊 Depuis Firefox
 
-1. Rendez-vous sur [https://sushiscan.net](https://sushiscan.net)
+1. Rendez-vous sur [https://sushiscan.fr](https://sushiscan.fr) ou [https://sushiscan.net](https://sushiscan.net)
 2. `Ctrl+Maj+I` → Onglet **Réseau**
 3. Rechargez
 4. Cliquez sur la première requête
@@ -218,5 +222,3 @@ Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/2
 
 
 ---
-
-
