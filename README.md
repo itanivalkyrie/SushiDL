@@ -26,8 +26,7 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 ---
 
 <p align="center">
-  <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi<br/>
-    If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
+  <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi</strong>
 </p>
 
 <p align="center">
@@ -37,7 +36,7 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 </p>
 
 <p align="center">
-  🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
+  🙏 Merci d'utiliser SushiDL 🍣 !
 </p>
 
 ---
