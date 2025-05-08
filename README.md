@@ -1,4 +1,4 @@
-# 📚 SushiDL – Téléchargeur de mangas avec interface graphique
+# 🍣 SushiDL – Téléchargeur de mangas avec interface graphique
 
 **SushiDL** est une application Python moderne avec interface Tkinter permettant de télécharger automatiquement des chapitres ou volumes de mangas depuis **[sushiscan.fr](https://sushiscan.fr)** et **[sushiscan.net](https://sushiscan.net)**.  
 Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avancées comme la gestion de cookies Cloudflare, la compatibilité FlareSolverr, la conversion en `.cbz`, et une interface filtrable dynamique.
