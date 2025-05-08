@@ -161,38 +161,36 @@ docker run -d --name flaresolverr -p 8191:8191 21hsmw/flaresolverr:nodriver
 
 ---
 
-## 🧹 Suppression automatique des images parasites
+## 🧹 Script complémentaire : suppression automatique des dernières images `.cbz`
 
-Il arrive que certains chapitres (notamment sur `sushiscan.fr`) incluent à la fin du fichier `.cbz` **7 images publicitaires ou hors contenu**.
-
-Un script complémentaire est fourni dans ce dépôt : `remove_last_images_cbz.py`  
-Il permet de **supprimer automatiquement les 7 dernières images de chaque fichier `.cbz`** dans un dossier.  
-Il suffit de modifier ces deux lignes pour pouvoir choisir +/- le nombre d'images.
-
-```bash
-6 : def remove_last_images_from_cbz(cbz_path, num_to_remove=7):
-45 : def process_folder(folder_path, num_to_remove=7):
-```
+Le script `remove_last_images_cbz_loop.py` permet de nettoyer automatiquement les fichiers `.cbz` contenant des images publicitaires ou parasites ajoutées en fin de chapitre (notamment sur **sushiscan.fr**).
 
 ---
 
-## 🔧 Utilisation
+### ✨ Fonctionnalités :
 
-1. Ouvrez un terminal
-2. Lancez le script :
+- ✅ Suppression automatique d’un nombre défini d’images en fin de fichier
+- 🖱️ Compatible glisser-déposer d’un **dossier** ou d’un **fichier unique**
+- 🔁 Traitement en boucle : possibilité d’enchaîner plusieurs nettoyages sans redémarrer
+- 🧠 Détection automatique : fichier `.cbz` unique ou dossier contenant plusieurs `.cbz`
+- 📦 Création automatique d’une sauvegarde `.bak` de l’ancien fichier
+- 🧾 Résumé final du nombre total d’images supprimées
 
-```bash
-python remove_last_images_cbz.py
-```
+---
 
-3. Entrez le chemin vers le dossier contenant vos `.cbz` ou faites glisser le répertoire contenant vos `.cbz`
-4. Le script :
-   - extrait temporairement le fichier
-   - supprime les **7 dernières images**
-   - sauvegarde l'ancien fichier sous `.bak`
-   - recrée un `.cbz` propre
+### 📌 Exemple d’utilisation :
 
-> 💡 Ce script est **optionnel**, mais très utile pour les chapitres affectés par des ajouts indésirables d'images.
+1. Lancez le script :
+   ```bash
+   python remove_last_images_cbz_loop.py
+
+2. Entrez (ou glissez) un fichier .cbz ou un dossier
+
+3. Indiquez le nombre d’images à supprimer (défaut : 7)
+
+4. Laissez le script agir. Une sauvegarde .bak est créée.
+
+Vous pouvez relancer l’opération autant de fois que nécessaire
 ---
 
 ## ❤️ Remerciements
