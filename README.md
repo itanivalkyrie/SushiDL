@@ -26,7 +26,8 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 ---
 
 <p align="center">
-  <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi | If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
+  <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi  
+    If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
 </p>
 
 <p align="center">
