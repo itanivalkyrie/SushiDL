@@ -5,6 +5,42 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 
 ---
 
+## ✨ Fonctionnalités
+- 🧠 Analyse des chapitres améliorée : prise en charge des chapitres sans `ts_reader.run(...)` via parsing du DOM `#readerarea`
+- 🛡️ Détection automatique de `sushiscan.fr` pour activer FlareSolverr
+- 🔁 Analyse lancée en thread : interface non bloquante pendant le chargement
+- ⏳ Affichage dynamique du message “Chargement de la couverture...” sous le bouton Analyser
+- 🧼 Suppression automatique de l’image de couverture précédente avant affichage de la nouvelle
+- 🖥️ Interface graphique claire (Tkinter)
+- 🔍 Analyse automatique de volumes/chapitres depuis une URL
+- 🎯 Filtrage instantané par mot-clé
+- ✅ Boutons *Tout sélectionner*, *Inverser la sélection*
+- 🧩 Téléchargement intelligent des images (Cloudflare-compatible)
+- 🖼️ Conversion `.webp` → `.jpg`
+- 📦 Génération automatique de fichiers `.cbz`
+- 💾 Sauvegarde automatique de l'URL du dernier manga
+- 🧠 Paramètres persistants (cookies, UA, FlareSolverr)
+- 📊 Barre de progression par volume
+- 🔐 Compatible FlareSolverr pour contourner Cloudflare
+- 💖 Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/21hsmw/flaresolverr) pour cette image optimisée.
+---
+
+<p align="center">
+  <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi | If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
+</p>
+
+<p align="center">
+  <a href="https://ko-fi.com/itanivalkyrie" target="_blank">
+    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Ko-Fi" />
+  </a>
+</p>
+
+<p align="center">
+  🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
+</p>
+
+---
+
 ## 🐍 Installer Python
 
 ### 🪟 Sur Windows
@@ -72,27 +108,6 @@ Ou simplement : **double-cliquez** sur `SushiDL_V8.py`
 cd /chemin/vers/le/dossier
 python3 SushiDL_V8.py
 ```
-
----
-
-## ✨ Fonctionnalités
-- 🧠 Analyse des chapitres améliorée : prise en charge des chapitres sans `ts_reader.run(...)` via parsing du DOM `#readerarea`
-- 🛡️ Détection automatique de `sushiscan.fr` pour activer FlareSolverr
-- 🔁 Analyse lancée en thread : interface non bloquante pendant le chargement
-- ⏳ Affichage dynamique du message “Chargement de la couverture...” sous le bouton Analyser
-- 🧼 Suppression automatique de l’image de couverture précédente avant affichage de la nouvelle
-- 🖥️ Interface graphique claire (Tkinter)
-- 🔍 Analyse automatique de volumes/chapitres depuis une URL
-- 🎯 Filtrage instantané par mot-clé
-- ✅ Boutons *Tout sélectionner*, *Inverser la sélection*
-- 🧩 Téléchargement intelligent des images (Cloudflare-compatible)
-- 🖼️ Conversion `.webp` → `.jpg`
-- 📦 Génération automatique de fichiers `.cbz`
-- 💾 Sauvegarde automatique de l'URL du dernier manga
-- 🧠 Paramètres persistants (cookies, UA, FlareSolverr)
-- 📊 Barre de progression par volume
-- 🔐 Compatible FlareSolverr pour contourner Cloudflare
-
 ---
 
 ## 🔐 Récupérer `User-Agent` et `cf_clearance`
@@ -191,11 +206,6 @@ Le script `remove_last_images_cbz_loop.py` permet de nettoyer automatiquement le
 4. Laissez le script agir. Une sauvegarde .bak est créée.
 
 Vous pouvez relancer l’opération autant de fois que nécessaire
----
-
-## ❤️ Remerciements
-
-Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/21hsmw/flaresolverr) pour cette image optimisée.
 
 ---
 
@@ -204,25 +214,3 @@ Merci à l’auteur de [21hsmw/flaresolverr:nodriver](https://hub.docker.com/r/2
 ![python_CdNwdt1K8q](https://github.com/user-attachments/assets/d56b7729-7d94-42b9-947b-aa7331cc4797)
 ![WindowsTerminal_IIhxDGIC40](https://github.com/user-attachments/assets/bebd0903-482d-4164-977c-12bd4d87d3f3)
 ![image](https://github.com/user-attachments/assets/1267f0dc-531e-4ac2-864a-272c01a59e54)
-
-
-
-
----
-
-<p align="center">
-  <strong>❤️ Si ce projet vous a été utile, vous pouvez le soutenir sur Ko-Fi | If this project was useful to you, consider supporting it on Ko-Fi ❤️</strong>
-</p>
-
-<p align="center">
-  <a href="https://ko-fi.com/itanivalkyrie" target="_blank">
-    <img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Ko-Fi" />
-  </a>
-</p>
-
-<p align="center">
-  🙏 Merci d'utiliser SushiDL ! | Thanks for using SushiDL! 🍣
-</p>
-
-
----
