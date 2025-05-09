@@ -233,18 +233,79 @@ def fetch_manga_data(url, cookie, ua):
     pairs.reverse()  # Pour afficher dans l'ordre croissant
     return title, pairs
 
-
 def get_images(link, cookie, ua, retries=2, delay=5, debug_mode=True):
     """
     Tente d'extraire les images via JSON ou balises <img>.
     Si aucun résultat, passe automatiquement par FlareSolverr.
     """
 
+    def get_cover_image(r_text):
+        print("[DEBUG] 🔍 Début analyse couverture...")
+        soup = BeautifulSoup(r_text, "html.parser")
+
+        # Étape 1 : Recherche d'une image classique
+        img = soup.select_one("div.thumb img[src], div.thumb-container img[src]")
+        img_url = None
+
+        if img and img.get("src", "").startswith("http"):
+            img_url = img["src"]
+            print(f"[DEBUG] 🔗 URL image via balise <img> : {img_url}")
+        else:
+            # Étape 2 : Recherche dans les balises meta
+            meta_tags = soup.find_all("meta", attrs={"property": True})
+            for tag in meta_tags:
+                if tag["property"] in ["og:image", "og:image:secure_url"]:
+                    candidate = tag.get("content")
+                    if candidate and candidate.startswith("http"):
+                        img_url = candidate
+                        print(f"[DEBUG] 🔗 URL image via meta ({tag['property']}) : {img_url}")
+                        break
+
+        if img_url:
+            print(f"[INFO] 🖼️ Couverture trouvée : {img_url}")
+            if hasattr(MangaApp, 'current_instance'):
+                MangaApp.current_instance.cover_url = img_url
+                try:
+                    import urllib.request
+                    from PIL import ImageTk, Image
+
+                    req = urllib.request.Request(
+                        img_url,
+                        headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        raw = response.read()
+                        from io import BytesIO
+                        image = Image.open(BytesIO(raw))
+                        image.thumbnail((160, 240))
+                        MangaApp.current_instance.cover_preview = ImageTk.PhotoImage(image)
+                        MangaApp.current_instance.cover_label.configure(image=MangaApp.current_instance.cover_preview)
+                        MangaApp.current_instance.cover_label.image = MangaApp.current_instance.cover_preview
+                except Exception as err:
+                    print(f"[ERREUR] Affichage couverture : {err}")
+            return img_url
+
+        print("[DEBUG] ❌ Aucune couverture trouvée dans la page.")
+        return None
+
     def clean_parasites(images, domain):
-        if domain == "fr" and len(images) > 7:
-            print("[INFO] 🔪 Suppression des 7 dernières images parasites (sushiscan.fr)")
-            return images[:-7]
-        return images
+            if domain != "fr":
+                return images
+
+            PARASITE_KEYWORDS = ["ads", "sponsor", "banner", "footer", "cover", "logo", "pub"]
+
+            filtered = []
+            for img in images:
+                if any(keyword in img.lower() for keyword in PARASITE_KEYWORDS):
+                    continue
+                if "sushiscan.fr/wp-content/uploads/" in img:
+                    continue
+                filtered.append(img)
+
+            removed = len(images) - len(filtered)
+            if removed > 0:
+                print(f"[INFO] 🔪 {removed} image(s) parasite(s) supprimée(s) dynamiquement (filtrage avancé)")       
+            return filtered
 
     def extract_images(r_text, domain):
         # Étape 1 — JSON via ts_reader.run(...)
@@ -314,6 +375,14 @@ def get_images(link, cookie, ua, retries=2, delay=5, debug_mode=True):
                 f.write(r.text)
             print(f"[DEBUG] 📁 Fichier {debug_file} généré.")
 
+        cover = get_cover_image(r.text)
+        if cover:
+            print("[INFO] 🖼️ Couverture extraite sans FlareSolverr.")
+            if "catalogue" in link:
+                print("[INFO] ✅ Couverture trouvée sur page catalogue, pas besoin de FlareSolverr.")
+                return []
+            print("[INFO] 🖼️ Couverture extraite sans FlareSolverr.")
+
         images = extract_images(r.text, domain)
         if images:
             return images
@@ -342,6 +411,8 @@ def get_images(link, cookie, ua, retries=2, delay=5, debug_mode=True):
                 f.write(r_text)
             print(f"[DEBUG] 📁 Fichier {debug_file} généré.")
 
+        get_cover_image(r_text)
+
         images = extract_images(r_text, domain)
         if images:
             return images
@@ -352,7 +423,6 @@ def get_images(link, cookie, ua, retries=2, delay=5, debug_mode=True):
 
     print(f"[Échec définitif] ❌ Impossible d’extraire des images depuis : {link}")
     return []
-
 
 def download_volume(
     volume,
@@ -485,104 +555,81 @@ class MangaApp:
                 'Referer': url,
             }
 
-            img_tag = None
             soup = None
-            flaresolverr_forced = False
+            img_url = None
 
-            # ==== sushiscan.net : tentative directe autorisée ====
-            if "sushiscan.net" in url or "sushiscan.fr" in url:
-                self.log("Accès direct à sushiscan", level="info")
-                try:
-                    r = requests.get(url, headers=headers)
-                    r.raise_for_status()
-                    soup = BeautifulSoup(r.text, "html.parser")
-                    if "sushiscan.net" in url:
-                        img_tag = soup.select_one("article div.thumb img")
-                    elif "sushiscan.fr" in url:
-                        img_tag = soup.select_one("div.thumb-container img")
+            self.log("📡 Tentative d'accès direct à la page", level="info")
+            try:
+                r = requests.get(url, headers=headers)
+                r.raise_for_status()
+                soup = BeautifulSoup(r.text, "html.parser")
 
-                    if (not img_tag or not img_tag.get("src") or
-                        img_tag["src"].startswith("data:image") or
-                        img_tag["src"].lower().endswith(".svg")):
-                        self.log("Forçage FlareSolverr", level="warning")
-                        img_tag = None
-                        flaresolverr_forced = True
-
-                except Exception:
-                    self.log("Accès direct échoué → passage via FlareSolverr", level="warning")
-                    flaresolverr_forced = True
-
-            # ==== FlareSolverr si nécessaire ====
-            if flaresolverr_forced or not img_tag:
-                self.status_label.config(text="🛡️ FlareSolverr en cours, merci de patienter...")
-                html = fetch_with_flaresolverr(url, MangaApp.flaresolverr_url_static)
-                self.status_label.config(text="")
-                if not html:
-                    self.cover_loading_label.destroy()
-                    self.log("FlareSolverr a échoué à récupérer la page", level="error")
-                    return
-                soup = BeautifulSoup(html, "html.parser")
+                # Sauvegarde debug du HTML
+                if hasattr(self, 'debug_mode') and self.debug_mode.get():
+                    with open("debug_cover_direct_sushiscan_fr.html", "w", encoding="utf-8") as f:
+                        f.write(r.text)
+                    self.log("📄 HTML sauvegardé pour inspection (debug activé)", level="info")
+                # Étape 1 : balise <img> classique
                 if "sushiscan.net" in url:
                     img_tag = soup.select_one("article div.thumb img")
                 elif "sushiscan.fr" in url:
                     img_tag = soup.select_one("div.thumb-container img")
+                else:
+                    img_tag = None
 
-                if not img_tag or not img_tag.get("src"):
-                    for img in soup.find_all("img", src=True):
-                        if "Cover" in img["src"]:
-                            img_tag = img
+                if img_tag and img_tag.get("src", "").startswith("http"):
+                    img_url = img_tag["src"]
+                    self.log(f"🧪 Image détectée via <img> : {img_url}", level="info")
+                else:
+                    # Étape 2 : balises meta
+                    for prop in ["og:image", "og:image:secure_url"]:
+                        meta = soup.find("meta", attrs={"property": prop})
+                        if meta and meta.get("content", "").startswith("http"):
+                            img_url = meta["content"]
+                            self.log(f"✅ Image trouvée via balise meta ({prop}) : {img_url}", level="info")
                             break
 
-            if not img_tag:
+            except Exception as e:
+                self.log(f"⚠️ Erreur lors de l'accès direct : {e}", level="warning")
+
+            # Fallback si rien trouvé
+            if not img_url:
+                self.status_label.config(text="🛡️ FlareSolverr en cours...")
+                html = fetch_with_flaresolverr(url, MangaApp.flaresolverr_url_static)
+                self.status_label.config(text="")
+                if not html:
+                    self.cover_loading_label.destroy()
+                    self.log("❌ FlareSolverr a échoué", level="error")
+                    return
+                soup = BeautifulSoup(html, "html.parser")
+                img_tag = soup.select_one("div.thumb-container img")
+                if img_tag and img_tag.get("src", "").startswith("http"):
+                    img_url = img_tag["src"]
+                    self.log(f"🧪 Image récupérée via FlareSolverr : {img_url}", level="info")
+
+            if not img_url or img_url.startswith("data:image") or img_url.endswith(".svg"):
                 self.cover_loading_label.destroy()
-                self.log("Aucune image valide trouvée", level="error")
+                self.log("❌ Aucune image exploitable trouvée", level="error")
                 return
 
-            img_url = urllib.parse.urljoin(url, img_tag["src"].split("?")[0])
-            if img_url.startswith("data:image") or img_url.lower().endswith(".svg"):
-                self.cover_loading_label.destroy()
-                self.log("Image encodée ou SVG non supporté", level="error")
-                return
-
-            self.log(f"📥 Téléchargement de l'image : {img_url}", level="info")
             r = requests.get(img_url, headers=headers)
             r.raise_for_status()
-
-            img_data = BytesIO(r.content)
-            img = Image.open(img_data)
-            img = img.resize((130, int(130 * img.height / img.width)))
+            from io import BytesIO
+            img = Image.open(BytesIO(r.content))
+            img.thumbnail((160, 240))
             img_tk = ImageTk.PhotoImage(img)
 
             self.cover_loading_label.destroy()
-            if hasattr(self, "manga_image_label"):
-                self.manga_image_label.destroy()
-
             self.manga_image_label = tk.Label(self.cover_frame, image=img_tk)
             self.manga_image_label.image = img_tk
             self.manga_image_label.pack()
 
-            min_width = img.width + 40
-            current_width = self.root.winfo_width()
-            current_height = self.root.winfo_height()
-            if current_width < min_width:
-                self.root.geometry(f"{min_width}x{current_height}")
-
-            self.log("Image de couverture affichée avec succès", level="success")
-
-        except requests.exceptions.RequestException as e:
-            if hasattr(self, "cover_loading_label"):
-                self.cover_loading_label.destroy()
-            self.status_label.config(text="")
-            self.log(f"Erreur réseau lors de l'image : {e}", level="error")
+            self.log("✅ Couverture affichée avec succès", level="success")
 
         except Exception as e:
-            if hasattr(self, "cover_loading_label"):
-                self.cover_loading_label.destroy()
+            self.cover_loading_label.destroy()
             self.status_label.config(text="")
-            self.log(f"Erreur inattendue dans fetch_manga_image : {e}", level="error")
-
-
-
+            self.log(f"Erreur inattendue : {e}", level="error")
     def update_cookie_status(self):
         try:
             ua = self.ua.get().strip()
