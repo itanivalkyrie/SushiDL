@@ -1,3 +1,5 @@
 beautifulsoup4
-pillow
+Pillow
+requests
 curl_cffi
+tk
