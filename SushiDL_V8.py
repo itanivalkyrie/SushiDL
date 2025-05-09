@@ -142,7 +142,7 @@ def archive_cbz(folder_path, title, volume):
 
 
 def download_image(
-    url, folder, cookie, ua, i, number_len, cancel_event, progress_callback=None
+    url, folder, cookie, ua, i, number_len, cancel_event,failed_downloads, progress_callback=None
 ):
     if cancel_event.is_set():
         return
@@ -200,7 +200,7 @@ def download_image(
     print(
         f"[Erreur définitive] Impossible de télécharger l'image après 3 essais : {url}"
     )
-
+    failed_downloads.append(url)
 
 
 def fetch_manga_data(url, cookie, ua):
@@ -335,11 +335,15 @@ def get_images(link, cookie, ua, retries=2, delay=5, debug_mode=True):
 
         reader = soup.find("div", id="readerarea")
         if reader:
-            images = [
-                img["src"]
-                for img in reader.find_all("img", src=True)
-                if not img["src"].startswith("data:") and img["src"].endswith((".jpg", ".jpeg", ".png", ".webp"))
-            ]
+            images = []
+            for img in reader.find_all("img"):
+                src = img.get("data-src") or img.get("src")
+                if not src:
+                    continue
+                if src.startswith("data:"):
+                    continue
+                if src.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".avif")):
+                    images.append(src)
             if images:
                 images = clean_parasites(images, domain)
                 print(f"[INFO] ✅ {len(images)} images finales après filtrage.")
@@ -448,6 +452,7 @@ def download_volume(
         return
 
     number_len = ceil(log10(len(images))) if len(images) > 0 else 1
+    failed_downloads = []
     with ThreadPoolExecutor(max_workers=THREADS) as executor:
         futures = []
         progress_counter = {"done": 0}
@@ -472,6 +477,7 @@ def download_volume(
                     i,
                     number_len,
                     cancel_event,
+                    failed_downloads,
                     progress_callback=progress_callback,
                 )
             )
@@ -482,6 +488,24 @@ def download_volume(
             if cancel_event.is_set():
                 executor.shutdown(wait=False, cancel_futures=True)
                 break
+    if failed_downloads:
+        logger(f"⚠️ {len(failed_downloads)} image(s) n'ont pas pu être téléchargées.", level="warning")
+        try:
+            import tkinter.simpledialog as simpledialog
+            res = messagebox.askyesno("Erreur de téléchargement", "Des images ont échoué. Voulez-vous modifier le cookie et relancer le téléchargement complet de ce volume ?")
+            if res:
+                new_cookie = simpledialog.askstring("Nouveau cookie", "Entrez le nouveau cookie cf_clearance :", parent=MangaApp.current_instance.root)
+                if new_cookie:
+                    shutil.rmtree(folder)
+                    logger("📦 Ancien dossier supprimé. Relancement du téléchargement avec le nouveau cookie...", level="info")
+                    download_volume(volume, images, title, new_cookie, ua, logger, cancel_event, cbz_enabled, update_progress)
+                    return
+                else:
+                    logger("❌ Aucun cookie saisi. Le volume ne sera pas complété.", level="error")
+                    return
+        except Exception as e:
+            logger(f"❌ Erreur durant la relance : {e}", level="error")
+        return
 
     if not cancel_event.is_set() and os.path.exists(folder):
         if cbz_enabled:
@@ -620,7 +644,15 @@ class MangaApp:
             img_tk = ImageTk.PhotoImage(img)
 
             self.cover_loading_label.destroy()
-            self.manga_image_label = tk.Label(self.cover_frame, image=img_tk)
+            self.manga_image_label = tk.Label(
+                self.cover_frame,
+                image=img_tk,
+                borderwidth=3,
+                relief="solid",
+                highlightthickness=1,
+                highlightbackground="#444",
+                background="#202020"
+            )
             self.manga_image_label.image = img_tk
             self.manga_image_label.pack()
 
@@ -897,7 +929,7 @@ class MangaApp:
         self.log_text.tag_config("error", foreground="red")
         self.log_text.tag_config("warning", foreground="#e67e22")
         self.log_text.configure(yscrollcommand=log_scroll.set)
-        self.debug_mode = tk.BooleanVar(value=True)
+        self.debug_mode = tk.BooleanVar(value=False)
         debug_check = ttk.Checkbutton(self.root, text="Activer le mode debug (.log)", variable=self.debug_mode)
         debug_check.pack(anchor="w", padx=10, pady=5)
 
