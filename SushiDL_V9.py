@@ -144,21 +144,11 @@ def archive_cbz(folder_path, title, volume):
 def download_image(
     url, folder, cookie, ua, i, number_len, cancel_event, failed_downloads, progress_callback=None, referer_url=None
 ):
-    import time
-    import os
+    import time, os
     if cancel_event.is_set():
         return
 
-    # Referer dynamique :
-    if referer_url:
-        referer = referer_url
-    else:
-        # Si pas fourni, déduit le domaine depuis l’URL de l’image
-        if "sushiscan.net" in url:
-            referer = "https://sushiscan.net/"
-        else:
-            referer = "https://sushiscan.fr/"
-
+    referer = referer_url or ("https://sushiscan.net/" if "sushiscan.net" in url else "https://sushiscan.fr/")
     headers = {
         "Accept": "image/webp,image/jpeg,image/png,*/*;q=0.8",
         "Accept-Language": "fr-FR,fr;q=0.9",
@@ -172,56 +162,58 @@ def download_image(
     ext = url.split(".")[-1].split("?")[0]
     filename = os.path.join(folder, f"{str(i+1).zfill(number_len)}.{ext}")
 
-    for attempt in range(3):
-        if cancel_event.is_set():
+    try:
+        r = requests.get(url, headers=headers, impersonate="chrome", timeout=7)
+        if r.status_code == 200 and r.content[:2] != b'<!':
+            with open(filename, "wb") as f:
+                f.write(r.content)
+            if progress_callback:
+                progress_callback(i+1)
+            if hasattr(MangaApp, "current_instance") and hasattr(MangaApp.current_instance, "log"):
+                MangaApp.current_instance.log(f"🖼️ Image {i+1} téléchargée : {os.path.basename(filename)}", level="info")
             return
+        else:
+            print(f"[Erreur] Direct download (statut: {r.status_code}). Fallback FlareSolverr.")
+    except Exception as e:
+        print(f"[Exception] Direct download failed: {e}. Fallback FlareSolverr.")
 
-        try:
-            r = requests.get(url, headers=headers, impersonate="chrome", timeout=15)
-            if r.status_code == 200:
-                with open(filename, "wb") as f:
-                    f.write(r.content)
-                if progress_callback:
-                    progress_callback(i+1)
-                if hasattr(MangaApp, "current_instance") and hasattr(MangaApp.current_instance, "log"):
-                    MangaApp.current_instance.log(f"🖼️ Image {i+1} téléchargée : {os.path.basename(filename)}", level="info")
-                return
-            else:
-                print(f"[Erreur] Échec du téléchargement (statut: {r.status_code}), tentative {attempt+1}/3 pour l'URL: {url}")
-        except Exception as e:
-            print(f"[Exception] {e}")
-        time.sleep(1)
-
-    # Fallback FlareSolverr si toutes les tentatives requests échouent
+    # Fallback FlareSolverr pour l'image
     try:
         print("[INFO] Fallback FlareSolverr image : " + url)
         payload = {
             "cmd": "request.get",
             "url": url,
-            "maxTimeout": 60000,
-            "render": False
+            "maxTimeout": 90000,
+            "render": True  # <- met 'render': True pour forcer le JS s'il y a challenge
         }
-        resp = requests.post(MangaApp.flaresolverr_url_static.rstrip("/") + "/v1", json=payload, timeout=30)
+        resp = requests.post(MangaApp.flaresolverr_url_static.rstrip("/") + "/v1", json=payload, timeout=90)
         resp.raise_for_status()
         sol = resp.json()
         img_data = sol.get("solution", {}).get("response", None)
         if img_data:
+            # Si response est en base64, la décoder sinon c'est le HTML d'une image (rare, à ajuster selon FlareSolverr)
             import base64
-            img_bytes = base64.b64decode(img_data)
-            with open(filename, "wb") as f:
-                f.write(img_bytes)
-            if progress_callback:
-                progress_callback(i+1)
-            print("[INFO] Image téléchargée via FlareSolverr : " + url)
-            return
+            try:
+                img_bytes = base64.b64decode(img_data)
+                with open(filename, "wb") as f:
+                    f.write(img_bytes)
+                if progress_callback:
+                    progress_callback(i+1)
+                print("[INFO] Image téléchargée via FlareSolverr : " + url)
+                return
+            except Exception:
+                # Si ce n'est pas du base64, peut-être image directe
+                with open(filename, "wb") as f:
+                    f.write(img_data.encode() if isinstance(img_data, str) else img_data)
+                if progress_callback:
+                    progress_callback(i+1)
+                print("[INFO] Image téléchargée via FlareSolverr (non base64): " + url)
+                return
     except Exception as e:
         print(f"[FlareSolverr] Échec fallback pour {url} : {e}")
 
-    # Échec définitif
     failed_downloads.append(url)
     print(f"[Erreur définitive] Impossible de télécharger l'image après fallback : {url}")
-
-
 
 
 def fetch_manga_data(url, cookie, ua):
