@@ -211,4 +211,5 @@ Vous pouvez relancer l’opération autant de fois que nécessaire
 
 ## 🖼️ Aperçu
 
-<img width="816" height="931" alt="image" src="https://github.com/user-attachments/assets/7352386c-027c-48dc-b241-4276bdb0b81f" />
+<img width="852" height="852" alt="image" src="https://github.com/user-attachments/assets/7b8039ff-73b0-40c6-a177-01d033cdcee6" />
+
