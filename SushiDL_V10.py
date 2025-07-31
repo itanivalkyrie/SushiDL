@@ -90,9 +90,12 @@ def robust_download_image(img_url, headers, max_try=4, delay=2):
         except Exception as e:
             print(f"[WARNING] Tentative {attempt} échouée pour {img_url} : {e}")
             last_exc = e
-            # Pause exponentielle si code 403/429 (trop de requêtes)
-            if hasattr(e, 'response') and getattr(e.response, 'status_code', 200) in (403, 429):
-                time.sleep(delay * attempt * 2)
+            
+            # Backoff exponentiel pour les erreurs 403/429
+            status_code = getattr(e, 'status_code', None)
+            if status_code in (403, 429):
+                sleep_time = min(delay * (2 ** attempt), 60)  # Max 60 secondes
+                time.sleep(sleep_time)
             else:
                 time.sleep(delay * attempt)
     raise Exception(f"Impossible de télécharger l'image {img_url} après {max_try} tentatives: {last_exc}")
@@ -199,15 +202,15 @@ def test_cookie_validity(domain, cookie, ua):
     Returns:
         bool: True si le cookie est valide, False sinon
     """
-    test_url = f"https://sushiscan.{domain}/catalogue/one-piece/"  # Manga populaire garanti
+    test_url = f"https://sushiscan.{domain}/" 
+    
     try:
         r = make_request(test_url, cookie, ua)
-        if r.status_code == 200 and "entry-title" in r.text:
+        if r.status_code == 200 and "SushiScan" in r.text:
             return True
-        else:
-            return False
-    except Exception as e:
-        return False
+    except Exception:
+        pass
+    return False
 
 
 def interpret_curl_error(message):
@@ -316,7 +319,7 @@ def download_image(
             try:
                 img = Image.open(filename).convert('RGB')
                 new_path = filename[:-5] + '.jpg'
-                img.save(new_path, 'JPEG')
+                img.save(new_path, 'JPEG', quality=90)
                 os.remove(filename)
                 filename = new_path
             except Exception as conv_e:
@@ -847,8 +850,22 @@ def get_cover_image(r_text):
                 image = Image.open(BytesIO(raw))
                 if image.format == "WEBP":
                     image = image.convert("RGB")
-                image.thumbnail((160, 240))
-                MangaApp.current_instance.cover_preview = ImageTk.PhotoImage(image)
+                
+                # Calcul du ratio pour conserver les proportions
+                width, height = image.size
+                ratio = min(120/width, 180/height)
+                new_width = int(width * ratio)
+                new_height = int(height * ratio)
+                
+                # Redimensionnement avec LANCZOS pour une meilleure qualité
+                image = image.resize((new_width, new_height), Image.LANCZOS)
+                
+                # Création de l'image avec fond blanc
+                new_image = Image.new("RGB", (120, 180), (255, 255, 255))
+                offset = ((120 - new_width) // 2, (180 - new_height) // 2)
+                new_image.paste(image, offset)
+                
+                MangaApp.current_instance.cover_preview = ImageTk.PhotoImage(new_image)
                 MangaApp.current_instance.cover_label.configure(image=MangaApp.current_instance.cover_preview)
                 MangaApp.current_instance.cover_label.image = MangaApp.current_instance.cover_preview
             except Exception as err:
@@ -968,6 +985,10 @@ class MangaApp:
         self.root = tk.Tk()
         self.root.title("SushiDL 🍣")
         
+        # Fixer la taille de la fenêtre à 850x820 pixels et empêcher le redimensionnement
+        self.root.geometry("850x820")
+        self.root.resizable(False, False)
+        
         # Variables Tkinter
         self.cbz_enabled = tk.BooleanVar(value=True)
         self.webp2jpg_enabled = tk.BooleanVar(value=True)
@@ -997,20 +1018,9 @@ class MangaApp:
         self.pairs = []
         self.title = ""
         self.cancel_event = threading.Event()
+        self.cover_preview = None
 
-        # === Création du layout principal ===
-        main_frame = tk.Frame(self.root)
-        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        # Création des colonnes gauche/droite
-        self.columns_frame = tk.Frame(main_frame)
-        self.columns_frame.pack(fill="both", expand=True)
-        self.left_frame = tk.Frame(self.columns_frame)
-        self.left_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
-        self.right_frame = tk.Frame(self.columns_frame, width=220)
-        self.right_frame.pack(side="right", fill="y")
-
-        # Construction de l'interface
+        # Configuration de l'interface
         self.setup_ui()
         self.update_cookie_status()
         self.check_cookie_age_periodically()
@@ -1054,41 +1064,45 @@ class MangaApp:
         """Configure tous les éléments de l'interface graphique"""
         self.progress = tk.DoubleVar(value=0)
         
-        # === Bloc supérieur : cookies + config ===
-        frame = tk.Frame(self.left_frame)
-        frame.pack(padx=20, pady=10)
+        # === Conteneur principal ===
+        main_frame = tk.Frame(self.root)
+        main_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # === Partie supérieure (configuration) ===
+        config_frame = tk.Frame(main_frame)
+        config_frame.pack(fill="x", padx=20, pady=10)
 
         font_label = ("Segoe UI Emoji", 10)
         font_entry = ("Segoe UI Emoji", 10)
         row = 0
 
         # Champ cookie .fr
-        tk.Label(frame, text="Cookie cf_clearance (.fr):", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
-        tk.Entry(frame, textvariable=self.cookie_fr, width=50, font=font_entry).grid(row=row, column=1, pady=2, sticky="w")
-        self.cookie_fr_status = tk.Label(frame, text="", font=("Segoe UI", 10), fg="green")
+        tk.Label(config_frame, text="Cookie cf_clearance (.fr):", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
+        tk.Entry(config_frame, textvariable=self.cookie_fr, width=50, font=font_entry).grid(row=row, column=1, pady=2, sticky="w")
+        self.cookie_fr_status = tk.Label(config_frame, text="", font=("Segoe UI", 10), fg="green")
         self.cookie_fr_status.grid(row=row, column=2, sticky="w", padx=10)
         row += 1
 
         # Champ cookie .net
-        tk.Label(frame, text="Cookie cf_clearance (.net):", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
-        tk.Entry(frame, textvariable=self.cookie_net, width=50, font=font_entry).grid(row=row, column=1, pady=2, sticky="w")
-        self.cookie_net_status = tk.Label(frame, text="", font=("Segoe UI", 10), fg="green")
+        tk.Label(config_frame, text="Cookie cf_clearance (.net):", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
+        tk.Entry(config_frame, textvariable=self.cookie_net, width=50, font=font_entry).grid(row=row, column=1, pady=2, sticky="w")
+        self.cookie_net_status = tk.Label(config_frame, text="", font=("Segoe UI", 10), fg="green")
         self.cookie_net_status.grid(row=row, column=2, sticky="w", padx=10)
         row += 1
 
         # Champ User-Agent
-        tk.Label(frame, text="User-Agent :", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
-        tk.Entry(frame, textvariable=self.ua, width=60, font=font_entry).grid(row=row, column=1, columnspan=2, pady=2)
+        tk.Label(config_frame, text="User-Agent :", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
+        tk.Entry(config_frame, textvariable=self.ua, width=60, font=font_entry).grid(row=row, column=1, columnspan=2, pady=2)
         row += 1
 
         # Champ FlareSolverr
-        tk.Label(frame, text="FlareSolverr URL :", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
-        tk.Entry(frame, textvariable=self.flaresolverr_url, width=60, font=font_entry).grid(row=row, column=1, columnspan=2, pady=2)
+        tk.Label(config_frame, text="FlareSolverr URL :", font=font_label).grid(row=row, column=0, sticky="w", pady=2)
+        tk.Entry(config_frame, textvariable=self.flaresolverr_url, width=60, font=font_entry).grid(row=row, column=1, columnspan=2, pady=2)
         row += 1
 
-        # === Ligne CBZ + Sauvegarder ===
-        cbz_frame = tk.Frame(self.left_frame)
-        cbz_frame.pack(pady=(0, 15))
+        # === Ligne CBJ + Sauvegarder ===
+        cbz_frame = tk.Frame(main_frame)
+        cbz_frame.pack(pady=(0, 10))
         tk.Checkbutton(
             cbz_frame,
             text=".CBZ",
@@ -1108,28 +1122,44 @@ class MangaApp:
             width=30
         ).pack(side="left")
         
-        # === Zone couverture (droite) ===
-        self.cover_frame = tk.Frame(self.right_frame, pady=10)
-        self.cover_frame.pack(fill="both", expand=True)
-        self.cover_label = tk.Label(self.cover_frame)
-        self.cover_label.pack()
+        # === Nouveau conteneur pour URL et pochette ===
+        url_cover_frame = tk.Frame(main_frame)
+        url_cover_frame.pack(fill="x", pady=(0, 10))
         
-        # === Champ URL du manga ===
-        url_frame = tk.Frame(self.left_frame)
-        url_frame.pack(pady=(0, 10))
-        tk.Label(url_frame, text="URL du manga :", font=font_label).pack(anchor="w")
-        tk.Entry(url_frame, textvariable=self.url, width=70, font=font_entry).pack()
-
+        # === Pochette à gauche ===
+        self.cover_frame = tk.Frame(url_cover_frame, width=120, height=165)
+        self.cover_frame.pack_propagate(False)  # Fixe la taille
+        self.cover_frame.pack(side="left", padx=(0, 10))
+        self.cover_label = tk.Label(
+            self.cover_frame, 
+            bg="white", 
+            relief="solid", 
+            borderwidth=1,
+            text="Couverture"
+        )
+        self.cover_label.pack(fill="both", expand=True)
+        
+        # === URL du manga à droite de la pochette ===
+        url_frame = tk.Frame(url_cover_frame)
+        url_frame.pack(side="left", fill="x", expand=True)
+        
+        tk.Label(url_frame, text="URL du Manga/Manwha/BD :", font=font_label).pack(anchor="w")
+        tk.Entry(url_frame, textvariable=self.url, width=70, font=font_entry).pack(fill="x")
+        
         # Bouton Analyser + label statut
-        analyze_frame = tk.Frame(self.left_frame)
-        analyze_frame.pack()
-        tk.Button(analyze_frame, text="Analyser", command=self.load_volumes, width=30).pack(pady=(5, 2))
+        analyze_frame = tk.Frame(url_frame)
+        analyze_frame.pack(pady=(5, 0))
+        tk.Button(analyze_frame, text="Analyser", command=self.load_volumes, width=30).pack()
         self.status_label = tk.Label(analyze_frame, text="", font=("Segoe UI Emoji", 10))
         self.status_label.pack()
-
+        
+        # === Partie centrale (volumes) ===
+        center_frame = tk.Frame(main_frame)
+        center_frame.pack(fill="both", expand=True)
+        
         # === En-tête Volume(s) + Filtre ===
-        vol_header = tk.Frame(self.left_frame)
-        vol_header.pack(fill="x", padx=20, pady=(10, 0))
+        vol_header = tk.Frame(center_frame)
+        vol_header.pack(fill="x", pady=(10, 0))
         tk.Label(
             vol_header,
             text="Volume(s) | Chapitre(s)",
@@ -1147,17 +1177,17 @@ class MangaApp:
         self.filter_entry.bind("<KeyRelease>", lambda e: self.apply_filter())
         self.clear_filter_button = tk.Button(filter_group, text="❌", command=self.clear_filter)
         self.clear_filter_button.pack(side="left")
-
+        
         # Désactivation initiale du filtre
         self.filter_entry.config(state="disabled")
         self.clear_filter_button.config(state="disabled")
         
         # === Zone scrollable des volumes ===
-        vol_frame_container = tk.Frame(self.root, bd=1, relief="sunken", bg="SystemButtonFace")
+        vol_frame_container = tk.Frame(center_frame, bd=1, relief="sunken", bg="SystemButtonFace", height=180)  # Hauteur réduite
         canvas_frame = tk.Frame(vol_frame_container)
         canvas_frame.pack(fill="both", expand=True)
 
-        self.canvas = tk.Canvas(canvas_frame, height=300, bg="#f0f0f0", highlightthickness=0)
+        self.canvas = tk.Canvas(canvas_frame, bg="#f0f0f0", highlightthickness=0, height=180)  # Hauteur fixe
         self.scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
@@ -1173,11 +1203,25 @@ class MangaApp:
         self.canvas.bind("<Configure>", center_volumes)
         self.vol_frame.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
-        vol_frame_container.pack(fill="both", expand=True, padx=15, pady=(5, 15))
+        vol_frame_container.pack(fill="both", expand=True, pady=(5, 10))
+        
+        # === Barre de progression ===
+        progress_frame = tk.Frame(main_frame)
+        progress_frame.pack(fill="x", padx=20, pady=(0, 5))
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress, maximum=100)
+        self.progress_bar.pack(fill="x")
+        self.progress_label = tk.Label(
+            progress_frame,
+            text="0%",
+            font=("Segoe UI", 8),
+            anchor="center",
+            bg=self.root["bg"]
+        )
+        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
         
         # === Zone d'actions ===
-        action_frame = tk.Frame(self.left_frame)
-        action_frame.pack(pady=(10, 10))
+        action_frame = tk.Frame(main_frame)
+        action_frame.pack(fill="x", padx=20, pady=(0, 10))
 
         # Checkbox "Tous/Aucun"
         self.master_var = tk.BooleanVar(value=True)
@@ -1217,36 +1261,31 @@ class MangaApp:
             state="disabled"
         )
         self.cancel_button.pack(side="left", padx=10)
-
-        # === Barre de progression ===
-        progress_frame = tk.Frame(self.left_frame)
-        progress_frame.pack(fill="x", padx=20, pady=(0, 10))
-        self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress, maximum=100)
-        self.progress_bar.pack(fill="x")
-        self.progress_label = tk.Label(
-            progress_frame,
-            text="0%",
-            font=("Segoe UI", 8),
-            anchor="center",
-            bg=self.root["bg"]
-        )
-        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
-
+        
         # === Journal (log) ===
-        log_frame = tk.Frame(self.left_frame)
-        log_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
-        self.log_text = tk.Text(log_frame, height=10, state="disabled", wrap="word", bg="white", font=("Segoe UI", 9))
+        log_frame = tk.LabelFrame(main_frame, text="Journal", padx=5, pady=5)
+        log_frame.pack(fill="both", expand=False, padx=10, pady=(0, 10))
+        
+        self.log_text = tk.Text(
+            log_frame, 
+            height=8,  # Hauteur fixée pour le log
+            state="disabled", 
+            wrap="word", 
+            bg="white", 
+            font=("Segoe UI", 9)
+        )
         self.log_text.pack(side="left", fill="both", expand=True)
+        
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
         log_scroll.pack(side="right", fill="y")
+        
+        self.log_text.configure(yscrollcommand=log_scroll.set)
         
         # Configuration des couleurs pour les différents niveaux de log
         self.log_text.tag_config("success", foreground="green")
         self.log_text.tag_config("info", foreground="#007acc")
         self.log_text.tag_config("error", foreground="red")
         self.log_text.tag_config("warning", foreground="#e67e22")
-        self.log_text.configure(yscrollcommand=log_scroll.set)
-
     def get_cookie(self, url):
         """Sélectionne automatiquement le cookie selon le domaine"""
         if "sushiscan.fr" in url:
@@ -1341,27 +1380,17 @@ class MangaApp:
 
     def apply_filter(self):
         """Filtre la liste des volumes selon le texte saisi"""
-        raw = self.filter_text.get().strip()
-
-        # Support des wildcards (ex: "7*" pour volumes 70-79)
-        if raw.endswith("*") and raw[:-1].isdigit():
-            prefix = raw[:-1]
-            pattern = rf"\b{prefix}\d\b|\b{prefix}\d\d*\b"
-        else:
-            pattern = re.escape(raw.lower())
-
-        try:
-            regex = re.compile(pattern)
-        except re.error:
-            self.log(f"❌ Filtre invalide : {raw}", level="error")
-            return
-
-        # Application du filtre
+        raw = self.filter_text.get().strip().lower()
+        
         row = 0
         col = 0
         for chk, label in self.check_items:
-            if regex.search(label.lower()):
-                chk.grid(row=row + 2, column=col, padx=15, pady=5, sticky="n")
+            label_lower = label.lower()
+            
+            # Filtre optimisé avec recherche de sous-chaîne
+            if not raw or raw in label_lower or \
+            (raw.endswith('*') and raw[:-1].isdigit() and label_lower.startswith(raw[:-1])):
+                chk.grid(row=row, column=col, padx=15, pady=5, sticky="n")
                 col += 1
                 if col == 4:
                     col = 0
@@ -1402,40 +1431,24 @@ class MangaApp:
 
             def per_image_progress(done, total_images):
                 """Callback de progression pour les images individuelles"""
-                nonlocal last_progress_update, last_progress_value
+                nonlocal last_progress_update
                 now = time.time()
-                last_progress_value = [done, total_images]
-
+                
                 # Limite la fréquence de rafraîchissement
                 if now - last_progress_update < 0.5:
                     return
                 last_progress_update = now
 
                 percent = round((done / total_images) * 100, 1) if total_images else 0
-                timestamp = time.strftime("%H:%M:%S")
-                line = f"[{timestamp}] 🖼️ Progression image : {done}/{total_images} ({percent}%)"
-
+                line = f"🖼️ Progression image : {done}/{total_images} ({percent}%)"
+                
+                # Mise à jour simple sans gestion d'index
                 self.log_text.configure(state="normal")
-                if self.image_progress_index is None:
-                    self.image_progress_index = self.log_text.index("end-1c")
-                    self.log_text.insert("end", line + "\n", "info")
-                else:
-                    if self.image_progress_index is not None:
-                        try:
-                            index_float = float(self.image_progress_index)
-                            self.log_text.delete(self.image_progress_index, str(index_float + 1))
-                            self.log_text.insert(self.image_progress_index, line + "\n", "info")
-                        except (TypeError, ValueError):
-                            self.log_text.insert("end", line + "\n", "info")
-                            self.image_progress_index = self.log_text.index("end-1c")
-                    else:
-                        self.log_text.insert("end", line + "\n", "info")
-                        self.image_progress_index = self.log_text.index("end-1c")
+                self.log_text.insert("end", line + "\n", "info")
                 self.log_text.configure(state="disabled")
                 self.log_text.see("end")
                 
                 # Mise à jour de la barre de progression
-                percent = (done / total_images) * 100 if total_images else 0
                 self.progress.set(percent)
                 self.progress_label.config(text=f"{int(percent)}%")
                 self.root.update_idletasks()
