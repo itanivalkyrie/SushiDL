@@ -1,5 +1,4 @@
-beautifulsoup4
-Pillow
-requests
-curl_cffi
-tk
+beautifulsoup4>=4.13.4
+curl_cffi>=0.10.0
+Pillow>=11.3.0
+requests>=2.27.1
