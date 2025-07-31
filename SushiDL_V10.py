@@ -1452,6 +1452,22 @@ class MangaApp:
                 self.progress.set(percent)
                 self.progress_label.config(text=f"{int(percent)}%")
                 self.root.update_idletasks()
+
+                # Log uniquement toutes les 0.5s
+                if now - last_progress_update >= 0.5:
+                    timestamp = time.strftime("%H:%M:%S")
+                    line = f"[{timestamp}] 🖼️ Progression image : {done}/{total_images} ({int(percent)}%)"
+                    self.log_text.configure(state="normal")
+                    self.log_text.insert("end", line + "\n", "info")
+                    self.log_text.configure(state="disabled")
+                    self.log_text.see("end")
+                    last_progress_update = now
+                
+                # Forcer 100% si c'est la dernière image
+                if done == total_images:
+                    self.progress.set(100)
+                    self.progress_label.config(text="100%")
+                    self.root.update_idletasks()
                 
             last_progress_update = 0
             last_progress_value = [0, 0]  # [fait, total]
