@@ -100,8 +100,6 @@ cd chemin\vers\le\dossier
 python SushiDL_V10.py
 ```
 
-Ou simplement : **double-cliquez** sur `SushiDL_V10.py`
-
 ### 🐧 Sous Linux
 
 ```bash
@@ -211,5 +209,6 @@ Vous pouvez relancer l’opération autant de fois que nécessaire
 
 ## 🖼️ Aperçu
 
-<img width="852" height="852" alt="image" src="https://github.com/user-attachments/assets/7b8039ff-73b0-40c6-a177-01d033cdcee6" />
+<img width="852" height="852" alt="image" src="https://github.com/user-attachments/assets/723aaf0f-31af-4f3a-897d-92da5a26bb66" />
+
 
