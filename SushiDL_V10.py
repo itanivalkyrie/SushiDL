@@ -747,7 +747,7 @@ def load_cookie_cache():
     default_webp2jpg = True
     
     if not os.path.exists(COOKIE_CACHE_PATH):
-        return {}, None, default_cbz, default_fs, ""
+        return {}, None, default_cbz, default_fs, "", default_webp2jpg
     
     try:
         with open(COOKIE_CACHE_PATH, "r", encoding="utf-8") as f:
