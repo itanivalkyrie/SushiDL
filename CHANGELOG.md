@@ -7,6 +7,28 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.1] - 2026-02-24
+
+### Corrections
+- Badges auth cookies `.fr/.net`:
+  - etat initial explicite `Validation en cours` (orange),
+  - etats normalises en `Valide` / `A verifier`.
+- Probe cookie listing plus discret dans le journal:
+  - suppression de la mention `One Piece`,
+  - messages courts `Test cookie .fr/.net : Reussite` ou `Echec`.
+- Correctifs UI/UX tomes:
+  - correction de l'etat vide (centrage horizontal/vertical),
+  - suppression de l'artefact visuel (rectangle blanc) dans la zone `Tomes / Chapitres`,
+  - suppression de l'affichage des raccourcis (`Ctrl+...`) dans l'en-tete de selection.
+- Journal/Erreurs:
+  - suppression du titre redondant `Journal` dans l'onglet Journal,
+  - alignement visuel des onglets `Journal` / `Erreurs`,
+  - fond blanc pour l'onglet actif.
+- Theme visuel:
+  - palette adoucie (moins de contraste entre fond global et cartes),
+  - boutons secondaires en fond blanc (`Aide Cookie`, `Tout decocher`, `Inverser`, `Exporter`, `Copier`, `Effacer`).
+- Normalisation des libelles FR en interface (accents/casse) sur les boutons et statuts.
+
 ## [11.2.0] - 2026-02-22
 
 ### Ameliorations
