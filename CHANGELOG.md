@@ -7,22 +7,50 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.6] - 2026-02-24
+
+### Ameliorations
+- UI Configuration:
+  - refonte de la zone configuration en deux onglets principaux au meme niveau:
+    - `Authentification`
+    - `Options`
+  - badge global `Authentification (x/5)` avec couleur d'etat selon le resultat des validations.
+- Organisation des actions:
+  - `Tester tout` et `Aide Cookie` restent dans l'onglet `Authentification`,
+  - `Sauvegarder parametres` est repositionne dans l'onglet `Options`.
+- Mise en page Options:
+  - compactage des blocs pour reduire la hauteur consommee,
+  - repartition harmonisee des encarts (`Journal et affichage` / `Sortie + Sauvegarder parametres`),
+  - centrage du bouton `Sauvegarder parametres` dans l'espace disponible.
+- Densite visuelle globale:
+  - reduction des ecarts verticaux entre sections principales (`Authentification`, `Sources`, `Tomes / Chapitres`, `Journal`) pour augmenter la surface utile du journal.
+- Fenetre:
+  - ouverture par defaut en `1140x1040`,
+  - hauteur minimale forcee a `1040 px` (max toujours `1070 px`).
+- Couvertures:
+  - extraction cover renforcee pour les sites Origines (support `data-src`, `data-lazy-src`, `srcset`, `data-srcset`, `background-image`, meta `og/twitter`),
+  - support d'animation GIF reel dans la preview cover (boucle UI via Tkinter), avec arret propre lors du changement de cover/placeholder.
+
+### Corrections
+- Suppression des artefacts visuels autour des onglets configuration (trait de separation indesirable).
+- Retrait du marqueur decoratif dans le titre de l'onglet `Authentification` pour un alignement propre.
+
 ## [11.2.5] - 2026-02-24
 
 ### Ameliorations
 - Support multi-sites etendu:
   - ajout de `mangas-origines.fr` (format oeuvre: `/oeuvre/<slug>/`),
-  - ajout de `hentai-origines.fr` (format manga: `/manga/<slug>/`),
+  - ajout de `hentai-origines.fr` (format manga: `/manga/<slug>/`, 18+ 🔞),
   - extraction des chapitres via endpoint AJAX Madara (`ajax/chapters/?t=`) quand la liste est chargee dynamiquement.
 - Extraction images:
   - priorite forcee au mode `?style=list` pour les chapitres Origines,
   - fallback automatique depuis `?style=paged` et `/p/<n>/` vers la version `list`.
 - Authentification manuelle:
-  - ajout des cookies dedies `.origines` et `.hentai-origines` dans l'UI,
+  - ajout des cookies dedies `.origines` et `.hentai-origines` (18+ 🔞) dans l'UI,
   - persistance complete dans `cookie_cache.json` (sources, headers, timestamps),
   - probes de validation cookie au demarrage pour les nouveaux domaines:
     - `https://mangas-origines.fr/oeuvre/826-solo-leveling/`
-    - `https://hentai-origines.fr/manga/stop-smoking/`.
+    - `https://hentai-origines.fr/manga/stop-smoking/` (18+ 🔞).
 - Couverture:
   - support et affichage des covers GIF (et sources `data-src` / `data-lazy-src`),
   - fallback meta etendu (`og:image`, `twitter:image`).
@@ -35,7 +63,7 @@ Le format de version suit la regle `X.Y.Z` :
   - prise en charge des formats:
     - `https://sushiscan.fr|net/catalogue/<slug>/`
     - `https://mangas-origines.fr/oeuvre/<slug>/`
-    - `https://hentai-origines.fr/manga/<slug>/`.
+    - `https://hentai-origines.fr/manga/<slug>/` (18+ 🔞).
 
 ## [11.2.4] - 2026-02-24
 

@@ -33,7 +33,7 @@ from tkinter import filedialog, messagebox, ttk
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from io import BytesIO
-from PIL import Image, ImageOps, ImageTk
+from PIL import Image, ImageOps, ImageSequence, ImageTk
 from curl_cffi import requests
 from zipfile import ZipFile
 
@@ -446,7 +446,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.5"
+APP_VERSION = "11.2.6"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -2358,42 +2358,107 @@ def get_cover_image(r_text):
     """Récupère et affiche l'image de couverture d'un manga."""
     runtime_log("Analyse de la couverture en cours.", level="debug", context={"action": "cover"})
     soup = BeautifulSoup(r_text, "html.parser")
-    img = soup.select_one(
-        "div.thumb img, div.thumb-container img, .summary_image img, .post-thumb img, img.wp-post-image"
+    app = getattr(MangaApp, "current_instance", None)
+    page_url = ""
+    if app is not None:
+        page_url = app.run_on_ui(app.url.get, wait=True, default="").strip()
+    if not page_url:
+        og_url = soup.find("meta", attrs={"property": "og:url"})
+        page_url = (og_url.get("content") or "").strip() if og_url else ""
+
+    def resolve_cover_candidate(raw_candidate):
+        candidate = normalize_image_url((raw_candidate or "").strip().strip("\"'"))
+        if not candidate or candidate.startswith("data:"):
+            return ""
+        if candidate.startswith("http"):
+            return candidate
+        if page_url:
+            return normalize_image_url(urljoin(page_url, candidate))
+        site_root = get_site_root_url(page_url)
+        if site_root:
+            return normalize_image_url(urljoin(site_root, candidate))
+        return ""
+
+    def extract_src_from_srcset(raw_srcset):
+        srcset = (raw_srcset or "").strip()
+        if not srcset:
+            return ""
+        entries = [part.strip() for part in srcset.split(",") if part.strip()]
+        if not entries:
+            return ""
+        # Prend la dernière entrée (souvent la meilleure résolution).
+        last_entry = entries[-1]
+        return (last_entry.split()[0] if last_entry.split() else "").strip()
+
+    def extract_cover_from_img(tag):
+        if tag is None:
+            return ""
+        for attr_name in ("data-src", "data-lazy-src", "src", "data-cfsrc"):
+            candidate = resolve_cover_candidate(tag.get(attr_name))
+            if candidate:
+                return candidate
+        for attr_name in ("data-srcset", "srcset"):
+            candidate = resolve_cover_candidate(extract_src_from_srcset(tag.get(attr_name)))
+            if candidate:
+                return candidate
+        return ""
+
+    cover_selectors = (
+        "div.thumb img",
+        "div.thumb-container img",
+        ".summary_image img",
+        ".summary_image a img",
+        ".post-thumb img",
+        "img.wp-post-image",
+        ".manga-info-pic img",
+        ".profile-manga img",
+        ".post-content_item .summary-content img",
     )
     img_url = None
 
-    if img:
-        for attr_name in ("data-src", "data-lazy-src", "src", "data-cfsrc"):
-            candidate = normalize_image_url((img.get(attr_name) or "").strip())
-            if candidate.startswith("http"):
+    for selector in cover_selectors:
+        cover_img = soup.select_one(selector)
+        img_url = extract_cover_from_img(cover_img)
+        if img_url:
+            break
+
+    if not img_url:
+        for node in soup.select(".summary_image, .thumb, .thumb-container, .post-thumb, .profile-manga"):
+            style_value = (node.get("style") or "").strip()
+            if not style_value:
+                continue
+            match = re.search(r"background-image\s*:\s*url\(([^)]+)\)", style_value, flags=re.IGNORECASE)
+            if not match:
+                continue
+            candidate = resolve_cover_candidate(match.group(1))
+            if candidate:
                 img_url = candidate
                 break
-    else:
+
+    if not img_url:
         for tag in soup.find_all("meta", attrs={"property": True}):
             if tag["property"] in ["og:image", "og:image:secure_url"]:
-                candidate = normalize_image_url((tag.get("content") or "").strip())
-                if candidate and candidate.startswith("http"):
+                candidate = resolve_cover_candidate((tag.get("content") or "").strip())
+                if candidate:
                     img_url = candidate
                     break
     if not img_url:
         for tag in soup.find_all("meta", attrs={"name": True}):
             if (tag.get("name") or "").strip().lower() in ("twitter:image", "twitter:image:src"):
-                candidate = normalize_image_url((tag.get("content") or "").strip())
-                if candidate and candidate.startswith("http"):
+                candidate = resolve_cover_candidate((tag.get("content") or "").strip())
+                if candidate:
                     img_url = candidate
                     break
 
     if not img_url:
         return None
 
-    app = getattr(MangaApp, "current_instance", None)
     if app is None:
         return img_url
 
     app.cover_url = img_url
     try:
-        referer_url = app.run_on_ui(app.url.get, wait=True, default="").strip()
+        referer_url = page_url
         if not referer_url:
             referer_url = get_site_root_url(img_url) or "https://sushiscan.fr/"
 
@@ -2418,25 +2483,48 @@ def get_cover_image(r_text):
             context={"action": "cover"},
         )
 
+        target_w, target_h = app.run_on_ui(app.get_cover_target_size, wait=True, default=(100, 150))
         image = Image.open(BytesIO(raw))
+        is_animated = bool(getattr(image, "is_animated", False))
+
+        if is_animated:
+            frames = []
+            durations = []
+            max_frames = 120
+            for idx, frame in enumerate(ImageSequence.Iterator(image)):
+                if idx >= max_frames:
+                    break
+                rgba_frame = frame.convert("RGBA")
+                fitted_frame = ImageOps.fit(
+                    rgba_frame,
+                    (int(target_w), int(target_h)),
+                    method=Image.LANCZOS,
+                    centering=(0.5, 0.5),
+                )
+                frame_delay = int(frame.info.get("duration") or image.info.get("duration") or 100)
+                durations.append(max(60, frame_delay))
+                frames.append(fitted_frame)
+
+            if len(frames) > 1:
+                app.run_on_ui(lambda: app._apply_cover_animation(frames, durations))
+                return img_url
+
+            # GIF mono-frame: fallback statique.
+            if frames:
+                app.run_on_ui(lambda: app._apply_cover_static(frames[0]))
+                return img_url
+
         if image.mode not in ("RGB", "RGBA"):
             image = image.convert("RGB")
         elif image.mode == "RGBA":
             image = image.convert("RGB")
-        target_w, target_h = app.run_on_ui(app.get_cover_target_size, wait=True, default=(100, 150))
         fitted = ImageOps.fit(
             image,
             (int(target_w), int(target_h)),
             method=Image.LANCZOS,
             centering=(0.5, 0.5),
         )
-
-        def apply_cover_preview():
-            app.cover_preview = ImageTk.PhotoImage(fitted)
-            app.cover_label.configure(image=app.cover_preview, text="")
-            app.cover_label.image = app.cover_preview
-
-        app.run_on_ui(apply_cover_preview)
+        app.run_on_ui(lambda: app._apply_cover_static(fitted))
     except Exception as err:
         runtime_log(f"Erreur affichage couverture: {err}", level="error", context={"action": "cover"})
     return img_url
@@ -2815,6 +2903,89 @@ class MangaApp:
         else:
             widget.config(text="A vérifier", bg=invalid_bg, fg=invalid_fg)
 
+    def _apply_auth_tab_state_style(self, state):
+        """Colorise l'onglet Authentification selon l'état global: valid / pending / invalid."""
+        if not hasattr(self, "root"):
+            return
+        palette = getattr(self, "palette", {}) or {}
+        colors = {
+            "valid": ("#cdeed7", "#1b5e20"),
+            "pending": ("#ffe2b8", "#6a4b00"),
+            "invalid": ("#f4c3c9", "#7a1f28"),
+        }
+        selected_bg, selected_fg = colors.get(state, colors["pending"])
+        base_bg = palette.get("card_alt", "#f3f6fa")
+        text = palette.get("text", "#1f2937")
+        muted = palette.get("muted", "#5f6b7a")
+        selected_is_auth = False
+        if hasattr(self, "config_content_tabs") and hasattr(self, "config_auth_page"):
+            try:
+                selected_is_auth = self.config_content_tabs.select() == str(self.config_auth_page)
+            except Exception:
+                selected_is_auth = False
+        if not selected_is_auth:
+            selected_bg, selected_fg = "#ffffff", text
+
+        style = ttk.Style(self.root)
+        style.configure(
+            "ConfigContent.TNotebook.Tab",
+            background=base_bg,
+            foreground=muted,
+            padding=(11, 5),
+            font=("Segoe UI Semibold", 9),
+            borderwidth=1,
+            relief="flat",
+        )
+        style.map(
+            "ConfigContent.TNotebook.Tab",
+            background=[("selected", selected_bg), ("active", "#ebf1f9")],
+            foreground=[("selected", selected_fg), ("active", text)],
+            padding=[("selected", (11, 5)), ("!selected", (11, 5))],
+            expand=[("selected", (0, 0, 0, 0)), ("!selected", (0, 0, 0, 0))],
+            relief=[("selected", "flat"), ("!selected", "flat")],
+        )
+
+    def _refresh_auth_tab_badge(self):
+        """Met à jour le titre et la couleur de l'onglet d'authentification."""
+        if not hasattr(self, "config_content_tabs") or not hasattr(self, "config_auth_page"):
+            return
+        states = getattr(self, "auth_badge_states", {}) or {}
+        keys = list(COOKIE_DOMAINS) + ["ua"]
+        normalized = [str(states.get(key, "pending")).strip().lower() for key in keys]
+        valid_count = sum(1 for state in normalized if state == "valid")
+        total = len(keys)
+
+        if total > 0 and all(state == "valid" for state in normalized):
+            auth_state = "valid"
+        elif any(state == "invalid" for state in normalized):
+            auth_state = "invalid"
+        else:
+            auth_state = "pending"
+        self._apply_auth_tab_state_style(auth_state)
+        self.config_content_tabs.tab(self.config_auth_page, text=f"Authentification ({valid_count}/{total})")
+
+    def _on_config_tab_changed(self, _event=None):
+        """Rafraîchit le style de l'onglet Authentification au changement d'onglet."""
+        self._refresh_auth_tab_badge()
+
+    def run_auth_diagnostics(self):
+        """Lance un test complet cookies + User-Agent sur tous les domaines."""
+        if not hasattr(self, "analysis_auth_state") or not isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state = {**{domain: None for domain in COOKIE_DOMAINS}, "ua": None}
+        if not hasattr(self, "cookie_probe_state") or not isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state = {domain: None for domain in COOKIE_DOMAINS}
+
+        for domain in COOKIE_DOMAINS:
+            self.analysis_auth_state[domain] = None
+            self.cookie_probe_state[domain] = None
+        self.analysis_auth_state["ua"] = None if self.get_direct_user_agent().strip() else False
+
+        self.update_cookie_status(validate=False)
+        self.update_runtime_status()
+        self.log("Tests Auth lancés (cookies + User-Agent).", level="info")
+        self._schedule_startup_ua_probe()
+        self._schedule_cookie_listing_probe(domains=COOKIE_DOMAINS, delay_ms=0)
+
     def _set_analysis_status_label(self, text, success=None):
         """Affiche un retour court sur le resultat d'analyse auth."""
         if not hasattr(self, "status_label"):
@@ -2883,7 +3054,7 @@ class MangaApp:
         self.cookie_fr_label_var.set("Cookie (.fr) :")
         self.cookie_net_label_var.set("Cookie (.net) :")
         self.cookie_origines_label_var.set("Cookie (.origines) :")
-        self.cookie_hentai_label_var.set("Cookie (.hentai-origines) :")
+        self.cookie_hentai_label_var.set("Cookie (.hentai-origines 18+ 🔞) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -2901,6 +3072,7 @@ class MangaApp:
             ):
                 return
 
+            badge_states = {}
             for domain in COOKIE_DOMAINS:
                 analysis_domain_state = (getattr(self, "analysis_auth_state", {}) or {}).get(domain)
                 probe_domain_state = (getattr(self, "cookie_probe_state", {}) or {}).get(domain)
@@ -2927,6 +3099,7 @@ class MangaApp:
                     badge_state = "pending"
                     valid = False
                 self.auth_validity[domain] = valid
+                badge_states[domain] = badge_state
                 self._set_auth_badge(badge, badge_state)
 
             analysis_ua_state = (getattr(self, "analysis_auth_state", {}) or {}).get("ua")
@@ -2941,7 +3114,10 @@ class MangaApp:
                 ua_badge_state = "pending"
                 ua_valid = False
             self.auth_validity["ua"] = ua_valid
+            badge_states["ua"] = ua_badge_state
             self._set_auth_badge(self.ua_status, ua_badge_state)
+            self.auth_badge_states = badge_states
+            self._refresh_auth_tab_badge()
         except Exception as e:
             self.log(f"Erreur statut cookies: {e}", level="error")
 
@@ -3154,9 +3330,9 @@ class MangaApp:
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
 
         # Fenêtre modernisée: redimensionnable avec taille minimale confortable.
-        self.root.geometry("1140x980")
-        self.root.minsize(940, 760)
-        self.root.maxsize(self.root.winfo_screenwidth(), 1045)
+        self.root.geometry("1140x1040")
+        self.root.minsize(940, 1040)
+        self.root.maxsize(self.root.winfo_screenwidth(), 1070)
         self.root.resizable(True, True)
         self.log_entries = []
         self.log_lock = threading.Lock()
@@ -3178,7 +3354,7 @@ class MangaApp:
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
-        self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines) :")
+        self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines 18+ 🔞) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
@@ -3278,6 +3454,10 @@ class MangaApp:
         self.title = ""
         self.cancel_event = threading.Event()
         self.cover_preview = None
+        self.cover_animation_frames = []
+        self.cover_animation_durations = []
+        self.cover_animation_index = 0
+        self.cover_animation_after_id = None
         self.volume_error_entries = []
         self.download_output_root = os.path.abspath(ROOT_FOLDER)
 
@@ -3623,6 +3803,7 @@ class MangaApp:
         )
         style.configure("App.TLabel", background=self.palette["app_bg"], foreground=self.palette["text"])
         style.configure("Card.TLabel", background=self.palette["card_bg"], foreground=self.palette["text"])
+        style.configure("CardMuted.TLabel", background=self.palette["card_bg"], foreground=self.palette["muted"])
         style.configure("Muted.TLabel", background=self.palette["app_bg"], foreground=self.palette["muted"])
         style.configure("Title.TLabel", background=self.palette["app_bg"], foreground=self.palette["text"], font=("Segoe UI Semibold", 16))
         style.configure("Subtitle.TLabel", background=self.palette["app_bg"], foreground=self.palette["muted"], font=("Segoe UI", 9))
@@ -3727,6 +3908,29 @@ class MangaApp:
             relief=[("selected", "flat"), ("!selected", "flat")],
         )
         style.configure(
+            "ConfigContent.TNotebook",
+            background=self.palette["card_bg"],
+            borderwidth=0,
+            tabmargins=(0, 0, 0, 0),
+        )
+        style.configure(
+            "ConfigContent.TNotebook.Tab",
+            background=self.palette["card_alt"],
+            foreground=self.palette["muted"],
+            padding=(11, 5),
+            font=("Segoe UI Semibold", 9),
+            borderwidth=1,
+            relief="flat",
+        )
+        style.map(
+            "ConfigContent.TNotebook.Tab",
+            background=[("selected", "#ffe2b8"), ("active", "#ebf1f9")],
+            foreground=[("selected", "#6a4b00"), ("active", self.palette["text"])],
+            padding=[("selected", (11, 5)), ("!selected", (11, 5))],
+            expand=[("selected", (0, 0, 0, 0)), ("!selected", (0, 0, 0, 0))],
+            relief=[("selected", "flat"), ("!selected", "flat")],
+        )
+        style.configure(
             "Treeview",
             background=self.palette["card_bg"],
             fieldbackground=self.palette["card_bg"],
@@ -3778,21 +3982,37 @@ class MangaApp:
             section_panel.pack(fill="x", expand=True)
 
             section_content = ttk.Frame(section_panel, style="Card.TFrame")
-            section_content.pack(fill="both", expand=True, padx=12, pady=12)
+            section_content.pack(fill="both", expand=True, padx=12, pady=9)
             return section_content, section_tabs
 
-        main_frame = ttk.Frame(self.root, style="App.TFrame", padding=(18, 12))
+        main_frame = ttk.Frame(self.root, style="App.TFrame", padding=(18, 8))
         main_frame.pack(fill="both", expand=True)
 
-        config_card, self.config_section_tabs = create_titled_section(main_frame, "Configuration", 12)
-        config_card.grid_columnconfigure(1, weight=1)
+        config_wrap = ttk.Frame(main_frame, style="App.TFrame")
+        config_wrap.pack(fill="x", expand=False, pady=(0, 6))
+        self.config_content_tabs = ttk.Notebook(config_wrap, style="ConfigContent.TNotebook")
+        self.config_content_tabs.pack(fill="x", expand=False)
+        self.config_auth_page = ttk.Frame(self.config_content_tabs, style="Card.TFrame")
+        self.config_options_page = ttk.Frame(self.config_content_tabs, style="Card.TFrame")
+        self.config_content_tabs.add(self.config_auth_page, text="Authentification (0/5)")
+        self.config_content_tabs.add(self.config_options_page, text="Options")
+        self.config_content_tabs.bind("<<NotebookTabChanged>>", self._on_config_tab_changed)
+
+        def create_config_tab_content(parent):
+            content = ttk.Frame(parent, style="Card.TFrame", padding=(12, 12, 12, 12))
+            content.pack(fill="both", expand=True)
+            return content
+
+        self.config_auth_tab = create_config_tab_content(self.config_auth_page)
+        self.config_options_tab = create_config_tab_content(self.config_options_page)
+        self.config_auth_tab.grid_columnconfigure(1, weight=1)
 
         font_label = ("Segoe UI", 10)
         font_entry = ("Segoe UI", 10)
         row = 0
 
         ttk.Label(
-            config_card,
+            self.config_auth_tab,
             textvariable=self.cookie_fr_label_var,
             style="Card.TLabel",
             font=font_label,
@@ -3800,11 +4020,11 @@ class MangaApp:
             row=row, column=0, sticky="w", pady=4, padx=(4, 8)
         )
         self.cookie_fr_entry = ttk.Entry(
-            config_card, textvariable=self.cookie_fr, width=64, font=font_entry, style="Card.TEntry", show="*"
+            self.config_auth_tab, textvariable=self.cookie_fr, width=64, font=font_entry, style="Card.TEntry", show="*"
         )
         self.cookie_fr_entry.grid(row=row, column=1, pady=4, sticky="ew")
         self.cookie_fr_status = tk.Label(
-            config_card,
+            self.config_auth_tab,
             text="Validation en cours",
             font=("Segoe UI Semibold", 9),
             fg="#1f2937",
@@ -3819,7 +4039,7 @@ class MangaApp:
         row += 1
 
         ttk.Label(
-            config_card,
+            self.config_auth_tab,
             textvariable=self.cookie_net_label_var,
             style="Card.TLabel",
             font=font_label,
@@ -3827,11 +4047,11 @@ class MangaApp:
             row=row, column=0, sticky="w", pady=4, padx=(4, 8)
         )
         self.cookie_net_entry = ttk.Entry(
-            config_card, textvariable=self.cookie_net, width=64, font=font_entry, style="Card.TEntry", show="*"
+            self.config_auth_tab, textvariable=self.cookie_net, width=64, font=font_entry, style="Card.TEntry", show="*"
         )
         self.cookie_net_entry.grid(row=row, column=1, pady=4, sticky="ew")
         self.cookie_net_status = tk.Label(
-            config_card,
+            self.config_auth_tab,
             text="Validation en cours",
             font=("Segoe UI Semibold", 9),
             fg="#1f2937",
@@ -3846,7 +4066,7 @@ class MangaApp:
         row += 1
 
         ttk.Label(
-            config_card,
+            self.config_auth_tab,
             textvariable=self.cookie_origines_label_var,
             style="Card.TLabel",
             font=font_label,
@@ -3854,11 +4074,11 @@ class MangaApp:
             row=row, column=0, sticky="w", pady=4, padx=(4, 8)
         )
         self.cookie_origines_entry = ttk.Entry(
-            config_card, textvariable=self.cookie_origines, width=64, font=font_entry, style="Card.TEntry", show="*"
+            self.config_auth_tab, textvariable=self.cookie_origines, width=64, font=font_entry, style="Card.TEntry", show="*"
         )
         self.cookie_origines_entry.grid(row=row, column=1, pady=4, sticky="ew")
         self.cookie_origines_status = tk.Label(
-            config_card,
+            self.config_auth_tab,
             text="Validation en cours",
             font=("Segoe UI Semibold", 9),
             fg="#1f2937",
@@ -3873,7 +4093,7 @@ class MangaApp:
         row += 1
 
         ttk.Label(
-            config_card,
+            self.config_auth_tab,
             textvariable=self.cookie_hentai_label_var,
             style="Card.TLabel",
             font=font_label,
@@ -3881,11 +4101,11 @@ class MangaApp:
             row=row, column=0, sticky="w", pady=4, padx=(4, 8)
         )
         self.cookie_hentai_entry = ttk.Entry(
-            config_card, textvariable=self.cookie_hentai, width=64, font=font_entry, style="Card.TEntry", show="*"
+            self.config_auth_tab, textvariable=self.cookie_hentai, width=64, font=font_entry, style="Card.TEntry", show="*"
         )
         self.cookie_hentai_entry.grid(row=row, column=1, pady=4, sticky="ew")
         self.cookie_hentai_status = tk.Label(
-            config_card,
+            self.config_auth_tab,
             text="Validation en cours",
             font=("Segoe UI Semibold", 9),
             fg="#1f2937",
@@ -3900,17 +4120,17 @@ class MangaApp:
         row += 1
 
         ttk.Label(
-            config_card,
+            self.config_auth_tab,
             textvariable=self.ua_label_var,
             style="Card.TLabel",
             font=font_label,
         ).grid(
             row=row, column=0, sticky="w", pady=4, padx=(4, 8)
         )
-        self.ua_entry = ttk.Entry(config_card, textvariable=self.ua, font=font_entry, style="Card.TEntry")
+        self.ua_entry = ttk.Entry(self.config_auth_tab, textvariable=self.ua, font=font_entry, style="Card.TEntry")
         self.ua_entry.grid(row=row, column=1, pady=4, sticky="ew")
         self.ua_status = tk.Label(
-            config_card,
+            self.config_auth_tab,
             text="Validation en cours",
             font=("Segoe UI Semibold", 9),
             fg="#1f2937",
@@ -3924,43 +4144,17 @@ class MangaApp:
         self.ua_status.grid(row=row, column=2, sticky="w", padx=10)
         row += 1
 
-        options_row = ttk.Frame(config_card, style="Card.TFrame")
-        options_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 2), padx=(4, 4))
-        options_row.columnconfigure(0, weight=1)
-
-        options_left = ttk.Frame(options_row, style="Card.TFrame")
-        options_left.grid(row=0, column=0, sticky="w")
-        ttk.Checkbutton(options_left, text=".CBZ", variable=self.cbz_enabled, style="Card.TCheckbutton").pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(options_left, text="WEBP en JPG", variable=self.webp2jpg_enabled, style="Card.TCheckbutton").pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(
-            options_left,
-            text="Reprise intelligente",
-            variable=self.smart_resume_enabled,
-            style="Card.TCheckbutton",
-        ).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(
-            options_left,
-            text="Logs détaillés",
-            variable=self.verbose_logs,
-            style="Card.TCheckbutton",
-            command=self.refresh_log_view,
-        ).pack(side="left", padx=(0, 10))
-        ttk.Checkbutton(
-            options_left,
-            text="Logs terminal",
-            variable=self.console_logs_enabled,
-            style="Card.TCheckbutton",
-        ).pack(side="left")
-        ttk.Checkbutton(
-            options_left,
-            text="Afficher cookies",
-            variable=self.show_cookies,
-            style="Card.TCheckbutton",
-            command=self._toggle_cookie_visibility,
-        ).pack(side="left", padx=(10, 0))
-
+        auth_actions_row = ttk.Frame(self.config_auth_tab, style="Card.TFrame")
+        auth_actions_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 2), padx=(4, 4))
+        auth_actions_row.columnconfigure(0, weight=1)
         ttk.Button(
-            options_row,
+            auth_actions_row,
+            text="Tester tout",
+            command=self.run_auth_diagnostics,
+            style="Secondary.TButton",
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Button(
+            auth_actions_row,
             text="Aide Cookie",
             command=lambda: self._open_external_link(
                 get_manual_link(
@@ -3972,18 +4166,140 @@ class MangaApp:
                 )
             ),
             style="Secondary.TButton",
-        ).grid(row=0, column=1, sticky="e", padx=(0, 8))
+        ).grid(row=0, column=1, sticky="e")
+        row += 1
 
+        options_intro = ttk.Label(
+            self.config_options_tab,
+            text="Ajuste le format de sortie et le comportement des journaux.",
+            style="CardMuted.TLabel",
+            font=("Segoe UI", 9),
+        )
+        options_intro.pack(anchor="w", padx=(6, 6), pady=(2, 10))
+
+        options_groups = ttk.Frame(self.config_options_tab, style="Card.TFrame")
+        options_groups.pack(fill="x", padx=(4, 4), pady=(0, 2))
+        options_groups.grid_columnconfigure(0, weight=1, uniform="options_col")
+        options_groups.grid_columnconfigure(1, weight=1, uniform="options_col")
+        options_groups.grid_rowconfigure(0, weight=1)
+
+        left_stack = ttk.Frame(options_groups, style="Card.TFrame")
+        left_stack.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        left_stack.grid_columnconfigure(0, weight=1)
+        left_stack.grid_rowconfigure(0, weight=0)
+        left_stack.grid_rowconfigure(1, weight=1)
+
+        output_box = tk.Frame(
+            left_stack,
+            bg=self.palette["card_bg"],
+            highlightbackground=self.palette["border"],
+            highlightcolor=self.palette["border"],
+            highlightthickness=1,
+            bd=0,
+            takefocus=0,
+        )
+        output_box.grid(row=0, column=0, sticky="nsew")
+        output_inner = ttk.Frame(output_box, style="Card.TFrame")
+        output_inner.pack(fill="both", expand=True, padx=10, pady=(8, 8))
+
+        save_row = ttk.Frame(left_stack, style="Card.TFrame")
+        save_row.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+
+        logs_box = tk.Frame(
+            options_groups,
+            bg=self.palette["card_bg"],
+            highlightbackground=self.palette["border"],
+            highlightcolor=self.palette["border"],
+            highlightthickness=1,
+            bd=0,
+            takefocus=0,
+        )
+        logs_box.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        logs_inner = ttk.Frame(logs_box, style="Card.TFrame")
+        logs_inner.pack(fill="both", expand=True, padx=10, pady=10)
+
+        ttk.Label(
+            output_inner,
+            text="Sortie",
+            style="Card.TLabel",
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", pady=(0, 8))
+        ttk.Label(
+            logs_inner,
+            text="Journal et affichage",
+            style="Card.TLabel",
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", pady=(0, 8))
         ttk.Button(
-            options_row,
+            save_row,
             text="Sauvegarder paramètres",
             command=self.save_current_cookie,
             style="Primary.TButton",
-        ).grid(row=0, column=2, sticky="e")
+        ).pack(expand=True)
+
+        def add_option_line(parent, text, variable, description, command=None, bottom=8):
+            line = ttk.Frame(parent, style="Card.TFrame")
+            line.pack(fill="x", anchor="w", pady=(0, bottom))
+            check = ttk.Checkbutton(
+                line,
+                text=text,
+                variable=variable,
+                style="Card.TCheckbutton",
+                command=command,
+            )
+            check.pack(anchor="w")
+            ttk.Label(
+                line,
+                text=description,
+                style="CardMuted.TLabel",
+                font=("Segoe UI", 8),
+            ).pack(anchor="w", padx=(24, 0), pady=(0, 1))
+
+        add_option_line(
+            output_inner,
+            ".CBZ",
+            self.cbz_enabled,
+            "Crée une archive CBZ par tome/chapitre téléchargé.",
+            bottom=6,
+        )
+        add_option_line(
+            output_inner,
+            "WEBP en JPG",
+            self.webp2jpg_enabled,
+            "Convertit les images WEBP en JPG pour une compatibilité maximale.",
+            bottom=0,
+        )
+        add_option_line(
+            logs_inner,
+            "Reprise intelligente",
+            self.smart_resume_enabled,
+            "Reprend uniquement les pages manquantes après interruption.",
+        )
+        add_option_line(
+            logs_inner,
+            "Logs détaillés",
+            self.verbose_logs,
+            "Affiche les étapes techniques complètes dans le journal.",
+            command=self.refresh_log_view,
+        )
+        add_option_line(
+            logs_inner,
+            "Logs terminal",
+            self.console_logs_enabled,
+            "Duplique les logs dans la console pour le diagnostic.",
+        )
+        add_option_line(
+            logs_inner,
+            "Afficher cookies",
+            self.show_cookies,
+            "Affiche les valeurs réelles des cookies dans les champs.",
+            command=self._toggle_cookie_visibility,
+            bottom=0,
+        )
 
         self._setup_auth_link_placeholders()
 
-        source_card, self.source_section_tabs = create_titled_section(main_frame, "Sources", 10)
+        source_card, self.source_section_tabs = create_titled_section(main_frame, "Sources", 6)
 
         url_cover_frame = ttk.Frame(source_card, style="Card.TFrame")
         url_cover_frame.pack(fill="x")
@@ -4023,7 +4339,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (18+ 🔞)",
             None,
         )
 
@@ -4039,10 +4355,10 @@ class MangaApp:
         self.status_label = ttk.Label(analyze_frame, text="", style="Card.TLabel", font=("Segoe UI", 9))
         self.status_label.pack(side="left", padx=(12, 0))
 
-        center_card, self.selection_section_tabs = create_titled_section(main_frame, "Tomes / Chapitres", 10)
+        center_card, self.selection_section_tabs = create_titled_section(main_frame, "Tomes / Chapitres", 6)
 
         vol_header = ttk.Frame(center_card, style="Card.TFrame")
-        vol_header.pack(fill="x", pady=(0, 6))
+        vol_header.pack(fill="x", pady=(0, 4))
 
         left_group = ttk.Frame(vol_header, style="Card.TFrame")
         left_group.pack(side="left")
@@ -4197,8 +4513,8 @@ class MangaApp:
         self.canvas.bind("<Configure>", center_volumes)
         self.vol_frame.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
-        progress_frame = ttk.Frame(main_frame, style="App.TFrame")
-        progress_frame.pack(fill="x", pady=(0, 8))
+        progress_frame = ttk.Frame(center_card, style="Card.TFrame")
+        progress_frame.pack(fill="x", pady=(4, 0))
         self.current_volume_status_label = ttk.Label(
             progress_frame,
             text="Tome/Chapitre en cours: --",
@@ -4257,7 +4573,7 @@ class MangaApp:
         status_box.pack(fill="x")
 
         self.activity_tabs = ttk.Notebook(main_frame)
-        self.activity_tabs.pack(fill="x", expand=False, pady=(0, 8))
+        self.activity_tabs.pack(fill="x", expand=False, pady=(0, 4))
         log_tab = ttk.Frame(self.activity_tabs, style="Card.TFrame")
         self.error_tab = ttk.Frame(self.activity_tabs, style="Card.TFrame")
         self.activity_tabs.add(log_tab, text="Journal")
@@ -4445,6 +4761,63 @@ class MangaApp:
         target_w = max(1, int(round(target_h * ratio)))
         return target_w, target_h
 
+    def _stop_cover_animation(self):
+        """Arrête l'animation de couverture en cours (si active)."""
+        after_id = getattr(self, "cover_animation_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.cover_animation_after_id = None
+        self.cover_animation_index = 0
+        self.cover_animation_frames = []
+        self.cover_animation_durations = []
+
+    def _apply_cover_static(self, fitted_image):
+        """Affiche une couverture statique."""
+        self._stop_cover_animation()
+        self.cover_preview = ImageTk.PhotoImage(fitted_image)
+        self.cover_label.configure(image=self.cover_preview, text="")
+        self.cover_label.image = self.cover_preview
+
+    def _apply_cover_animation(self, frames, durations):
+        """Affiche une couverture animée (GIF) avec boucle Tkinter."""
+        self._stop_cover_animation()
+        if not frames:
+            return
+
+        self.cover_animation_frames = [ImageTk.PhotoImage(frame) for frame in frames]
+        self.cover_animation_durations = [max(60, int(delay or 100)) for delay in durations] or [100] * len(
+            self.cover_animation_frames
+        )
+        if len(self.cover_animation_durations) < len(self.cover_animation_frames):
+            self.cover_animation_durations.extend(
+                [100] * (len(self.cover_animation_frames) - len(self.cover_animation_durations))
+            )
+        self.cover_animation_index = 0
+        self.cover_preview = self.cover_animation_frames[0]
+        self.cover_label.configure(image=self.cover_preview, text="")
+        self.cover_label.image = self.cover_preview
+
+        if len(self.cover_animation_frames) <= 1:
+            return
+
+        def tick():
+            if not self.cover_animation_frames:
+                self.cover_animation_after_id = None
+                return
+            self.cover_animation_index = (self.cover_animation_index + 1) % len(self.cover_animation_frames)
+            frame = self.cover_animation_frames[self.cover_animation_index]
+            self.cover_preview = frame
+            self.cover_label.configure(image=frame, text="")
+            self.cover_label.image = frame
+            delay = self.cover_animation_durations[self.cover_animation_index]
+            self.cover_animation_after_id = self.root.after(delay, tick)
+
+        first_delay = self.cover_animation_durations[0]
+        self.cover_animation_after_id = self.root.after(first_delay, tick)
+
     def _show_default_cover_placeholder(self):
         """Affiche le visuel par défaut de couverture avant la première analyse."""
         if not hasattr(self, "cover_label"):
@@ -4452,6 +4825,7 @@ class MangaApp:
 
         placeholder_path = BASE_DIR / "assets" / "sushidl.png"
         if not placeholder_path.exists():
+            self._stop_cover_animation()
             self.cover_preview = None
             self.cover_label.configure(image="", text="Couverture")
             self.cover_label.image = None
@@ -4468,11 +4842,9 @@ class MangaApp:
                     method=Image.LANCZOS,
                     centering=(0.5, 0.5),
                 )
-
-            self.cover_preview = ImageTk.PhotoImage(fitted)
-            self.cover_label.configure(image=self.cover_preview, text="")
-            self.cover_label.image = self.cover_preview
+            self._apply_cover_static(fitted)
         except Exception as exc:
+            self._stop_cover_animation()
             self.cover_preview = None
             self.cover_label.configure(image="", text="Couverture")
             self.cover_label.image = None
@@ -4558,19 +4930,21 @@ class MangaApp:
     def _setup_auth_link_placeholders(self):
         """Initialise les placeholders cliquables pour cookies et User-Agent."""
         ua_link = get_manual_link("user_agent", "https://httpbin.org/user-agent")
+        cookie_fr_link = get_manual_link("cookie_fr", "https://sushiscan.fr")
+        cookie_net_link = get_manual_link("cookie_net", "https://sushiscan.net")
         cookie_origines_link = get_manual_link("cookie_origines", "https://mangas-origines.fr")
         cookie_hentai_link = get_manual_link("cookie_hentai", "https://hentai-origines.fr")
         self._attach_link_placeholder(
             self.cookie_fr_entry,
             self.cookie_fr,
-            'Coller ici votre cookie cf_clearance. Cliquer sur "Aide Cookie" si besoin.',
-            None,
+            'Cookie cf_clearance sushiscan.fr (cliquer pour ouvrir le site si besoin).',
+            cookie_fr_link,
         )
         self._attach_link_placeholder(
             self.cookie_net_entry,
             self.cookie_net,
-            'Coller ici votre cookie cf_clearance. Cliquer sur "Aide Cookie" si besoin.',
-            None,
+            'Cookie cf_clearance sushiscan.net (cliquer pour ouvrir le site si besoin).',
+            cookie_net_link,
         )
         self._attach_link_placeholder(
             self.cookie_origines_entry,
@@ -4581,7 +4955,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.cookie_hentai_entry,
             self.cookie_hentai,
-            'Cookie cf_clearance hentai-origines.fr (cliquer pour ouvrir le site si besoin).',
+            'Cookie cf_clearance hentai-origines.fr (18+ 🔞, cliquer pour ouvrir le site si besoin).',
             cookie_hentai_link,
         )
         self._attach_link_placeholder(
@@ -4795,7 +5169,7 @@ class MangaApp:
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (18+ 🔞).",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
