@@ -7,25 +7,22 @@
 **SushiDL** est une application Python moderne avec interface Tkinter permettant de télécharger automatiquement des chapitres ou tomes de mangas depuis **[sushiscan.fr](https://sushiscan.fr)** et **[sushiscan.net](https://sushiscan.net)**.  
 Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avancées comme la gestion de cookies Cloudflare, la conversion en `.cbz`, et une interface filtrable dynamique.
 
-**Version actuelle : `11.2.1`**
+**Version actuelle : `11.2.2`**
 
-## Nouveautes recentes (v11.2.1)
-- Badges cookies `.fr/.net` clarifies:
-  - `Validation en cours` au demarrage,
-  - puis `Valide` / `A verifier` selon le resultat.
-- Test cookie listing plus discret dans le journal:
-  - `Test cookie .fr/.net : Reussite` ou `Echec`.
-- Correctifs UI tomes/chapitres:
-  - suppression du texte de raccourcis affiche (`Ctrl+...`),
-  - correction du centrage des etats vides,
-  - suppression de l'artefact visuel (rectangle blanc) en bas de zone.
-- Onglets `Journal` / `Erreurs`:
-  - alignement visuel corrige,
-  - onglet actif en fond blanc,
-  - suppression du titre redondant `Journal` dans le contenu.
-- Uniformisation visuelle:
-  - boutons secondaires en fond blanc (`Aide Cookie`, `Tout decocher`, `Inverser`, `Exporter`, `Copier`, `Effacer`),
-  - palette globale adoucie pour reduire le contraste fond/cartes.
+## Nouveautes recentes (v11.2.2)
+- Couverture modernisee:
+  - placeholder par defaut via `assets/sushidl.png` avant analyse,
+  - ratio fixe 2:3 applique a toutes les couvertures (placeholder + couverture recuperee),
+  - hauteur constante avec largeur adaptee automatiquement,
+  - cadre en relief (profondeur visuelle).
+- Boutons:
+  - `Sauvegarder parametres` et `Analyser le lien` en relief, coherents avec les autres actions.
+- Nettoyage interface:
+  - suppression du texte de raccourcis affiche dans l'en-tete `Tomes / Chapitres`.
+- Maintenance:
+  - correction automatique des commentaires/docstrings mojibake dans `SushiDL.py`.
+- Assets:
+  - ajout de `assets/sushidl.png` et `assets/sushidl_full.png`.
 
 ---
 

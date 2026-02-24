@@ -7,6 +7,27 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.2] - 2026-02-24
+
+### Corrections
+- Couverture:
+  - integration du placeholder `assets/sushidl.png` avant analyse,
+  - ratio fixe 2:3 pour toutes les couvertures (placeholder + couverture recuperee),
+  - hauteur conservee et largeur adaptee automatiquement,
+  - ajout d'un effet de profondeur (cadre en relief `sunken`, epaisseur augmentee).
+- Boutons:
+  - style `Primary` en relief (raised/sunken au clic) pour un rendu coherent,
+  - renommage `Analyser la source` -> `Analyser le lien`.
+- UI:
+  - suppression de l'affichage des raccourcis dans l'en-tete tomes/chapitres.
+- Encodage code:
+  - correction automatique des commentaires/docstrings mojibake dans `SushiDL.py`.
+
+### Assets
+- Ajout de nouvelles images:
+  - `assets/sushidl.png`
+  - `assets/sushidl_full.png`
+
 ## [11.2.1] - 2026-02-24
 
 ### Corrections
