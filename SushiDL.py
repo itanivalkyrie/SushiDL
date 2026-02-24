@@ -2105,6 +2105,12 @@ class MangaApp:
         if hasattr(self, "vol_empty_label"):
             self.vol_empty_label.grid_remove()
 
+    def _is_volume_visible(self, chk):
+        try:
+            return str(chk.winfo_manager()) == "grid"
+        except Exception:
+            return False
+
     def _refresh_volume_empty_state(self):
         if not hasattr(self, "check_items"):
             return
@@ -2114,7 +2120,7 @@ class MangaApp:
             return
         visible = 0
         for chk, _label in self.check_items:
-            if chk.winfo_ismapped():
+            if self._is_volume_visible(chk):
                 visible += 1
         if visible == 0:
             self._show_volume_empty_state("Aucun resultat avec ce filtre.", tone="warning")
@@ -2977,55 +2983,6 @@ class MangaApp:
         main_frame = ttk.Frame(self.root, style="App.TFrame", padding=(18, 12))
         main_frame.pack(fill="both", expand=True)
 
-        workflow_frame = tk.Frame(
-            main_frame,
-            bg=self.palette["card_alt"],
-            highlightbackground=self.palette["border"],
-            highlightthickness=1,
-            bd=0,
-            padx=8,
-            pady=6,
-        )
-        workflow_frame.pack(fill="x", pady=(0, 10))
-
-        steps = (
-            ("auth", "1. Auth"),
-            ("source", "2. Source"),
-            ("select", "3. Selection"),
-            ("download", "4. Telechargement"),
-            ("logs", "5. Journal/Erreurs"),
-        )
-        self.workflow_labels = {}
-        for idx, (key, label_text) in enumerate(steps):
-            lbl = tk.Label(
-                workflow_frame,
-                text=label_text,
-                bg=self.palette["card_alt"],
-                fg=self.palette["muted"],
-                font=("Segoe UI Semibold", 9),
-                padx=9,
-                pady=4,
-                relief="flat",
-            )
-            lbl.pack(side="left")
-            self.workflow_labels[key] = lbl
-            if idx < len(steps) - 1:
-                tk.Label(
-                    workflow_frame,
-                    text=">",
-                    bg=self.palette["card_alt"],
-                    fg=self.palette["muted"],
-                    font=("Segoe UI", 9),
-                    padx=4,
-                ).pack(side="left")
-        self.workflow_hint_label = ttk.Label(
-            workflow_frame,
-            text="Renseigne cookies et User-Agent manuels.",
-            style="Muted.TLabel",
-            font=("Segoe UI", 9),
-        )
-        self.workflow_hint_label.pack(side="right", padx=(8, 2))
-
         config_card = ttk.LabelFrame(main_frame, text="Configuration", style="Card.TLabelframe")
         config_card.pack(fill="x", pady=(0, 12))
         config_card.grid_columnconfigure(1, weight=1)
@@ -3174,12 +3131,6 @@ class MangaApp:
 
         source_card = ttk.LabelFrame(main_frame, text="Source", style="Card.TLabelframe")
         source_card.pack(fill="x", pady=(0, 10))
-        ttk.Label(
-            source_card,
-            text="Etape 2: colle une URL catalogue puis clique sur Analyser.",
-            style="Muted.TLabel",
-            font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=(0, 6), padx=(4, 0))
 
         url_cover_frame = ttk.Frame(source_card, style="Card.TFrame")
         url_cover_frame.pack(fill="x")
@@ -3232,12 +3183,6 @@ class MangaApp:
 
         center_card = ttk.LabelFrame(main_frame, text="Tomes / Chapitres", style="Card.TLabelframe")
         center_card.pack(fill="x", expand=False, pady=(0, 10))
-        ttk.Label(
-            center_card,
-            text="Etape 3: filtre et selectionne les tomes a traiter.",
-            style="Muted.TLabel",
-            font=("Segoe UI", 9),
-        ).pack(anchor="w", pady=(0, 6), padx=(4, 0))
 
         vol_header = ttk.Frame(center_card, style="Card.TFrame")
         vol_header.pack(fill="x", pady=(0, 6))
@@ -4083,7 +4028,7 @@ class MangaApp:
             is_selected = bool(var.get())
             if is_selected:
                 selected_total += 1
-            if chk.winfo_ismapped():
+            if self._is_volume_visible(chk):
                 visible_total += 1
                 if is_selected:
                     selected_visible += 1
@@ -4204,7 +4149,7 @@ class MangaApp:
         self.cancel_event.clear()
         selected = []
         for (chk, _label), (vol, link), var in zip(self.check_items, self.pairs, self.check_vars):
-            if var.get() and chk.winfo_ismapped():
+            if var.get() and self._is_volume_visible(chk):
                 selected.append((vol, link))
 
         if not selected:

@@ -18,7 +18,7 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 - Normalisation des textes FR affiches (accents/libelles UI)
 - Logs GUI alignes sur les logs terminal (corrections de texte mojibake)
 - UI/UX phase 1: cookies masques par defaut, raccourcis clavier, resume de selection, progression images detaillee
-- UI/UX phase 2: barre d'etapes guidee, etats vides explicites, onglets Journal/Erreurs avec compteur dynamique
+- UI/UX phase 2: interface compacte (sans bandeau d'etapes), etats vides explicites, onglets Journal/Erreurs
 - Nettoyage global d'encodage de `SushiDL.py` + garde-fou `.editorconfig` (UTF-8/LF)
 
 ---
