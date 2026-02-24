@@ -9,6 +9,15 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 
 **Version actuelle : `11.2.0`**
 
+## Nouveautes recentes (v11.2.0)
+- Etat `Analyse en cours` detaille par etapes (`validation URL`, `recuperation catalogue`, `parsing`, `couverture`)
+- ETA visible par tome et ETA globale pendant le telechargement
+- Mode `Reprise intelligente` pour reprendre uniquement les pages manquantes d'un tome interrompu
+- Panneau `Erreurs par tome` avec etape, code HTTP, raison technique et action recommandee
+- Export CSV des erreurs par tome
+- Normalisation des textes FR affiches (accents/libelles UI)
+- Logs GUI aligns sur les logs terminal (corrections de texte mojibake)
+
 ---
 
 ## ✨ Fonctionnalités

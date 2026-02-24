@@ -17,6 +17,19 @@ Le format de version suit la regle `X.Y.Z` :
   - requete legere sur le domaine actif (`.fr` ou `.net`),
   - badge `User-Agent` passe a `Validee` quand une reponse HTTP est obtenue.
 - Lors de la modification du champ `User-Agent`, son statut repasse proprement en `En attente` (ou `A verifier` si vide) jusqu'au prochain test/analyse.
+- Analyse detaillee:
+  - etat `Analyse en cours` decoupe en etapes (`validation URL`, `recuperation catalogue`, `parsing`, `couverture`).
+- Telechargement:
+  - ajout d'une ETA `Tome` + `Globale` mise a jour en temps reel.
+  - ajout d'un mode `Reprise intelligente` (reprise sur pages manquantes uniquement).
+- Observabilite:
+  - ajout d'un panneau `Erreurs par tome` avec `etape`, `code HTTP`, `raison technique`, `action recommandee`.
+  - export CSV des erreurs par tome.
+
+### Corrections
+- Normalisation des textes FR affiches:
+  - correction des libelles UI les plus visibles (accents),
+  - correction des logs GUI (texte mojibake) pour alignement avec les logs terminal.
 
 ## [11.1.9] - 2026-02-22
 
