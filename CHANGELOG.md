@@ -31,6 +31,11 @@ Le format de version suit la regle `X.Y.Z` :
   - resume de selection en temps reel (`Selection: x/y`),
   - detail de progression images (`Images: done/total`) en plus du pourcentage et ETA,
   - journal en `wrap=none` avec barre de scroll horizontale.
+- UI/UX (phase 2):
+  - ajout d'une barre d'etapes (Auth -> Source -> Selection -> Telechargement -> Journal/Erreurs),
+  - etats vides guides pour la zone tomes (aucune source chargee / aucun resultat filtre / liste vide),
+  - separation `Journal` / `Erreurs` via onglets avec compteur d'erreurs dynamique,
+  - hints contextuels pour l'action de telechargement (eligibilite de la selection).
 
 ### Corrections
 - Normalisation des textes FR affiches:

@@ -2027,6 +2027,7 @@ class MangaApp:
                 self.invert_button.config(state="disabled")
             if hasattr(self, "master_toggle_button"):
                 self.master_toggle_button.config(state="disabled")
+            self._set_workflow_step("download", "Telechargement en cours...")
         else:
             self.dl_button.config(text="Télécharger")
             self.cancel_button.config(state="disabled")
@@ -2046,6 +2047,11 @@ class MangaApp:
                 self.set_filter_placeholder()
             self._set_eta_ui()
             self._set_progress_detail_ui(None, None)
+            if getattr(self, "current_workflow_step", "") != "logs":
+                if getattr(self, "check_items", None):
+                    self._set_workflow_step("select", "Selectionne les tomes a telecharger.")
+                else:
+                    self._set_workflow_step("source", "Renseigne une URL puis lance l'analyse.")
         self.update_master_toggle_button()
 
     def _set_progress_detail_ui(self, done=None, total=None):
@@ -2055,6 +2061,83 @@ class MangaApp:
             self.progress_detail_label.config(text="Images: --/--")
             return
         self.progress_detail_label.config(text=f"Images: {int(done)}/{int(total)}")
+
+    def _set_workflow_step(self, step, hint_text=None):
+        order = ("auth", "source", "select", "download", "logs")
+        if step not in order:
+            step = "auth"
+        self.current_workflow_step = step
+        if not hasattr(self, "workflow_labels"):
+            return
+
+        active_index = order.index(step)
+        for idx, key in enumerate(order):
+            label = self.workflow_labels.get(key)
+            if label is None:
+                continue
+            if idx < active_index:
+                label.config(bg="#d8ebf8", fg=self.palette["text"])
+            elif idx == active_index:
+                label.config(bg=self.palette["accent"], fg="#ffffff")
+            else:
+                label.config(bg=self.palette["card_alt"], fg=self.palette["muted"])
+
+        if hint_text and hasattr(self, "workflow_hint_label"):
+            self.workflow_hint_label.config(text=hint_text)
+
+    def _show_volume_empty_state(self, text, tone="muted"):
+        if not hasattr(self, "vol_empty_label"):
+            return
+        fg_map = {
+            "muted": self.palette["muted"],
+            "info": self.palette["accent_hover"],
+            "warning": "#a16207",
+            "error": self.palette["danger"],
+        }
+        self.vol_empty_label.config(
+            text=repair_mojibake_text(text or ""),
+            fg=fg_map.get(tone, self.palette["muted"]),
+            bg=self.palette["canvas_bg"],
+        )
+        self.vol_empty_label.grid(row=0, column=0, columnspan=4, pady=(54, 54), sticky="n")
+
+    def _hide_volume_empty_state(self):
+        if hasattr(self, "vol_empty_label"):
+            self.vol_empty_label.grid_remove()
+
+    def _refresh_volume_empty_state(self):
+        if not hasattr(self, "check_items"):
+            return
+        total = len(self.check_items)
+        if total == 0:
+            self._show_volume_empty_state("Aucun tome charge. Clique sur Analyser pour commencer.", tone="muted")
+            return
+        visible = 0
+        for chk, _label in self.check_items:
+            if chk.winfo_ismapped():
+                visible += 1
+        if visible == 0:
+            self._show_volume_empty_state("Aucun resultat avec ce filtre.", tone="warning")
+        else:
+            self._hide_volume_empty_state()
+
+    def _update_error_tab_title(self, focus_errors=False):
+        if not hasattr(self, "activity_tabs") or not hasattr(self, "error_tab"):
+            return
+        count = len(getattr(self, "volume_error_entries", []) or [])
+        self.activity_tabs.tab(self.error_tab, text=f"Erreurs ({count})")
+        if focus_errors and count > 0:
+            self.activity_tabs.select(self.error_tab)
+            self._set_workflow_step("logs", "Des erreurs sont disponibles dans l'onglet Erreurs.")
+
+    def _on_activity_tab_changed(self, _event=None):
+        if not hasattr(self, "activity_tabs"):
+            return
+        selected = self.activity_tabs.select()
+        if hasattr(self, "error_tab") and selected == str(self.error_tab):
+            self._set_workflow_step("logs", "Consulte les erreurs par tome.")
+        else:
+            self._set_workflow_step("logs", "Consulte le journal d'execution.")
 
     def _shortcut_analyze(self, _event=None):
         if getattr(self, "analysis_in_progress", False):
@@ -2085,6 +2168,7 @@ class MangaApp:
     def _shortcut_focus_logs(self, _event=None):
         if hasattr(self, "log_text"):
             self.log_text.focus_set()
+        self._set_workflow_step("logs", "Consulte le journal et les erreurs.")
         return "break"
 
     def ask_yes_no(self, title, prompt):
@@ -2174,10 +2258,13 @@ class MangaApp:
             return
         if success is True:
             color = "#0f9d58"
+            self._set_workflow_step("select", "Analyse terminee. Selectionne les tomes a telecharger.")
         elif success is False:
             color = "#d93025"
+            self._set_workflow_step("source", "Analyse en echec. Verifie URL/cookies puis relance.")
         else:
             color = "#2f73d9"
+            self._set_workflow_step("source", "Analyse en cours...")
         self.status_label.config(text=repair_mojibake_text(text or ""), foreground=color)
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
@@ -2688,12 +2775,14 @@ class MangaApp:
         if len(self.volume_error_entries) > 2000:
             self.volume_error_entries = self.volume_error_entries[-2000:]
         self.run_on_ui(self._append_volume_error_row, entry)
+        self.run_on_ui(self._update_error_tab_title, True)
 
     def clear_volume_errors(self):
         self.volume_error_entries = []
         if hasattr(self, "error_tree"):
             for item_id in self.error_tree.get_children():
                 self.error_tree.delete(item_id)
+        self.run_on_ui(self._update_error_tab_title, False)
 
     def export_volume_errors(self):
         if not self.volume_error_entries:
@@ -2888,6 +2977,55 @@ class MangaApp:
         main_frame = ttk.Frame(self.root, style="App.TFrame", padding=(18, 12))
         main_frame.pack(fill="both", expand=True)
 
+        workflow_frame = tk.Frame(
+            main_frame,
+            bg=self.palette["card_alt"],
+            highlightbackground=self.palette["border"],
+            highlightthickness=1,
+            bd=0,
+            padx=8,
+            pady=6,
+        )
+        workflow_frame.pack(fill="x", pady=(0, 10))
+
+        steps = (
+            ("auth", "1. Auth"),
+            ("source", "2. Source"),
+            ("select", "3. Selection"),
+            ("download", "4. Telechargement"),
+            ("logs", "5. Journal/Erreurs"),
+        )
+        self.workflow_labels = {}
+        for idx, (key, label_text) in enumerate(steps):
+            lbl = tk.Label(
+                workflow_frame,
+                text=label_text,
+                bg=self.palette["card_alt"],
+                fg=self.palette["muted"],
+                font=("Segoe UI Semibold", 9),
+                padx=9,
+                pady=4,
+                relief="flat",
+            )
+            lbl.pack(side="left")
+            self.workflow_labels[key] = lbl
+            if idx < len(steps) - 1:
+                tk.Label(
+                    workflow_frame,
+                    text=">",
+                    bg=self.palette["card_alt"],
+                    fg=self.palette["muted"],
+                    font=("Segoe UI", 9),
+                    padx=4,
+                ).pack(side="left")
+        self.workflow_hint_label = ttk.Label(
+            workflow_frame,
+            text="Renseigne cookies et User-Agent manuels.",
+            style="Muted.TLabel",
+            font=("Segoe UI", 9),
+        )
+        self.workflow_hint_label.pack(side="right", padx=(8, 2))
+
         config_card = ttk.LabelFrame(main_frame, text="Configuration", style="Card.TLabelframe")
         config_card.pack(fill="x", pady=(0, 12))
         config_card.grid_columnconfigure(1, weight=1)
@@ -3036,6 +3174,12 @@ class MangaApp:
 
         source_card = ttk.LabelFrame(main_frame, text="Source", style="Card.TLabelframe")
         source_card.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            source_card,
+            text="Etape 2: colle une URL catalogue puis clique sur Analyser.",
+            style="Muted.TLabel",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 6), padx=(4, 0))
 
         url_cover_frame = ttk.Frame(source_card, style="Card.TFrame")
         url_cover_frame.pack(fill="x")
@@ -3078,7 +3222,7 @@ class MangaApp:
         analyze_frame.pack(pady=(6, 0), anchor="w")
         self.analyze_button = ttk.Button(
             analyze_frame,
-            text="Analyser",
+            text="Analyser la source",
             command=self.load_volumes,
             style="Primary.TButton",
         )
@@ -3088,6 +3232,12 @@ class MangaApp:
 
         center_card = ttk.LabelFrame(main_frame, text="Tomes / Chapitres", style="Card.TLabelframe")
         center_card.pack(fill="x", expand=False, pady=(0, 10))
+        ttk.Label(
+            center_card,
+            text="Etape 3: filtre et selectionne les tomes a traiter.",
+            style="Muted.TLabel",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(0, 6), padx=(4, 0))
 
         vol_header = ttk.Frame(center_card, style="Card.TFrame")
         vol_header.pack(fill="x", pady=(0, 6))
@@ -3181,7 +3331,7 @@ class MangaApp:
 
         self.dl_button = ttk.Button(
             download_group,
-            text="Télécharger",
+            text="Telecharger la selection",
             command=self.download_selected,
             style="Download.TButton",
             state="disabled",
@@ -3196,6 +3346,13 @@ class MangaApp:
             state="disabled",
         )
         self.cancel_button.pack(side="left")
+        self.download_hint_label = ttk.Label(
+            download_group,
+            text="Selectionne au moins 1 tome.",
+            style="Muted.TLabel",
+            font=("Segoe UI", 8),
+        )
+        self.download_hint_label.pack(side="left", padx=(10, 0))
 
         self.set_filter_placeholder()
         self.filter_entry.config(state="disabled")
@@ -3225,6 +3382,14 @@ class MangaApp:
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.vol_frame = tk.Frame(self.canvas, bg=self.palette["canvas_bg"])
         self.canvas_window = self.canvas.create_window((0, 0), window=self.vol_frame, anchor="n")
+        self.vol_empty_label = tk.Label(
+            self.vol_frame,
+            text="Aucun tome charge. Clique sur Analyser pour commencer.",
+            bg=self.palette["canvas_bg"],
+            fg=self.palette["muted"],
+            font=("Segoe UI", 10),
+        )
+        self.vol_empty_label.grid(row=0, column=0, columnspan=4, pady=(54, 54), sticky="n")
 
         def center_volumes(event):
             canvas_width = event.width
@@ -3284,9 +3449,16 @@ class MangaApp:
         )
         status_box.pack(fill="x")
 
-        log_frame = ttk.LabelFrame(main_frame, text="Journal", style="Card.TLabelframe")
-        log_frame.pack(fill="both", expand=True, pady=(0, 8))
+        self.activity_tabs = ttk.Notebook(main_frame)
+        self.activity_tabs.pack(fill="both", expand=True, pady=(0, 8))
+        log_tab = ttk.Frame(self.activity_tabs, style="Card.TFrame")
+        self.error_tab = ttk.Frame(self.activity_tabs, style="Card.TFrame")
+        self.activity_tabs.add(log_tab, text="Journal")
+        self.activity_tabs.add(self.error_tab, text="Erreurs (0)")
+        self.activity_tabs.bind("<<NotebookTabChanged>>", self._on_activity_tab_changed)
 
+        log_frame = ttk.LabelFrame(log_tab, text="Journal", style="Card.TLabelframe")
+        log_frame.pack(fill="both", expand=True)
         log_toolbar = ttk.Frame(log_frame, style="Card.TFrame")
         log_toolbar.pack(fill="x", pady=(0, 6))
         ttk.Label(log_toolbar, text="Niveau:", style="Card.TLabel", font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
@@ -3341,8 +3513,8 @@ class MangaApp:
         self.log_text.tag_config("warning", foreground="#f67400")
         self.log_text.tag_config("cbz", foreground="#7c3aed")
 
-        error_frame = ttk.LabelFrame(main_frame, text="Erreurs par tome", style="Card.TLabelframe")
-        error_frame.pack(fill="x", expand=False, pady=(0, 8))
+        error_frame = ttk.LabelFrame(self.error_tab, text="Erreurs par tome", style="Card.TLabelframe")
+        error_frame.pack(fill="both", expand=True)
         error_toolbar = ttk.Frame(error_frame, style="Card.TFrame")
         error_toolbar.pack(fill="x", pady=(0, 4))
         ttk.Button(
@@ -3362,24 +3534,26 @@ class MangaApp:
             error_frame,
             columns=("time", "tome", "stage", "http", "reason", "action"),
             show="headings",
-            height=5,
+            height=7,
         )
         self.error_tree.heading("time", text="Heure")
         self.error_tree.heading("tome", text="Tome")
-        self.error_tree.heading("stage", text="Étape")
+        self.error_tree.heading("stage", text="Etape")
         self.error_tree.heading("http", text="HTTP")
         self.error_tree.heading("reason", text="Cause")
-        self.error_tree.heading("action", text="Action recommandée")
+        self.error_tree.heading("action", text="Action recommandee")
         self.error_tree.column("time", width=64, anchor="center", stretch=False)
         self.error_tree.column("tome", width=160, anchor="w", stretch=False)
         self.error_tree.column("stage", width=90, anchor="center", stretch=False)
         self.error_tree.column("http", width=60, anchor="center", stretch=False)
         self.error_tree.column("reason", width=290, anchor="w", stretch=True)
         self.error_tree.column("action", width=360, anchor="w", stretch=True)
-        self.error_tree.pack(side="left", fill="x", expand=True)
+        self.error_tree.pack(side="left", fill="both", expand=True)
         error_scroll = ttk.Scrollbar(error_frame, orient="vertical", command=self.error_tree.yview)
         error_scroll.pack(side="right", fill="y")
         self.error_tree.configure(yscrollcommand=error_scroll.set)
+        self._update_error_tab_title(focus_errors=False)
+        self._set_workflow_step("auth", "Renseigne cookies et User-Agent manuels.")
 
     def normalize_display_texts(self):
         """Normalise les textes affiches (accents/casse) sur l'UI."""
@@ -3685,6 +3859,7 @@ class MangaApp:
             self.log("Analyse déjà en cours, patiente quelques secondes.", level="warning")
             return
 
+        self._set_workflow_step("source", "Validation URL et analyse catalogue...")
         self._set_analysis_status_label("Analyse en cours: validation URL...", success=None)
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
@@ -3722,6 +3897,7 @@ class MangaApp:
         if hasattr(self, "analyze_button"):
             self.analyze_button.config(state="disabled")
         self.update_master_toggle_button()
+        self._show_volume_empty_state("Analyse en cours... chargement des tomes.", tone="info")
 
         def finish_analysis():
             self.analysis_in_progress = False
@@ -3775,6 +3951,9 @@ class MangaApp:
 
         def apply_pairs_ui():
             for widget in self.vol_frame.winfo_children():
+                if widget is getattr(self, "vol_empty_label", None):
+                    widget.grid_remove()
+                    continue
                 widget.destroy()
 
             self.check_vars = []
@@ -3797,16 +3976,26 @@ class MangaApp:
                 chk.grid(row=(i // columns) + 2, column=i % columns, padx=15, pady=5, sticky="n")
                 self.check_items.append((chk, vol))
 
+            if not self.pairs:
+                self._show_volume_empty_state("Aucun tome detecte pour cette URL.", tone="warning")
+                self.log("Aucun tome detecte.", level="warning")
+            else:
+                self._hide_volume_empty_state()
             self.canvas.yview_moveto(0)
             self.log("Liste chargée avec succès.", level="success")
-            self.filter_entry.config(state="normal")
-            self.clear_filter_button.config(state="normal")
-            if not self.filter_text.get().strip():
+            has_pairs = bool(self.pairs)
+            self.filter_entry.config(state="normal" if has_pairs else "disabled")
+            self.clear_filter_button.config(state="normal" if has_pairs else "disabled")
+            if has_pairs and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
-            self.master_toggle_button.config(state="normal")
-            self.invert_button.config(state="normal")
+            self.master_toggle_button.config(state="normal" if has_pairs else "disabled")
+            self.invert_button.config(state="normal" if has_pairs else "disabled")
             self.update_master_toggle_button()
-            self._set_analysis_status_label("Analyse terminée.", success=True)
+            self._refresh_volume_empty_state()
+            if has_pairs:
+                self._set_analysis_status_label("Analyse terminée.", success=True)
+            else:
+                self._set_analysis_status_label("Analyse terminée: liste vide.", success=False)
             finish_analysis()
 
         def fetch_progress_callback(step):
@@ -3904,6 +4093,16 @@ class MangaApp:
             if visible_total and visible_total != total:
                 label_text = f"{label_text} (affichés: {selected_visible}/{visible_total})"
             self.selection_status_label.config(text=label_text)
+        if hasattr(self, "download_hint_label"):
+            if total == 0:
+                hint = "Charge d'abord une source."
+            elif selected_visible <= 0:
+                hint = "Selectionne au moins 1 tome visible."
+            elif visible_total != total:
+                hint = f"{selected_visible} tome(s) visible(s) pret(s)."
+            else:
+                hint = f"{selected_visible} tome(s) pret(s) au telechargement."
+            self.download_hint_label.config(text=hint)
 
         can_download = (
             total > 0
@@ -3953,6 +4152,7 @@ class MangaApp:
             else:
                 chk.grid_remove()
         self._update_selection_status()
+        self._refresh_volume_empty_state()
 
     def clear_filter(self):
         """Réinitialise le filtre et affiche tous les tomes"""
@@ -4011,6 +4211,7 @@ class MangaApp:
             self.log("Aucun tome sélectionné.", level="info")
             return
 
+        self._set_workflow_step("download", "Preparation du telechargement...")
         self._set_download_controls(True)
         self._set_progress_ui(0)
         self._set_eta_ui()
@@ -4289,8 +4490,10 @@ class MangaApp:
             if self.cancel_event.is_set():
                 self.log("Téléchargement annulé !", level="warning")
                 self.run_on_ui(self._set_progress_ui, 0)
+                self.run_on_ui(self._set_workflow_step, "logs", "Telechargement annule. Consulte le journal.")
             else:
                 self.log("Tous les tomes ont été traités.", level="success")
+                self.run_on_ui(self._set_workflow_step, "logs", "Traitement termine. Verifie le journal final.")
 
             self.cancel_event.clear()
             self.run_on_ui(self._set_download_controls, False)
@@ -4304,6 +4507,7 @@ class MangaApp:
         self.cancel_event.set()
         self.log("Annulation demandée...", level="warning")
         self.cancel_button.config(state="disabled")
+        self._set_workflow_step("logs", "Annulation demandee. Attente de fin des threads...")
 
     def save_current_cookie(self):
         """Sauvegarde les paramètres actuels dans le cache"""
@@ -4320,7 +4524,3 @@ class MangaApp:
 if __name__ == "__main__":
     runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
     MangaApp()
-
-
-
-
