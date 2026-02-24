@@ -7,22 +7,24 @@
 **SushiDL** est une application Python moderne avec interface Tkinter permettant de télécharger automatiquement des chapitres ou tomes de mangas depuis **[sushiscan.fr](https://sushiscan.fr)** et **[sushiscan.net](https://sushiscan.net)**.  
 Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avancées comme la gestion de cookies Cloudflare, la conversion en `.cbz`, et une interface filtrable dynamique.
 
-**Version actuelle : `11.2.3`**
+**Version actuelle : `11.2.4`**
 
 ## Nouveautes recentes
+
+### v11.2.4
+- Choix du dossier de destination au clic sur `Télécharger la sélection`.
+- Prise en charge du dossier choisi pour les deux modes de sortie:
+  - `.cbz` (archive),
+  - images (arborescence conservée).
+- Création automatique de l'arborescence `Nom du manga / Tome|Chapitre` dans le dossier sélectionné.
+- Onglet `Erreurs` harmonisé avec `Journal`:
+  - suppression du titre redondant,
+  - ajout du bouton `Copier` (presse-papiers).
+- Uniformisation visuelle des sections principales avec des en-têtes au style "onglet" (sans changer la structure verticale).
 
 ### v11.2.3
 - Ligne de progression unifiee et plus lisible (`Tome/Chapitre en cours` -> `Images` -> `ETA Tome/Global` -> barre + `%`).
 - Indicateur dynamique du tome/chapitre en cours pendant le telechargement.
-
-### v11.2.2
-- Couverture modernisee : placeholder par defaut via `assets/sushidl.png` avant analyse.
-- Ratio fixe 2:3 applique a toutes les couvertures (placeholder + couverture recuperee), avec hauteur constante et largeur adaptee.
-- Cadre de couverture en relief (profondeur visuelle).
-- Boutons `Sauvegarder parametres` et `Analyser le lien` en relief, coherents avec les autres actions.
-- Suppression du texte de raccourcis affiche dans l'en-tete `Tomes / Chapitres`.
-- Correction automatique des commentaires/docstrings mojibake dans `SushiDL.py`.
-- Ajout des assets `assets/sushidl.png` et `assets/sushidl_full.png`.
 
 ---
 

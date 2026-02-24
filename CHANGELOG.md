@@ -7,6 +7,26 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.4] - 2026-02-24
+
+### Ameliorations
+- Telechargement:
+  - selection d'un dossier de destination au clic sur `Telecharger la selection`,
+  - memorisation du dernier dossier choisi pendant la session,
+  - application du dossier cible aux sorties `.cbz` et aux images.
+- Arborescence de sortie:
+  - creation automatique de `Nom du manga / Tome|Chapitre` dans le dossier selectionne.
+- Onglet `Erreurs`:
+  - ajout d'un bouton `Copier` (copie tabulee des erreurs dans le presse-papiers),
+  - harmonisation de la barre d'actions avec l'onglet `Journal`.
+
+### Corrections
+- UI:
+  - suppression du titre redondant `Erreurs par tome` dans l'onglet `Erreurs`,
+  - alignement propre de la zone tableau + scrollbar.
+- Style:
+  - en-tetes de sections principales (`Configuration`, `Sources`, `Tomes / Chapitres`) uniformises avec un rendu "onglet" tout en conservant l'empilement vertical.
+
 ## [11.2.3] - 2026-02-24
 
 ### Ameliorations

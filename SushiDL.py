@@ -364,7 +364,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.3"
+APP_VERSION = "11.2.4"
 REGEX_URL = r"^https://sushiscan\.(fr|net)/catalogue/[a-z0-9-]+/$"  # Format des URLs valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1284,6 +1284,7 @@ def download_volume(
     referer_url=None,
     smart_resume_enabled=True,
     error_callback=None,
+    output_root=ROOT_FOLDER,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
@@ -1292,7 +1293,10 @@ def download_volume(
     tome_label = normalize_tome_label(volume)
     clean_title = sanitize_folder_name(title)
     clean_tome = sanitize_folder_name(tome_label)
-    folder = os.path.join(ROOT_FOLDER, clean_title, clean_tome)
+    base_output_dir = os.fspath(output_root) if output_root else ROOT_FOLDER
+    base_output_dir = str(base_output_dir).strip() or ROOT_FOLDER
+    base_output_dir = os.path.abspath(base_output_dir)
+    folder = os.path.join(base_output_dir, clean_title, clean_tome)
     target_domain = get_sushiscan_domain_from_url(referer_url or "")
     app = getattr(MangaApp, "current_instance", None)
 
@@ -1536,7 +1540,7 @@ def download_volume(
         if cbz_enabled:
             if archive_cbz(folder, title, tome_label):
                 cbz_path = os.path.join(
-                    ROOT_FOLDER, clean_title, f"{clean_title} - {clean_tome}.cbz"
+                    base_output_dir, clean_title, f"{clean_title} - {clean_tome}.cbz"
                 )
                 try:
                     size_mb = round(os.path.getsize(cbz_path) / (1024 * 1024), 2)
@@ -2746,6 +2750,7 @@ class MangaApp:
         self.cancel_event = threading.Event()
         self.cover_preview = None
         self.volume_error_entries = []
+        self.download_output_root = os.path.abspath(ROOT_FOLDER)
 
         # Configuration de l'interface
         self.setup_ui()
@@ -2989,6 +2994,33 @@ class MangaApp:
         except Exception as exc:
             self.log(f"Erreur export erreurs par tome: {exc}", level="error")
 
+    def copy_volume_errors(self):
+        if not self.volume_error_entries:
+            self.log("Aucune erreur tome à copier.", level="info")
+            return
+        try:
+            rows = ["Heure\tTome\tÉtape\tHTTP\tCause\tAction recommandée"]
+            for entry in self.volume_error_entries:
+                status_code = entry.get("status_code")
+                status_text = "" if status_code in (None, "") else str(status_code)
+                fields = [
+                    str(entry.get("time", "")),
+                    str(entry.get("tome", "")),
+                    str(entry.get("stage", "")),
+                    status_text,
+                    str(entry.get("reason", "")),
+                    str(entry.get("action", "")),
+                ]
+                cleaned = [field.replace("\t", " ").replace("\r", " ").replace("\n", " ") for field in fields]
+                rows.append("\t".join(cleaned))
+            content = "\n".join(rows)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(content)
+            self.root.update_idletasks()
+            self.log("Erreurs par tome copiées dans le presse-papiers.", level="success")
+        except Exception as exc:
+            self.log(f"Erreur copie erreurs par tome: {exc}", level="error")
+
     def toast(self, message):
         """Affiche une notification temporaire"""
         def _show():
@@ -3049,13 +3081,16 @@ class MangaApp:
             background=self.palette["card_bg"],
             borderwidth=1,
             relief="solid",
-            padding=12,
+            padding=(12, 10, 12, 12),
         )
         style.configure(
             "Card.TLabelframe.Label",
-            background=self.palette["card_bg"],
+            background="#ffffff",
             foreground=self.palette["text"],
-            font=("Segoe UI Semibold", 10),
+            font=("Segoe UI Semibold", 9),
+            padding=(10, 2),
+            borderwidth=1,
+            relief="solid",
         )
         style.configure("App.TLabel", background=self.palette["app_bg"], foreground=self.palette["text"])
         style.configure("Card.TLabel", background=self.palette["card_bg"], foreground=self.palette["text"])
@@ -3343,7 +3378,7 @@ class MangaApp:
 
         self._setup_auth_link_placeholders()
 
-        source_card = ttk.LabelFrame(main_frame, text="Source", style="Card.TLabelframe")
+        source_card = ttk.LabelFrame(main_frame, text="Sources", style="Card.TLabelframe")
         source_card.pack(fill="x", pady=(0, 10))
 
         url_cover_frame = ttk.Frame(source_card, style="Card.TFrame")
@@ -3680,14 +3715,20 @@ class MangaApp:
         self.log_text.tag_config("warning", foreground="#f67400")
         self.log_text.tag_config("cbz", foreground="#7c3aed")
 
-        error_frame = ttk.LabelFrame(self.error_tab, text="Erreurs par tome", style="Card.TLabelframe")
+        error_frame = ttk.Frame(self.error_tab, style="Card.TFrame")
         error_frame.pack(fill="both", expand=True)
         error_toolbar = ttk.Frame(error_frame, style="Card.TFrame")
-        error_toolbar.pack(fill="x", pady=(0, 4))
+        error_toolbar.pack(fill="x", pady=(0, 6))
         ttk.Button(
             error_toolbar,
             text="Effacer",
             command=self.clear_volume_errors,
+            style="Secondary.TButton",
+        ).pack(side="right", padx=(4, 0))
+        ttk.Button(
+            error_toolbar,
+            text="Copier",
+            command=self.copy_volume_errors,
             style="Secondary.TButton",
         ).pack(side="right", padx=(4, 0))
         ttk.Button(
@@ -3697,8 +3738,10 @@ class MangaApp:
             style="Secondary.TButton",
         ).pack(side="right")
 
+        error_tree_container = ttk.Frame(error_frame, style="Card.TFrame")
+        error_tree_container.pack(fill="both", expand=True)
         self.error_tree = ttk.Treeview(
-            error_frame,
+            error_tree_container,
             columns=("time", "tome", "stage", "http", "reason", "action"),
             show="headings",
             height=5,
@@ -3716,7 +3759,7 @@ class MangaApp:
         self.error_tree.column("reason", width=290, anchor="w", stretch=True)
         self.error_tree.column("action", width=360, anchor="w", stretch=True)
         self.error_tree.pack(side="left", fill="both", expand=True)
-        error_scroll = ttk.Scrollbar(error_frame, orient="vertical", command=self.error_tree.yview)
+        error_scroll = ttk.Scrollbar(error_tree_container, orient="vertical", command=self.error_tree.yview)
         error_scroll.pack(side="right", fill="y")
         self.error_tree.configure(yscrollcommand=error_scroll.set)
         self._update_error_tab_title(focus_errors=False)
@@ -4439,6 +4482,27 @@ class MangaApp:
             self.log("Aucun tome sÃ©lectionnÃ©.", level="info")
             return
 
+        initial_output_root = (getattr(self, "download_output_root", "") or os.path.abspath(ROOT_FOLDER)).strip()
+        if not initial_output_root:
+            initial_output_root = os.path.abspath(ROOT_FOLDER)
+        try:
+            os.makedirs(initial_output_root, exist_ok=True)
+        except OSError:
+            pass
+
+        output_root = filedialog.askdirectory(
+            parent=self.root,
+            title="Choisir le dossier de destination",
+            initialdir=initial_output_root,
+            mustexist=False,
+        )
+        if not output_root:
+            self.log("TÃ©lÃ©chargement annulÃ©: aucun dossier de destination sÃ©lectionnÃ©.", level="info")
+            return
+        output_root = os.path.abspath(output_root)
+        self.download_output_root = output_root
+        self.log(f"Dossier de destination: {output_root}", level="info")
+
         self._set_workflow_step("download", "Preparation du telechargement...")
         self._set_download_controls(True)
         self._set_progress_ui(0)
@@ -4497,17 +4561,18 @@ class MangaApp:
 
                 clean_title = sanitize_folder_name(self.title)
                 clean_tome = sanitize_folder_name(normalize_tome_label(vol))
-                cbz_path = os.path.join(ROOT_FOLDER, clean_title, f"{clean_title} - {clean_tome}.cbz")
-                if os.path.exists(cbz_path) and os.path.getsize(cbz_path) > 10_000:
-                    self.log(
-                        f"CBZ dÃ©jÃ  existant, saut du tome: {vol}",
-                        level="info",
-                        context={"domain": domain, "tome": vol, "action": "skip_existing"},
-                    )
-                    self.run_on_ui(self._set_progress_detail_ui, None, None)
-                    completed_volumes += 1
-                    push_idle_global_eta()
-                    continue
+                if cbz_enabled:
+                    cbz_path = os.path.join(output_root, clean_title, f"{clean_title} - {clean_tome}.cbz")
+                    if os.path.exists(cbz_path) and os.path.getsize(cbz_path) > 10_000:
+                        self.log(
+                            f"CBZ dÃ©jÃ  existant, saut du tome: {vol}",
+                            level="info",
+                            context={"domain": domain, "tome": vol, "action": "skip_existing"},
+                        )
+                        self.run_on_ui(self._set_progress_detail_ui, None, None)
+                        completed_volumes += 1
+                        push_idle_global_eta()
+                        continue
 
                 self.run_on_ui(self._set_progress_ui, 0)
 
@@ -4598,6 +4663,7 @@ class MangaApp:
                         referer_url=link,
                         smart_resume_enabled=smart_resume_enabled,
                         error_callback=volume_error_callback,
+                        output_root=output_root,
                     )
                     if dl_result is None and self.cancel_event.is_set():
                         break
@@ -4688,6 +4754,7 @@ class MangaApp:
                             referer_url=link,
                             smart_resume_enabled=smart_resume_enabled,
                             error_callback=retry_error_callback,
+                            output_root=output_root,
                         )
                         if retry_result is False:
                             self.add_volume_error(
