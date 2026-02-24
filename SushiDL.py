@@ -3,7 +3,7 @@
 SushiDL - Application de téléchargement de mangas depuis SushiScan.fr/net
 Fonctionnalités principales :
 - Contournement de la protection Cloudflare via les cookies cf_clearance
-- Authentification manuelle via cookies `.fr` / `.net` et User-Agent
+- Authentification manuelle via cookies par domaine et User-Agent
 - Téléchargement multi-thread des images
 - Conversion automatique WebP vers JPG
 - Archivage CBZ des chapitres
@@ -25,7 +25,7 @@ import sys
 import unicodedata
 import webbrowser
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -144,19 +144,32 @@ def format_duration_short(seconds):
 
 
 def recommend_action_for_failure(status_code=None, reason=""):
-    """Suggere une action utilisateur pour un echec de telechargement."""
+    """Suggère une action utilisateur adaptée à une cause d'échec."""
     lower = (reason or "").lower()
-    if status_code in (401, 403) or "cloudflare" in lower or "forbidden" in lower:
-        return "Verifier/mettre a jour le cookie cf_clearance et le User-Agent."
+    normalized = "".join(
+        ch for ch in unicodedata.normalize("NFKD", lower) if unicodedata.category(ch) != "Mn"
+    )
+    if "echec de creation cbz" in normalized or "archive_cbz" in normalized or "zip" in normalized:
+        return "Vérifier l'espace disque, les droits d'écriture et le nom du fichier, puis relancer."
+    if "dossier de tome introuvable" in normalized or "erreur creation dossier" in normalized:
+        return "Vérifier le dossier de destination (chemin/droits), puis relancer."
+    if "aucune image telechargee" in normalized:
+        return "Vérifier l'URL, le cookie cf_clearance et le User-Agent, puis relancer l'analyse."
+    if "recuperation images impossible" in normalized:
+        return "Vérifier l'accès au chapitre (URL/cookie/User-Agent), puis relancer."
+    if "tome non finalise" in normalized or "retry non finalise" in normalized:
+        return "Corriger d'abord la cause technique indiquée, puis relancer."
+    if status_code in (401, 403) or "cloudflare" in normalized or "forbidden" in normalized:
+        return "Vérifier ou mettre à jour le cookie cf_clearance et le User-Agent."
     if status_code == 429:
         return "Limiter la cadence; attendre avant de relancer."
     if status_code in (500, 502, 503, 504):
         return "Erreur serveur temporaire; relancer plus tard."
-    if status_code in (404, 410) or "not found" in lower:
-        return "Page absente cote serveur; ignorer cette page."
-    if "timeout" in lower or "dns" in lower or "connexion" in lower or "connection" in lower:
-        return "Verifier la connexion reseau et relancer."
-    return "Relancer le tome; si echec persistant, verifier cookie/UA."
+    if status_code in (404, 410) or "not found" in normalized:
+        return "Page absente côté serveur; ignorer cette page."
+    if "timeout" in normalized or "dns" in normalized or "connexion" in normalized or "connection" in normalized:
+        return "Vérifier la connexion réseau et relancer."
+    return "Relancer le tome; si l'échec persiste, vérifier cookie et User-Agent."
 
 
 def interruptible_sleep(cancel_event, duration):
@@ -187,29 +200,86 @@ def normalize_image_url(url):
     return raw.replace("http://", "https://")
 
 
-def get_sushiscan_domain_from_host(host):
-    """Retourne 'fr' ou 'net' pour un host SushiScan (racine ou sous-domaine)."""
+def normalize_hostname(host):
+    """Normalise un hostname en minuscule sans préfixe www."""
     value = (host or "").strip().lower()
+    if value.startswith("www."):
+        value = value[4:]
+    return value
+
+
+def get_supported_site_from_host(host):
+    """Retourne le site supporté correspondant au host (ou chaîne vide)."""
+    value = normalize_hostname(host)
     if not value:
         return ""
-    if value.endswith(".sushiscan.fr") or value == "sushiscan.fr":
+    if value == "sushiscan.fr" or value.endswith(".sushiscan.fr"):
+        return "sushiscan.fr"
+    if value == "sushiscan.net" or value.endswith(".sushiscan.net"):
+        return "sushiscan.net"
+    if value == "mangas-origines.fr" or value.endswith(".mangas-origines.fr"):
+        return "mangas-origines.fr"
+    if value == "hentai-origines.fr" or value.endswith(".hentai-origines.fr"):
+        return "hentai-origines.fr"
+    return ""
+
+
+def get_supported_site_from_url(url):
+    """Retourne le site supporté correspondant à une URL (ou chaîne vide)."""
+    try:
+        host = (urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        host = ""
+    return get_supported_site_from_host(host)
+
+
+def get_site_root_url(url):
+    """Retourne l'URL racine d'un site à partir d'une URL complète."""
+    try:
+        parsed = urlparse(url)
+        host = normalize_hostname(parsed.hostname)
+    except Exception:
+        return ""
+    if not host:
+        return ""
+    scheme = (parsed.scheme or "https").lower()
+    return f"{scheme}://{host}/"
+
+
+def get_sushiscan_domain_from_host(host):
+    """Retourne 'fr' ou 'net' pour un host SushiScan (racine ou sous-domaine)."""
+    site = get_supported_site_from_host(host)
+    if site == "sushiscan.fr":
         return "fr"
-    if value.endswith(".sushiscan.net") or value == "sushiscan.net":
+    if site == "sushiscan.net":
         return "net"
     return ""
 
 
 def get_sushiscan_domain_from_url(url):
     """Retourne 'fr' ou 'net' depuis une URL SushiScan (racine ou sous-domaine)."""
-    try:
-        host = (urlparse(url).hostname or "").strip().lower()
-    except Exception:
-        host = ""
-    return get_sushiscan_domain_from_host(host)
+    return get_sushiscan_domain_from_host((urlparse(url).hostname or "").strip().lower() if url else "")
+
+
+def get_cookie_domain_from_host(host):
+    """Retourne le domaine cookie interne: fr/net/origines (ou chaîne vide)."""
+    site = get_supported_site_from_host(host)
+    mapping = {
+        "sushiscan.fr": "fr",
+        "sushiscan.net": "net",
+        "mangas-origines.fr": "origines",
+        "hentai-origines.fr": "hentai",
+    }
+    return mapping.get(site, "")
+
+
+def get_cookie_domain_from_url(url):
+    """Retourne le domaine cookie interne depuis une URL supportée."""
+    return get_cookie_domain_from_host((urlparse(url).hostname or "").strip().lower() if url else "")
 
 
 def is_valid_catalogue_url(url):
-    """Valide une URL catalogue SushiScan en acceptant un slash final optionnel."""
+    """Valide une URL d'œuvre supportée avec slash final optionnel."""
     value = (url or "").strip()
     if not value:
         return False
@@ -219,9 +289,21 @@ def is_valid_catalogue_url(url):
         return False
     if parsed.scheme.lower() != "https":
         return False
-    if get_sushiscan_domain_from_host(parsed.hostname) not in ("fr", "net"):
+
+    site = get_supported_site_from_host(parsed.hostname)
+    if not site:
         return False
-    match = re.match(r"^/catalogue/([^/?#]+)/?$", parsed.path or "", flags=re.IGNORECASE)
+
+    path = (parsed.path or "").strip()
+    if site in ("sushiscan.fr", "sushiscan.net"):
+        match = re.match(r"^/catalogue/([^/?#]+)/?$", path, flags=re.IGNORECASE)
+    elif site == "mangas-origines.fr":
+        match = re.match(r"^/oeuvre/([^/?#]+)/?$", path, flags=re.IGNORECASE)
+    elif site == "hentai-origines.fr":
+        match = re.match(r"^/manga/([^/?#]+)/?$", path, flags=re.IGNORECASE)
+    else:
+        return False
+
     if not match:
         return False
     slug = match.group(1).strip()
@@ -269,7 +351,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
     last_exc = None
     for attempt in range(1, max_try + 1):
         if cancel_event is not None and cancel_event.is_set():
-            raise DownloadCancelled("TÃ©lÃ©chargement annulÃ©.")
+            raise DownloadCancelled("Téléchargement annulé.")
         try:
             r = _http_get(img_url, headers=headers, timeout=20)
             status_code = getattr(r, "status_code", None)
@@ -287,7 +369,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
             # Détection HTML (Cloudflare/captcha au lieu d'une image)
             if raw[:6] == b'<html>' or b'<html' in raw[:1024].lower():
                 raise ImageDownloadError(
-                    "RÃ©ponse HTML (protection serveur ou Cloudflare)",
+                    "Réponse HTML (protection serveur ou Cloudflare)",
                     kind="blocked_or_retryable",
                     phase="direct",
                 )
@@ -307,7 +389,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
                     phase="direct",
                 )
                 if interruptible_sleep(cancel_event, delay * attempt):
-                    raise DownloadCancelled("TÃ©lÃ©chargement annulÃ©.")
+                    raise DownloadCancelled("Téléchargement annulé.")
                 continue
 
             # Succès - retourne les données brutes de l'image
@@ -317,7 +399,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
             raise
         except ImageDownloadError as e:
             runtime_log(
-                f"Tentative {attempt} Ã©chouÃ©e pour {img_url}: {e}",
+                f"Tentative {attempt} échouée pour {img_url}: {e}",
                 level="warning",
                 context={"action": "image_retry"},
             )
@@ -326,10 +408,10 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
                 raise e
             sleep_time = min(delay * (2 ** attempt), 60) if e.status_code in (403, 429) else (delay * attempt)
             if interruptible_sleep(cancel_event, sleep_time):
-                raise DownloadCancelled("TÃ©lÃ©chargement annulÃ©.")
+                raise DownloadCancelled("Téléchargement annulé.")
         except Exception as e:
             runtime_log(
-                f"Tentative {attempt} Ã©chouÃ©e pour {img_url}: {e}",
+                f"Tentative {attempt} échouée pour {img_url}: {e}",
                 level="warning",
                 context={"action": "image_retry"},
             )
@@ -349,14 +431,14 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
             if status_code in (403, 429):
                 sleep_time = min(delay * (2 ** attempt), 60)  # Max 60 secondes
                 if interruptible_sleep(cancel_event, sleep_time):
-                    raise DownloadCancelled("TÃ©lÃ©chargement annulÃ©.")
+                    raise DownloadCancelled("Téléchargement annulé.")
             else:
                 if interruptible_sleep(cancel_event, delay * attempt):
-                    raise DownloadCancelled("TÃ©lÃ©chargement annulÃ©.")
+                    raise DownloadCancelled("Téléchargement annulé.")
     if isinstance(last_exc, Exception):
         raise last_exc
     raise ImageDownloadError(
-        f"Impossible de tÃ©lÃ©charger l'image {img_url} aprÃ¨s {max_try} tentatives.",
+        f"Impossible de télécharger l'image {img_url} après {max_try} tentatives.",
         kind="retryable",
         phase="direct",
     )
@@ -364,10 +446,11 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.4"
-REGEX_URL = r"^https://sushiscan\.(fr|net)/catalogue/[a-z0-9-]+/$"  # Format des URLs valides
+APP_VERSION = "11.2.5"
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
+COOKIE_DOMAINS = ("fr", "net", "origines", "hentai")
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
 COVER_TARGET_HEIGHT = 150
@@ -385,6 +468,8 @@ DEFAULT_APP_CONFIG = {
     "manual_links": {
         "cookie_fr": "https://sushiscan.fr",
         "cookie_net": "https://sushiscan.net",
+        "cookie_origines": "https://mangas-origines.fr",
+        "cookie_hentai": "https://hentai-origines.fr",
         "user_agent": "https://httpbin.org/user-agent",
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
         "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
@@ -465,7 +550,7 @@ def load_app_config():
         return merged
     except Exception as exc:
         try:
-            print(f"[WARN] Erreur lecture config.json ({exc}), valeurs par dÃ©faut utilisÃ©es.")
+            print(f"[WARN] Erreur lecture config.json ({exc}), valeurs par défaut utilisées.")
         except Exception:
             pass
         return dict(DEFAULT_APP_CONFIG)
@@ -617,9 +702,9 @@ def make_request(url, cookie, ua):
         "User-Agent": ua or DEFAULT_USER_AGENT,
         "Accept-Encoding": "gzip, deflate, br",
     }
-    domain = get_sushiscan_domain_from_url(url)
-    if domain in ("fr", "net"):
-        headers["Referer"] = f"https://sushiscan.{domain}/"
+    referer_root = get_site_root_url(url)
+    if referer_root:
+        headers["Referer"] = referer_root
 
     cookie_header = ""
     app = getattr(MangaApp, "current_instance", None)
@@ -785,20 +870,20 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
 def interpret_curl_error(message):
     """Traduit les erreurs cURL en messages compréhensibles"""
     if "curl: (6)" in message:
-        return "Nom d'hÃ´te introuvable (DNS)."
+        return "Nom d'hôte introuvable (DNS)."
     elif "curl: (7)" in message:
-        return "Connexion refusÃ©e ou impossible (serveur hors ligne ?)."
+        return "Connexion refusée ou impossible (serveur hors ligne ?)."
     elif "curl: (28)" in message:
-        return "DÃ©lai d'attente dÃ©passÃ© (timeout rÃ©seau)."
+        return "Délai d'attente dépassé (timeout réseau)."
     elif "curl: (35)" in message:
-        return "Erreur SSL/TLS lors de la connexion sÃ©curisÃ©e."
+        return "Erreur SSL/TLS lors de la connexion sécurisée."
     elif "curl: (56)" in message:
-        return "Connexion interrompue (rÃ©ponse incomplÃ¨te ou terminÃ©e prÃ©maturÃ©ment)."
+        return "Connexion interrompue (réponse incomplète ou terminée prématurément)."
     else:
         return None
 
 
-def archive_cbz(folder_path, title, volume):
+def archive_cbz(folder_path, title, volume, remove_source=True):
     """
     Crée une archive CBZ à partir d'un dossier d'images
     
@@ -845,7 +930,8 @@ def archive_cbz(folder_path, title, volume):
     # Suppression du dossier original si l'archive est valide
     try:
         if os.path.exists(cbz_name) and os.path.getsize(cbz_name) > 10000:
-            shutil.rmtree(folder_path)
+            if remove_source:
+                shutil.rmtree(folder_path)
             return True
     except Exception:
         return False
@@ -887,12 +973,11 @@ def download_image(
         )
 
     if cancel_event.is_set():
-        register_failure("cancelled", "Annulation demandÃ©e avant tÃ©lÃ©chargement.")
+        register_failure("cancelled", "Annulation demandée avant téléchargement.")
         return
 
     # Configuration des en-têtes HTTP
-    image_domain = get_sushiscan_domain_from_url(normalized_url)
-    referer = referer_url or (f"https://sushiscan.{image_domain}/" if image_domain in ("fr", "net") else "https://sushiscan.net/")
+    referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
     app = getattr(MangaApp, "current_instance", None)
     cookie_header = ""
     if app and hasattr(app, "get_cookie_header_for_url"):
@@ -946,26 +1031,26 @@ def download_image(
             progress_callback(i + 1)
         if hasattr(MangaApp, "current_instance") and hasattr(MangaApp.current_instance, "log"):
             MangaApp.current_instance.log(
-                f"Image {i + 1} tÃ©lÃ©chargÃ©e : {os.path.basename(filename)}",
+                f"Image {i + 1} téléchargée : {os.path.basename(filename)}",
                 level="info",
             )
         return
 
     except DownloadCancelled:
-        register_failure("cancelled", "Annulation demandÃ©e pendant tÃ©lÃ©chargement direct.")
+        register_failure("cancelled", "Annulation demandée pendant téléchargement direct.")
         return
     except ImageDownloadError as e:
         if e.kind == "missing":
             register_failure("missing", str(e), status_code=e.status_code)
             runtime_log(
-                f"Image absente cÃ´tÃ© serveur (HTTP {e.status_code}): {normalized_url}",
+                f"Image absente côté serveur (HTTP {e.status_code}): {normalized_url}",
                 level="info",
                 context={"action": "download", "url": normalized_url},
             )
             return
         register_failure(e.kind, str(e), status_code=e.status_code)
         runtime_log(
-            f"Ã‰chec direct aprÃ¨s retries: {e}",
+            f"Échec direct après retries: {e}",
             level="warning",
             context={"action": "download", "url": normalized_url},
         )
@@ -975,11 +1060,33 @@ def download_image(
         kind = classify_download_failure(status_code, str(e))
         register_failure(kind, str(e), status_code=status_code)
         runtime_log(
-            f"Ã‰chec direct aprÃ¨s retries: {e}",
+            f"Échec direct après retries: {e}",
             level="warning",
             context={"action": "download", "url": normalized_url},
         )
         return
+
+
+def extract_manga_title_from_html(url, html_content):
+    """Extrait un titre de manga/œuvre depuis le HTML source."""
+    html_content = html_content or ""
+    soup = BeautifulSoup(html_content, "html.parser")
+    title_tag = soup.select_one("h1.entry-title, .post-title h1, .summary__content h1, h1")
+    if title_tag:
+        title = title_tag.get_text(" ", strip=True)
+        if title:
+            return title
+    parsed_title = parse_lr(
+        html_content, '<h1 class="entry-title" itemprop="name">', "</h1>", False
+    )
+    title = html.unescape(parsed_title) if parsed_title else ""
+    if title:
+        return title
+
+    path = (urlparse(url).path or "").strip("/")
+    if path:
+        return path.split("/")[-1].replace("-", " ").strip() or "Sans titre"
+    return "Sans titre"
 
 
 def parse_manga_data_from_html(url, html_content, emit_logs=True):
@@ -990,23 +1097,33 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
 
     soup = BeautifulSoup(html_content, "html.parser")
 
-    # Extraction du titre (plus robuste entre .fr / .net)
-    title = ""
-    title_tag = soup.select_one("h1.entry-title")
-    if title_tag:
-        title = title_tag.get_text(" ", strip=True)
-    if not title:
-        parsed_title = parse_lr(
-            html_content, '<h1 class="entry-title" itemprop="name">', "</h1>", False
-        )
-        title = html.unescape(parsed_title) if parsed_title else ""
-    if not title:
-        title = url.rstrip("/").split("/")[-1].replace("-", " ").strip() or "Sans titre"
+    # Extraction du titre (multi-sites)
+    title = extract_manga_title_from_html(url, html_content)
 
-    expected_domain = get_sushiscan_domain_from_url(url) or ("net" if "sushiscan.net" in url else "fr")
-    expected_host = f"sushiscan.{expected_domain}"
-    base_url = f"https://{expected_host}/"
+    source_site = get_supported_site_from_url(url)
+    source_host = normalize_hostname(urlparse(url).hostname)
+    path_value = (urlparse(url).path or "").strip()
+    source_slug = ""
+    if source_site in ("sushiscan.fr", "sushiscan.net"):
+        match_slug = re.match(r"^/catalogue/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
+    elif source_site == "mangas-origines.fr":
+        match_slug = re.match(r"^/oeuvre/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
+    elif source_site == "hentai-origines.fr":
+        match_slug = re.match(r"^/manga/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
     pairs = []
+
+    def is_same_site(full_link):
+        link_site = get_supported_site_from_url(full_link)
+        if source_site and link_site:
+            return source_site == link_site
+        link_host = normalize_hostname(urlparse(full_link).hostname)
+        return bool(source_host and link_host and source_host == link_host)
 
     # 1) Structure classique avec span.chapternum
     matches = re.findall(
@@ -1015,9 +1132,8 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         re.IGNORECASE | re.DOTALL,
     )
     for href, label in matches:
-        full_link = urljoin(base_url, href.strip())
-        parsed = urlparse(full_link)
-        if get_sushiscan_domain_from_host(parsed.hostname) != expected_domain:
+        full_link = urljoin(url, href.strip())
+        if not is_same_site(full_link):
             continue
         clean_label = normalize_tome_label(strip_html_tags(html.unescape(label)))
         if clean_label:
@@ -1029,13 +1145,50 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
             href = (a.get("href") or "").strip()
             if not href:
                 continue
-            full_link = urljoin(base_url, href)
-            parsed = urlparse(full_link)
-            if get_sushiscan_domain_from_host(parsed.hostname) != expected_domain:
+            full_link = urljoin(url, href)
+            if not is_same_site(full_link):
                 continue
             label = normalize_tome_label(a.get_text(" ", strip=True))
             if label:
                 pairs.append((label, full_link))
+
+    # 3) Fallback regex ciblé pour les pages où la liste est injectée côté script.
+    if not pairs and source_site in ("mangas-origines.fr", "hentai-origines.fr") and source_slug:
+        if source_site == "mangas-origines.fr":
+            site_host = "mangas-origines.fr"
+            path_prefix = "oeuvre"
+        else:
+            site_host = "hentai-origines.fr"
+            path_prefix = "manga"
+        pattern_abs = re.compile(
+            rf"https?://(?:www\.)?{re.escape(site_host)}/{path_prefix}/{re.escape(source_slug)}/(chapitre-[^\"'<>/\s]+(?:/[^\"'<>/\s]+)*)/?",
+            flags=re.IGNORECASE,
+        )
+        pattern_rel = re.compile(
+            rf"/{path_prefix}/{re.escape(source_slug)}/(chapitre-[^\"'<>/\s]+(?:/[^\"'<>/\s]+)*)/?",
+            flags=re.IGNORECASE,
+        )
+        chapter_links = []
+
+        for match in pattern_abs.finditer(html_content):
+            chapter_slug = (match.group(1) or "").strip("/")
+            link = f"https://{site_host}/{path_prefix}/{source_slug}/{chapter_slug}/"
+            chapter_links.append(link)
+
+        for match in pattern_rel.finditer(html_content):
+            chapter_slug = (match.group(1) or "").strip("/")
+            link = f"https://{site_host}/{path_prefix}/{source_slug}/{chapter_slug}/"
+            chapter_links.append(link)
+
+        seen_links = set()
+        for link in chapter_links:
+            if link in seen_links:
+                continue
+            seen_links.add(link)
+            slug = (urlparse(link).path or "").strip("/").split("/")[-1]
+            label = normalize_tome_label(slug.replace("-", " ").strip().title())
+            if label:
+                pairs.append((label, link))
 
     # Élimination des doublons
     seen = set()
@@ -1047,16 +1200,125 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         unique_pairs.append((label, link))
 
     if not unique_pairs:
-        raise Exception("Aucun tome/chapitre dÃ©tectÃ© (page protÃ©gÃ©e ou structure modifiÃ©e).")
+        raise Exception("Aucun tome/chapitre détecté (page protégée ou structure modifiée).")
 
     unique_pairs.reverse()  # Pour afficher dans l'ordre croissant
     if emit_logs:
         runtime_log(
-            f"{len(unique_pairs)} tomes/chapitres dÃ©tectÃ©s",
+            f"{len(unique_pairs)} tomes/chapitres détectés",
             level="info",
             context={"action": "parse_catalogue"},
         )
     return title, unique_pairs
+
+
+def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
+    """Récupère les chapitres via l'endpoint AJAX Madara (mangas/hentai-origines)."""
+    site = get_supported_site_from_url(url)
+    if site not in ("mangas-origines.fr", "hentai-origines.fr"):
+        return []
+
+    parsed = urlparse(url)
+    base_url = (url if url.endswith("/") else f"{url}/").strip()
+    if site == "mangas-origines.fr":
+        path_prefix = "oeuvre"
+    else:
+        path_prefix = "manga"
+
+    match_slug = re.match(rf"^/{path_prefix}/([^/?#]+)/?$", parsed.path or "", flags=re.IGNORECASE)
+    if not match_slug:
+        return []
+    source_slug = (match_slug.group(1) or "").strip().lower()
+    if not source_slug:
+        return []
+
+    app = getattr(MangaApp, "current_instance", None)
+    cookie_header = ""
+    if app and hasattr(app, "get_cookie_header_for_url"):
+        try:
+            cookie_header = app.get_cookie_header_for_url(url, fallback_cookie=cookie)
+        except Exception:
+            cookie_header = ""
+    if not cookie_header and cookie:
+        cookie_header = f"cf_clearance={cookie}"
+
+    headers = {
+        "Accept": "*/*",
+        "Accept-Language": "fr-FR,fr;q=0.9",
+        "User-Agent": ua or DEFAULT_USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": base_url,
+    }
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+
+    pairs = []
+    max_page = 1
+    page = 1
+    while page <= max_page:
+        endpoint = urljoin(base_url, f"ajax/chapters/?t={page}")
+        try:
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                data={},
+                impersonate="chrome",
+                timeout=15,
+            )
+        except Exception:
+            break
+        if int(getattr(response, "status_code", 0) or 0) != 200:
+            break
+
+        html_part = response.text or ""
+        soup = BeautifulSoup(html_part, "html.parser")
+
+        # Détecte les pages disponibles (si pagination côté site).
+        page_ids = []
+        for a in soup.select(".listing-chapters_wrap .pagination .page a[data-page]"):
+            raw_page = (a.get("data-page") or "").strip()
+            if raw_page.isdigit():
+                page_ids.append(int(raw_page))
+        if page_ids:
+            max_page = max(max_page, max(page_ids))
+
+        for a in soup.select("li.wp-manga-chapter a[href], .listing-chapters_wrap a[href]"):
+            href = (a.get("href") or "").strip()
+            if not href:
+                continue
+            full_link = urljoin(base_url, href)
+            if get_supported_site_from_url(full_link) != site:
+                continue
+            link_path = (urlparse(full_link).path or "").lower()
+            if f"/{path_prefix}/{source_slug}/" not in link_path:
+                continue
+            label = normalize_tome_label(a.get_text(" ", strip=True))
+            if not label:
+                chapter_slug = link_path.strip("/").split("/")[-1]
+                label = normalize_tome_label(chapter_slug.replace("-", " ").strip().title())
+            if label:
+                pairs.append((label, full_link))
+
+        page += 1
+
+    seen = set()
+    unique_pairs = []
+    for label, link in pairs:
+        if link in seen:
+            continue
+        seen.add(link)
+        unique_pairs.append((label, link))
+
+    if unique_pairs:
+        unique_pairs.reverse()
+        if emit_logs:
+            log_domain = "origines" if site == "mangas-origines.fr" else "hentai"
+            runtime_log(
+                f"{len(unique_pairs)} tomes/chapitres détectés via AJAX.",
+                level="info",
+                context={"action": "parse_catalogue_ajax", "domain": log_domain},
+            )
+    return unique_pairs
 
 
 def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None, emit_logs=True):
@@ -1080,16 +1342,71 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
         if final_url and final_url != url:
             detail += f" -> {final_url}"
         if int(getattr(r, "status_code", 0) or 0) == 403:
-            detail += " | VÃ©rifie le cookie cf_clearance du domaine"
-        raise Exception(f"AccÃ¨s refusÃ© ou URL invalide ({detail})")
+            if get_cookie_domain_from_url(url) in COOKIE_DOMAINS:
+                detail += " | Vérifie le cookie cf_clearance du domaine"
+            else:
+                detail += " | Vérifie l'accès au site (protection ou blocage)"
+        raise Exception(f"Accès refusé ou URL invalide ({detail})")
 
     html_content = r.text or ""
     if callable(progress_callback):
         progress_callback("parse")
-    title, pairs = parse_manga_data_from_html(url, html_content, emit_logs=emit_logs)
+    site = get_supported_site_from_url(url)
+    if site in ("mangas-origines.fr", "hentai-origines.fr"):
+        parse_error = None
+        try:
+            title, pairs = parse_manga_data_from_html(
+                url,
+                html_content,
+                emit_logs=False,
+            )
+        except Exception as exc:
+            parse_error = exc
+            title = extract_manga_title_from_html(url, html_content)
+            pairs = []
+
+        ajax_pairs = fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=emit_logs)
+        if ajax_pairs:
+            pairs = ajax_pairs
+            if not title:
+                title = extract_manga_title_from_html(url, html_content)
+        elif not pairs:
+            if parse_error is not None:
+                raise parse_error
+            raise Exception("Aucun tome/chapitre détecté sur ce site.")
+    else:
+        title, pairs = parse_manga_data_from_html(
+            url,
+            html_content,
+            emit_logs=emit_logs,
+        )
     if return_html:
         return title, pairs, html_content
     return title, pairs
+
+
+def build_mangas_origines_list_url(url):
+    """Construit l'URL chapitre en mode liste (?style=list) pour les sites Origines."""
+    site = get_supported_site_from_url(url)
+    if site not in ("mangas-origines.fr", "hentai-origines.fr"):
+        return (url or "").strip()
+
+    parsed = urlparse((url or "").strip())
+    host = normalize_hostname(parsed.hostname)
+    path = (parsed.path or "").strip()
+    if not path:
+        return (url or "").strip()
+
+    # Si l'URL est en mode paginé (.../p/2/), revenir sur l'URL chapitre canonique.
+    path = re.sub(r"/p/\d+/?$", "/", path, flags=re.IGNORECASE)
+    if not path.endswith("/"):
+        path = f"{path}/"
+
+    query_pairs = [(k, v) for (k, v) in parse_qsl(parsed.query, keep_blank_values=True) if (k or "").lower() != "style"]
+    query_pairs.insert(0, ("style", "list"))
+    query = urlencode(query_pairs, doseq=True)
+    scheme = (parsed.scheme or "https").lower()
+    return urlunparse((scheme, host, path, "", query, ""))
 
 
 def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
@@ -1124,7 +1441,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
         removed = len(images) - len(filtered)
         if removed > 0:
             runtime_log(
-                f"{removed} image(s) parasite(s) supprimÃ©e(s) dynamiquement.",
+                f"{removed} image(s) parasite(s) supprimée(s) dynamiquement.",
                 level="debug",
                 context={"action": "image_filter", "domain": domain},
             )
@@ -1132,6 +1449,139 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
 
     def extract_images(r_text, domain):
         """Extrait les URLs d'images depuis le contenu HTML"""
+        def dedupe_images(items):
+            seen = set()
+            unique = []
+            for item in items or []:
+                if item in seen:
+                    continue
+                seen.add(item)
+                unique.append(item)
+            return unique
+
+        def dedupe_entries(entries):
+            seen = set()
+            unique = []
+            for entry in entries or []:
+                if not isinstance(entry, dict):
+                    continue
+                url_value = (entry.get("url") or "").strip()
+                if not url_value or url_value in seen:
+                    continue
+                seen.add(url_value)
+                unique.append(entry)
+            return unique
+
+        def parse_int(raw_value):
+            value = (str(raw_value or "").strip() or "0")
+            if not value.isdigit():
+                return 0
+            return int(value)
+
+        def median_value(values):
+            filtered_values = sorted(v for v in values if v > 0)
+            if not filtered_values:
+                return 0
+            mid = len(filtered_values) // 2
+            if len(filtered_values) % 2:
+                return filtered_values[mid]
+            return (filtered_values[mid - 1] + filtered_values[mid]) / 2
+
+        def looks_like_image_url(value):
+            candidate = normalize_image_url((value or "").strip())
+            if not candidate or candidate.startswith("data:"):
+                return ""
+            parsed_path = (urlparse(candidate).path or "").lower()
+            if parsed_path.endswith((".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif")):
+                return candidate
+            return ""
+
+        def collect_images_from_container(container):
+            if container is None:
+                return []
+            collected = []
+            for img in container.find_all("img"):
+                src = img.get("data-src") or img.get("data-lazy-src") or img.get("src") or img.get("data-cfsrc")
+                normalized_src = looks_like_image_url(src)
+                if normalized_src:
+                    collected.append(normalized_src)
+            return collected
+
+        def collect_madara_page_entries(soup_obj):
+            collected = []
+            if soup_obj is None:
+                return collected
+            for img in soup_obj.select("div.reading-content div.page-break img, div.reading-content div.page-break.no-gaps img"):
+                src = img.get("data-src") or img.get("data-lazy-src") or img.get("src") or img.get("data-cfsrc")
+                normalized_src = looks_like_image_url(src)
+                if not normalized_src:
+                    continue
+                collected.append(
+                    {
+                        "url": normalized_src,
+                        "width": parse_int(img.get("width")),
+                        "height": parse_int(img.get("height")),
+                    }
+                )
+            return collected
+
+        def trim_edge_ads_by_resolution(entries):
+            """Retire les pubs probables début/fin si leur résolution est atypiquement basse."""
+            if domain not in ("origines", "hentai") or len(entries or []) < 3:
+                return entries
+            safe_entries = list(entries)
+            middle_entries = [entry for entry in safe_entries[1:-1] if entry.get("width") and entry.get("height")]
+            if not middle_entries:
+                middle_entries = [entry for entry in safe_entries if entry.get("width") and entry.get("height")]
+            if not middle_entries:
+                return safe_entries
+
+            ref_w = float(median_value([entry.get("width", 0) for entry in middle_entries]) or 0)
+            ref_h = float(median_value([entry.get("height", 0) for entry in middle_entries]) or 0)
+            if ref_w <= 0 or ref_h <= 0:
+                return safe_entries
+            ref_area = ref_w * ref_h
+
+            def is_edge_ad(entry):
+                w = float(entry.get("width") or 0)
+                h = float(entry.get("height") or 0)
+                if w <= 0 or h <= 0:
+                    return False
+                area = w * h
+                return ((w < ref_w * 0.78) and (h < ref_h * 0.78)) or (area < ref_area * 0.58)
+
+            removed = 0
+            if safe_entries and is_edge_ad(safe_entries[0]):
+                safe_entries = safe_entries[1:]
+                removed += 1
+            if safe_entries and is_edge_ad(safe_entries[-1]):
+                safe_entries = safe_entries[:-1]
+                removed += 1
+
+            if removed:
+                runtime_log(
+                    f"{removed} image(s) pub supprimée(s) (début/fin, résolution atypique).",
+                    level="debug",
+                    context={"action": "image_filter", "domain": domain},
+                )
+            return safe_entries
+
+        # Étape 0 — Priorité à la structure Madara (mangas-origines)
+        if domain == "origines":
+            soup = BeautifulSoup(r_text, "html.parser")
+            entries = collect_madara_page_entries(soup)
+            entries = dedupe_entries(entries)
+            entries = trim_edge_ads_by_resolution(entries)
+            images = [entry["url"] for entry in entries]
+            if images:
+                images = clean_parasites(images, domain)
+                runtime_log(
+                    f"{len(images)} images finales après filtrage.",
+                    level="info",
+                    context={"action": "extract_images", "domain": domain},
+                )
+                return images
+
         # Étape 1 — Extraction depuis le JSON ts_reader.run
         json_str = parse_lr(r_text, "ts_reader.run(", ");</script>", False)
         if json_str:
@@ -1142,14 +1592,15 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
                     for img in data["sources"][0]["images"]
                 ]
                 if images:
+                    images = dedupe_images(images)
                     runtime_log(
-                        f"{len(images)} images dÃ©tectÃ©es via ts_reader.run.",
+                        f"{len(images)} images détectées via ts_reader.run.",
                         level="info",
                         context={"action": "extract_images", "domain": domain},
                     )
                     images = clean_parasites(images, domain)
                     runtime_log(
-                        f"{len(images)} images finales aprÃ¨s filtrage.",
+                        f"{len(images)} images finales après filtrage.",
                         level="info",
                         context={"action": "extract_images", "domain": domain},
                     )
@@ -1167,21 +1618,39 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
 
         reader = soup.find("div", id="readerarea")
         if reader:
-            images = []
-            for img in reader.find_all("img"):
-                src = img.get("data-src") or img.get("src")
-                if not src:
-                    continue
-                if src.startswith("data:"):
-                    continue
-                if src.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".avif")):
-                    normalized_src = normalize_image_url(src)
-                    if normalized_src:
-                        images.append(normalized_src)
+            images = collect_images_from_container(reader)
+            images = dedupe_images(images)
             if images:
                 images = clean_parasites(images, domain)
                 runtime_log(
-                    f"{len(images)} images finales aprÃ¨s filtrage.",
+                    f"{len(images)} images finales après filtrage.",
+                    level="info",
+                    context={"action": "extract_images", "domain": domain},
+                )
+                return images
+
+        # Étape 2b — Fallback : structure Madara (mangas-origines)
+        entries = collect_madara_page_entries(soup)
+        entries = dedupe_entries(entries)
+        entries = trim_edge_ads_by_resolution(entries)
+        images = [entry["url"] for entry in entries]
+        if images:
+            images = clean_parasites(images, domain)
+            runtime_log(
+                f"{len(images)} images finales après filtrage.",
+                level="info",
+                context={"action": "extract_images", "domain": domain},
+            )
+            return images
+
+        reading_container = soup.select_one("div.reading-content, div.entry-content_wrap")
+        if reading_container:
+            images = collect_images_from_container(reading_container)
+            images = dedupe_images(images)
+            if images:
+                images = clean_parasites(images, domain)
+                runtime_log(
+                    f"{len(images)} images finales après filtrage.",
                     level="info",
                     context={"action": "extract_images", "domain": domain},
                 )
@@ -1189,7 +1658,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
 
         # Étape 3 — Fallback regex brut
         img_urls = re.findall(
-            r'<img[^>]+(?:src|data-src)=["\'](https://[^"\'>]+\.(?:webp|jpg|jpeg|jpe|png|avif))["\']',
+            r'<img[^>]+(?:src|data-src)=["\']\s*(https://[^"\'>]+\.(?:webp|jpg|jpeg|jpe|png|avif))["\']',
             r_text,
             re.IGNORECASE,
         )
@@ -1198,69 +1667,93 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
         if img_urls:
             img_urls = clean_parasites(img_urls, domain)
             runtime_log(
-                f"{len(img_urls)} images finales aprÃ¨s filtrage.",
+                f"{len(img_urls)} images finales après filtrage.",
                 level="info",
                 context={"action": "extract_images", "domain": domain},
             )
         return img_urls
 
     attempt_count = max(1, int(retries or 1))
-    domain = get_sushiscan_domain_from_url(link) or ("fr" if "sushiscan.fr" in link else "net")
+    site = get_supported_site_from_url(link)
+    if site == "sushiscan.fr":
+        domain = "fr"
+    elif site == "sushiscan.net":
+        domain = "net"
+    elif site == "mangas-origines.fr":
+        domain = "origines"
+    elif site == "hentai-origines.fr":
+        domain = "hentai"
+    else:
+        domain = normalize_hostname(urlparse(link).hostname) or "-"
 
-    for attempt in range(1, attempt_count + 1):
-        try:
-            r = make_request(link, cookie, ua)
-            body = r.text or ""
+    candidate_links = [(link or "").strip()]
+    if domain in ("origines", "hentai"):
+        list_url = build_mangas_origines_list_url(link)
+        candidate_links = [list_url] if list_url else []
+        if link and link.strip() and link.strip() not in candidate_links:
+            candidate_links.append(link.strip())
+        if candidate_links:
             runtime_log(
-                f"RequÃªte HTTP directe reÃ§ue (len={len(body)}) [tentative {attempt}/{attempt_count}]",
+                "Mode lecture privilégié: style=list.",
                 level="debug",
-                context={"action": "get_images"},
+                context={"action": "get_images", "domain": domain},
             )
 
-            if debug_mode:
-                suffix = f"_attempt{attempt}" if attempt_count > 1 else ""
-                debug_file = f"debug_sushiscan_{domain}{suffix}.log"
-                with open(debug_file, "w", encoding="utf-8") as f:
-                    f.write(body)
+    for link_idx, candidate_link in enumerate(candidate_links, start=1):
+        for attempt in range(1, attempt_count + 1):
+            try:
+                r = make_request(candidate_link, cookie, ua)
+                body = r.text or ""
                 runtime_log(
-                    f"Fichier debug gÃ©nÃ©rÃ©: {debug_file}",
+                    f"Requête HTTP directe reçue (len={len(body)}) [tentative {attempt}/{attempt_count}]",
                     level="debug",
-                    context={"action": "debug_dump"},
+                    context={"action": "get_images", "url_idx": f"{link_idx}/{len(candidate_links)}"},
                 )
 
-            images = extract_images(body, domain)
-            if images:
-                return images
+                if debug_mode:
+                    suffix = f"_url{link_idx}_attempt{attempt}" if (attempt_count > 1 or len(candidate_links) > 1) else ""
+                    debug_file = f"debug_sushiscan_{domain}{suffix}.log"
+                    with open(debug_file, "w", encoding="utf-8") as f:
+                        f.write(body)
+                    runtime_log(
+                        f"Fichier debug généré: {debug_file}",
+                        level="debug",
+                        context={"action": "debug_dump"},
+                    )
 
-            runtime_log(
-                f"Aucune image trouvÃ©e en accÃ¨s direct (tentative {attempt}/{attempt_count}).",
-                level="warning",
-                context={"action": "get_images"},
-            )
-        except Exception as e:
-            message = str(e)
-            interpretation = interpret_curl_error(message)
-            if interpretation:
+                images = extract_images(body, domain)
+                if images:
+                    return images
+
                 runtime_log(
-                    f"{interpretation} (tentative {attempt}/{attempt_count})",
+                    f"Aucune image trouvée en accès direct (tentative {attempt}/{attempt_count}).",
                     level="warning",
                     context={"action": "get_images"},
                 )
-            else:
+            except Exception as e:
+                message = str(e)
+                interpretation = interpret_curl_error(message)
+                if interpretation:
+                    runtime_log(
+                        f"{interpretation} (tentative {attempt}/{attempt_count})",
+                        level="warning",
+                        context={"action": "get_images"},
+                    )
+                else:
+                    runtime_log(
+                        f"Erreur directe (tentative {attempt}/{attempt_count}): {message}.",
+                        level="warning",
+                        context={"action": "get_images"},
+                    )
+
+            if attempt < attempt_count:
+                sleep_time = max(0, delay * (2 ** (attempt - 1)))
                 runtime_log(
-                    f"Erreur directe (tentative {attempt}/{attempt_count}): {message}.",
-                    level="warning",
+                    f"Nouvelle tentative extraction images dans {sleep_time}s.",
+                    level="debug",
                     context={"action": "get_images"},
                 )
-
-        if attempt < attempt_count:
-            sleep_time = max(0, delay * (2 ** (attempt - 1)))
-            runtime_log(
-                f"Nouvelle tentative extraction images dans {sleep_time}s.",
-                level="debug",
-                context={"action": "get_images"},
-            )
-            time.sleep(sleep_time)
+                time.sleep(sleep_time)
 
     runtime_log(
         f"Impossible d'extraire des images depuis: {link}",
@@ -1297,7 +1790,7 @@ def download_volume(
     base_output_dir = str(base_output_dir).strip() or ROOT_FOLDER
     base_output_dir = os.path.abspath(base_output_dir)
     folder = os.path.join(base_output_dir, clean_title, clean_tome)
-    target_domain = get_sushiscan_domain_from_url(referer_url or "")
+    target_domain = get_cookie_domain_from_url(referer_url or "")
     app = getattr(MangaApp, "current_instance", None)
 
     def report_error(stage, reason, status_code=None):
@@ -1332,8 +1825,8 @@ def download_volume(
         try:
             os.makedirs(folder, exist_ok=True)
         except OSError as e:
-            logger(f"Erreur crÃ©ation dossier: {e}", level="error")
-            report_error("prepare", f"Erreur crÃ©ation dossier: {e}")
+            logger(f"Erreur création dossier: {e}", level="error")
+            report_error("prepare", f"Erreur création dossier: {e}")
             return False
 
         number_len = max(1, len(str(len(images))))
@@ -1360,7 +1853,7 @@ def download_volume(
         existing_count = len(existing_indexes)
         if smart_resume_enabled and existing_count:
             logger(
-                f"Reprise intelligente: {existing_count}/{len(images)} page(s) dÃ©jÃ  prÃ©sentes pour {tome_label}.",
+                f"Reprise intelligente: {existing_count}/{len(images)} page(s) déjà présentes pour {tome_label}.",
                 level="info",
             )
 
@@ -1418,7 +1911,7 @@ def download_volume(
                     )
 
         if cancel_event.is_set():
-            logger(f"TÃ©lÃ©chargement annulÃ© pour {tome_label}.", level="warning")
+            logger(f"Téléchargement annulé pour {tome_label}.", level="warning")
             return None
 
         normalized_failures = []
@@ -1429,7 +1922,7 @@ def download_volume(
                         "url": (fail.get("url") or "").strip(),
                         "kind": (fail.get("kind") or "retryable").strip(),
                         "status_code": fail.get("status_code"),
-                        "reason": (fail.get("reason") or "Ã‰chec inconnu").strip(),
+                        "reason": (fail.get("reason") or "Échec inconnu").strip(),
                     }
                 )
             else:
@@ -1438,7 +1931,7 @@ def download_volume(
                         "url": str(fail).strip(),
                         "kind": "retryable",
                         "status_code": None,
-                        "reason": "Ã‰chec non typÃ©",
+                        "reason": "Échec non typé",
                     }
                 )
 
@@ -1451,14 +1944,14 @@ def download_volume(
                 f"{len(missing_failures)} page(s) absente(s) (404/410) sur {tome_label}. Exemple: {sample_missing}",
                 level="warning",
             )
-            logger("CBZ maintenu: les pages manquantes sont ignorÃ©es.", level="info")
+            logger("CBZ maintenu: les pages manquantes sont ignorées.", level="info")
 
         if hard_failures:
             sample_hard = hard_failures[0]
             sample_reason = sample_hard.get("reason") or "cause inconnue"
             sample_status = sample_hard.get("status_code")
             logger(
-                f"{len(hard_failures)} image(s) bloquÃ©e(s)/non tÃ©lÃ©chargeable(s) sur {tome_label}. Exemple: {sample_reason}",
+                f"{len(hard_failures)} image(s) bloquée(s)/non téléchargeable(s) sur {tome_label}. Exemple: {sample_reason}",
                 level="warning",
             )
             report_error("download", sample_reason, sample_status)
@@ -1466,20 +1959,20 @@ def download_volume(
                 return None
 
             if not can_prompt_cookie_retry:
-                logger("Relance cookie dÃ©jÃ  tentÃ©e une fois; abandon du tome.", level="warning")
+                logger("Relance cookie déjà tentée une fois; abandon du tome.", level="warning")
                 return False
 
             can_prompt_cookie_retry = False
             try:
                 if app and hasattr(app, "ask_yes_no"):
                     res = app.ask_yes_no(
-                        "Erreur de tÃ©lÃ©chargement",
-                        "Des images ont Ã©chouÃ©. Voulez-vous modifier le cookie et relancer le tÃ©lÃ©chargement complet de ce tome ?",
+                        "Erreur de téléchargement",
+                        "Des images ont échoué. Voulez-vous modifier le cookie et relancer le téléchargement complet de ce tome ?",
                     )
                 else:
                     res = messagebox.askyesno(
-                        "Erreur de tÃ©lÃ©chargement",
-                        "Des images ont Ã©chouÃ©. Voulez-vous modifier le cookie et relancer le tÃ©lÃ©chargement complet de ce tome ?",
+                        "Erreur de téléchargement",
+                        "Des images ont échoué. Voulez-vous modifier le cookie et relancer le téléchargement complet de ce tome ?",
                     )
 
                 if cancel_event.is_set():
@@ -1504,9 +1997,11 @@ def download_volume(
                     new_cookie = (new_cookie or "").strip()
                     if new_cookie:
                         active_cookie = new_cookie
-                        if app and target_domain in ("fr", "net"):
+                        if app and target_domain in COOKIE_DOMAINS:
                             try:
-                                cookie_var = app.cookie_fr if target_domain == "fr" else app.cookie_net
+                                cookie_var = app._get_cookie_var_for_domain(target_domain)
+                                if cookie_var is None:
+                                    raise RuntimeError("Domaine cookie non supporté pour synchronisation UI.")
                                 app.run_on_ui(cookie_var.set, active_cookie)
                                 app.sync_cookie_source_for_domain(target_domain)
                                 app.persist_settings()
@@ -1515,12 +2010,12 @@ def download_volume(
 
                         shutil.rmtree(folder, ignore_errors=True)
                         logger(
-                            "Ancien dossier supprimÃ©. Relancement du tÃ©lÃ©chargement avec le nouveau cookie...",
+                            "Ancien dossier supprimé. Relancement du téléchargement avec le nouveau cookie...",
                             level="info",
                         )
                         continue
 
-                logger("Aucun cookie saisi. Le tome ne sera pas complÃ©tÃ©.", level="error")
+                logger("Aucun cookie saisi. Le tome ne sera pas complété.", level="error")
             except Exception as e:
                 logger(f"Erreur durant la relance : {e}", level="error")
             return False
@@ -1528,33 +2023,33 @@ def download_volume(
         if cancel_event.is_set():
             return None
         if not os.path.exists(folder):
-            report_error("prepare", "Dossier de tome introuvable aprÃ¨s tÃ©lÃ©chargement.")
+            report_error("prepare", "Dossier de tome introuvable après téléchargement.")
             return False
 
         file_count = sum(len(files) for _, _, files in os.walk(folder))
         if file_count == 0:
-            logger(f"Aucune image tÃ©lÃ©chargÃ©e pour {tome_label}.", level="error")
-            report_error("download", "Aucune image tÃ©lÃ©chargÃ©e pour ce tome.")
+            logger(f"Aucune image téléchargée pour {tome_label}.", level="error")
+            report_error("download", "Aucune image téléchargée pour ce tome.")
             return False
 
-        if cbz_enabled:
-            if archive_cbz(folder, title, tome_label):
-                cbz_path = os.path.join(
-                    base_output_dir, clean_title, f"{clean_title} - {clean_tome}.cbz"
-                )
-                try:
-                    size_mb = round(os.path.getsize(cbz_path) / (1024 * 1024), 2)
-                except OSError:
-                    size_mb = 0
-                logger("", level="info")
-                logger(f"CBZ crÃ©Ã© : {cbz_path} ({size_mb} MB)", level="cbz")
-                return True
-            logger(f"Ã‰chec de crÃ©ation CBZ pour {clean_tome}", level="warning")
-            report_error("archive", f"Ã‰chec de crÃ©ation CBZ pour {clean_tome}")
-            return False
+        if not cbz_enabled:
+            logger(f"CBZ desactive pour {clean_tome}: images conservees.", level="info")
+            return True
 
-        logger(f"CBZ non crÃ©Ã© pour {clean_tome} (option dÃ©cochÃ©e)", level="info")
-        return True
+        if archive_cbz(folder, title, tome_label, remove_source=True):
+            cbz_path = os.path.join(
+                base_output_dir, clean_title, f"{clean_title} - {clean_tome}.cbz"
+            )
+            try:
+                size_mb = round(os.path.getsize(cbz_path) / (1024 * 1024), 2)
+            except OSError:
+                size_mb = 0
+            logger("", level="info")
+            logger(f"CBZ créé : {cbz_path} ({size_mb} MB)", level="cbz")
+            return True
+        logger(f"Échec de création CBZ pour {clean_tome}", level="warning")
+        report_error("archive_cbz", f"Échec de création CBZ pour {clean_tome}")
+        return False
 
 SECRET_DPAPI_PREFIX = "dpapi:"
 
@@ -1647,7 +2142,7 @@ def protect_secret_value(value):
         protected = _dpapi_protect_bytes(plain.encode("utf-8"))
         return SECRET_DPAPI_PREFIX + base64.b64encode(protected).decode("ascii")
     except Exception as exc:
-        runtime_log(f"DPAPI indisponible, valeur stockÃ©e en clair: {exc}", level="warning")
+        runtime_log(f"DPAPI indisponible, valeur stockée en clair: {exc}", level="warning")
         return plain
 
 
@@ -1664,7 +2159,7 @@ def unprotect_secret_value(value):
         clear_bytes = _dpapi_unprotect_bytes(protected)
         return clear_bytes.decode("utf-8", errors="ignore").strip()
     except Exception as exc:
-        runtime_log(f"Impossible de dÃ©chiffrer une valeur sensible: {exc}", level="warning")
+        runtime_log(f"Impossible de déchiffrer une valeur sensible: {exc}", level="warning")
         return ""
 
 def save_cookie_cache(
@@ -1688,20 +2183,11 @@ def save_cookie_cache(
         webp2jpg_enabled (bool): Préférence conversion
     """
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    normalized_cookies = {
-        "fr": (cookies_dict.get("fr") or "").strip(),
-        "net": (cookies_dict.get("net") or "").strip(),
-    }
-    normalized_sources = {
-        "fr": (cookie_sources or {}).get("fr", ""),
-        "net": (cookie_sources or {}).get("net", ""),
-    }
-    normalized_cookie_uas = {
-        "fr": (cookie_user_agents or {}).get("fr", ""),
-        "net": (cookie_user_agents or {}).get("net", ""),
-    }
-    existing_cookies = {"fr": "", "net": ""}
-    existing_updated_at = {"fr": "", "net": ""}
+    normalized_cookies = {domain: (cookies_dict.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
+    normalized_sources = {domain: (cookie_sources or {}).get(domain, "") for domain in COOKIE_DOMAINS}
+    normalized_cookie_uas = {domain: (cookie_user_agents or {}).get(domain, "") for domain in COOKIE_DOMAINS}
+    existing_cookies = {domain: "" for domain in COOKIE_DOMAINS}
+    existing_updated_at = {domain: "" for domain in COOKIE_DOMAINS}
     if COOKIE_CACHE_PATH.exists():
         try:
             with COOKIE_CACHE_PATH.open("r", encoding="utf-8") as f:
@@ -1713,24 +2199,24 @@ def save_cookie_cache(
             raw_existing_updated = existing.get("cookie_updated_at", {}) if isinstance(existing, dict) else {}
             if isinstance(raw_existing_cookies_encrypted, dict):
                 existing_cookies = {
-                    "fr": unprotect_secret_value(raw_existing_cookies_encrypted.get("fr", "")),
-                    "net": unprotect_secret_value(raw_existing_cookies_encrypted.get("net", "")),
+                    domain: unprotect_secret_value(raw_existing_cookies_encrypted.get(domain, ""))
+                    for domain in COOKIE_DOMAINS
                 }
             if isinstance(raw_existing_cookies, dict):
                 existing_cookies = {
-                    "fr": existing_cookies.get("fr") or (raw_existing_cookies.get("fr") or "").strip(),
-                    "net": existing_cookies.get("net") or (raw_existing_cookies.get("net") or "").strip(),
+                    domain: existing_cookies.get(domain) or (raw_existing_cookies.get(domain) or "").strip()
+                    for domain in COOKIE_DOMAINS
                 }
             if isinstance(raw_existing_updated, dict):
                 existing_updated_at = {
-                    "fr": (raw_existing_updated.get("fr") or "").strip(),
-                    "net": (raw_existing_updated.get("net") or "").strip(),
+                    domain: (raw_existing_updated.get(domain) or "").strip()
+                    for domain in COOKIE_DOMAINS
                 }
         except Exception as exc:
             runtime_log(f"Lecture cache existant impossible: {exc}", level="warning")
 
-    cookie_updated_at = {"fr": "", "net": ""}
-    for domain in ("fr", "net"):
+    cookie_updated_at = {domain: "" for domain in COOKIE_DOMAINS}
+    for domain in COOKIE_DOMAINS:
         current_cookie = normalized_cookies[domain]
         previous_cookie = existing_cookies.get(domain, "")
         previous_ts = existing_updated_at.get(domain, "")
@@ -1742,10 +2228,10 @@ def save_cookie_cache(
             cookie_updated_at[domain] = now_iso
 
     encrypted_cookies = {
-        "fr": protect_secret_value(normalized_cookies["fr"]),
-        "net": protect_secret_value(normalized_cookies["net"]),
+        domain: protect_secret_value(normalized_cookies[domain])
+        for domain in COOKIE_DOMAINS
     }
-    plain_cookies = {"fr": "", "net": ""} if os.name == "nt" else normalized_cookies
+    plain_cookies = {domain: "" for domain in COOKIE_DOMAINS} if os.name == "nt" else normalized_cookies
 
     data = {
         "cookies": plain_cookies,
@@ -1757,7 +2243,7 @@ def save_cookie_cache(
         "cookie_updated_at": cookie_updated_at,
         "cookie_sources": normalized_sources,
         "cookie_user_agents": normalized_cookie_uas,
-        "cookie_headers": {"fr": "", "net": ""},
+        "cookie_headers": {domain: "" for domain in COOKIE_DOMAINS},
         "webp2jpg_enabled": bool(webp2jpg_enabled),
         "smart_resume_enabled": bool(smart_resume_enabled),
         "verbose_logs": bool(verbose_logs),
@@ -1781,17 +2267,17 @@ def load_cookie_cache():
     
     if not COOKIE_CACHE_PATH.exists():
         return (
-            {"fr": "", "net": ""},
+            {domain: "" for domain in COOKIE_DOMAINS},
             DEFAULT_USER_AGENT,
             default_cbz,
             "",
             default_webp2jpg,
             default_smart_resume,
             default_verbose_logs,
-            {"fr": "", "net": ""},
-            {"fr": "", "net": ""},
-            {"fr": "", "net": ""},
-            {"fr": "", "net": ""},
+            {domain: "" for domain in COOKIE_DOMAINS},
+            {domain: "" for domain in COOKIE_DOMAINS},
+            {domain: "" for domain in COOKIE_DOMAINS},
+            {domain: "" for domain in COOKIE_DOMAINS},
         )
     
     try:
@@ -1804,14 +2290,11 @@ def load_cookie_cache():
         encrypted_cookies = data.get("cookies_encrypted", {})
         if isinstance(encrypted_cookies, dict):
             cookies = {
-                "fr": unprotect_secret_value(encrypted_cookies.get("fr")) or (cookies.get("fr") or "").strip(),
-                "net": unprotect_secret_value(encrypted_cookies.get("net")) or (cookies.get("net") or "").strip(),
+                domain: unprotect_secret_value(encrypted_cookies.get(domain)) or (cookies.get(domain) or "").strip()
+                for domain in COOKIE_DOMAINS
             }
         else:
-            cookies = {
-                "fr": (cookies.get("fr") or "").strip(),
-                "net": (cookies.get("net") or "").strip(),
-            }
+            cookies = {domain: (cookies.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
 
         # Les préférences (UA, FlareSolverr, etc.) ne dépendent pas
         # de la validité temporelle du cookie Cloudflare.
@@ -1826,10 +2309,14 @@ def load_cookie_cache():
         if not isinstance(cookie_headers, dict):
             cookie_headers = {}
         rebuilt_cookie_headers = {
-            "fr": f"cf_clearance={cookies.get('fr', '').strip()}" if (cookies.get("fr") or "").strip() else "",
-            "net": f"cf_clearance={cookies.get('net', '').strip()}" if (cookies.get("net") or "").strip() else "",
+            domain: (
+                f"cf_clearance={cookies.get(domain, '').strip()}"
+                if (cookies.get(domain) or "").strip()
+                else ""
+            )
+            for domain in COOKIE_DOMAINS
         }
-        for domain in ("fr", "net"):
+        for domain in COOKIE_DOMAINS:
             if not rebuilt_cookie_headers[domain]:
                 rebuilt_cookie_headers[domain] = (cookie_headers.get(domain) or "").strip()
         cookie_updated_at = data.get("cookie_updated_at", {})
@@ -1837,48 +2324,33 @@ def load_cookie_cache():
             cookie_updated_at = {}
 
         return (
-            {
-                "fr": (cookies.get("fr") or "").strip(),
-                "net": (cookies.get("net") or "").strip(),
-            },
+            {domain: (cookies.get(domain) or "").strip() for domain in COOKIE_DOMAINS},
             (data.get("ua") or DEFAULT_USER_AGENT).strip(),
             data.get("cbz_enabled", default_cbz),
             (data.get("last_url") or "").strip(),
             data.get("webp2jpg_enabled", default_webp2jpg),
             bool(data.get("smart_resume_enabled", default_smart_resume)),
             bool(data.get("verbose_logs", default_verbose_logs)),
-            {
-                "fr": (cookie_sources.get("fr") or "").strip(),
-                "net": (cookie_sources.get("net") or "").strip(),
-            },
-            {
-                "fr": (cookie_user_agents.get("fr") or "").strip(),
-                "net": (cookie_user_agents.get("net") or "").strip(),
-            },
-            {
-                "fr": rebuilt_cookie_headers.get("fr", ""),
-                "net": rebuilt_cookie_headers.get("net", ""),
-            },
-            {
-                "fr": (cookie_updated_at.get("fr") or "").strip(),
-                "net": (cookie_updated_at.get("net") or "").strip(),
-            },
+            {domain: (cookie_sources.get(domain) or "").strip() for domain in COOKIE_DOMAINS},
+            {domain: (cookie_user_agents.get(domain) or "").strip() for domain in COOKIE_DOMAINS},
+            {domain: rebuilt_cookie_headers.get(domain, "") for domain in COOKIE_DOMAINS},
+            {domain: (cookie_updated_at.get(domain) or "").strip() for domain in COOKIE_DOMAINS},
         )
     except Exception as e:
         runtime_log(f"Erreur lecture cache cookie : {e}", level="warning")
     
     return (
-        {"fr": "", "net": ""},
+        {domain: "" for domain in COOKIE_DOMAINS},
         DEFAULT_USER_AGENT,
         default_cbz,
         "",
         default_webp2jpg,
         default_smart_resume,
         default_verbose_logs,
-        {"fr": "", "net": ""},
-        {"fr": "", "net": ""},
-        {"fr": "", "net": ""},
-        {"fr": "", "net": ""},
+        {domain: "" for domain in COOKIE_DOMAINS},
+        {domain: "" for domain in COOKIE_DOMAINS},
+        {domain: "" for domain in COOKIE_DOMAINS},
+        {domain: "" for domain in COOKIE_DOMAINS},
     )
 
 
@@ -1886,15 +2358,28 @@ def get_cover_image(r_text):
     """Récupère et affiche l'image de couverture d'un manga."""
     runtime_log("Analyse de la couverture en cours.", level="debug", context={"action": "cover"})
     soup = BeautifulSoup(r_text, "html.parser")
-    img = soup.select_one("div.thumb img[src], div.thumb-container img[src]")
+    img = soup.select_one(
+        "div.thumb img, div.thumb-container img, .summary_image img, .post-thumb img, img.wp-post-image"
+    )
     img_url = None
 
-    if img and img.get("src", "").startswith("http"):
-        img_url = img["src"]
+    if img:
+        for attr_name in ("data-src", "data-lazy-src", "src", "data-cfsrc"):
+            candidate = normalize_image_url((img.get(attr_name) or "").strip())
+            if candidate.startswith("http"):
+                img_url = candidate
+                break
     else:
         for tag in soup.find_all("meta", attrs={"property": True}):
             if tag["property"] in ["og:image", "og:image:secure_url"]:
-                candidate = tag.get("content")
+                candidate = normalize_image_url((tag.get("content") or "").strip())
+                if candidate and candidate.startswith("http"):
+                    img_url = candidate
+                    break
+    if not img_url:
+        for tag in soup.find_all("meta", attrs={"name": True}):
+            if (tag.get("name") or "").strip().lower() in ("twitter:image", "twitter:image:src"):
+                candidate = normalize_image_url((tag.get("content") or "").strip())
                 if candidate and candidate.startswith("http"):
                     img_url = candidate
                     break
@@ -1908,10 +2393,9 @@ def get_cover_image(r_text):
 
     app.cover_url = img_url
     try:
-        domain = get_sushiscan_domain_from_url(img_url) or ("net" if "sushiscan.net" in img_url else "fr")
         referer_url = app.run_on_ui(app.url.get, wait=True, default="").strip()
         if not referer_url:
-            referer_url = f"https://sushiscan.{domain}/"
+            referer_url = get_site_root_url(img_url) or "https://sushiscan.fr/"
 
         cookie = app.get_cookie(img_url)
         cookie_header = app.get_cookie_header_for_url(img_url, fallback_cookie=cookie)
@@ -1929,12 +2413,16 @@ def get_cover_image(r_text):
             delay=1,
         )
         runtime_log(
-            "TÃ©lÃ©chargement couverture OK via accÃ¨s direct.",
+            "Téléchargement couverture OK via accès direct.",
             level="debug",
             context={"action": "cover"},
         )
 
-        image = Image.open(BytesIO(raw)).convert("RGB")
+        image = Image.open(BytesIO(raw))
+        if image.mode not in ("RGB", "RGBA"):
+            image = image.convert("RGB")
+        elif image.mode == "RGBA":
+            image = image.convert("RGB")
         target_w, target_h = app.run_on_ui(app.get_cover_target_size, wait=True, default=(100, 150))
         fitted = ImageOps.fit(
             image,
@@ -1998,7 +2486,7 @@ class MangaApp:
                 try:
                     action()
                 except Exception as exc:
-                    emit_console_log(f"Erreur action UI planifiÃ©e: {exc}", level="error", context={"action": "ui_queue"})
+                    emit_console_log(f"Erreur action UI planifiée: {exc}", level="error", context={"action": "ui_queue"})
         except queue.Empty:
             pass
         finally:
@@ -2219,13 +2707,13 @@ class MangaApp:
             parent=self.root,
         )
 
-    def _reset_analysis_auth_state(self, reset_domains=("fr", "net"), reset_ua=True, clear_label=True):
+    def _reset_analysis_auth_state(self, reset_domains=COOKIE_DOMAINS, reset_ua=True, clear_label=True):
         """Réinitialise l'état d'auth d'analyse (par domaine et/ou UA)."""
         if not hasattr(self, "analysis_auth_state") or not isinstance(self.analysis_auth_state, dict):
-            self.analysis_auth_state = {"fr": None, "net": None, "ua": None}
+            self.analysis_auth_state = {**{domain: None for domain in COOKIE_DOMAINS}, "ua": None}
         domains = tuple(reset_domains or ())
         for domain in domains:
-            if domain in ("fr", "net"):
+            if domain in COOKIE_DOMAINS:
                 self.analysis_auth_state[domain] = None
         if reset_ua:
             self.analysis_auth_state["ua"] = None
@@ -2243,11 +2731,11 @@ class MangaApp:
             self.analysis_auth_state["ua"] = None if self.get_direct_user_agent().strip() else False
         # Le test listing depend aussi du couple cookie+UA: on invalide puis on reprobe.
         if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
-            self.cookie_probe_state["fr"] = None
-            self.cookie_probe_state["net"] = None
+            for domain in COOKIE_DOMAINS:
+                self.cookie_probe_state[domain] = None
         self.run_on_ui(lambda: self.update_cookie_status(validate=False))
         self.run_on_ui(self.update_runtime_status)
-        self._schedule_cookie_listing_probe(domains=("fr", "net"), delay_ms=1200)
+        self._schedule_cookie_listing_probe(domains=COOKIE_DOMAINS, delay_ms=1200)
 
     def _schedule_auth_status_update_cookie_fr(self, *_args):
         """Rafraîchit les badges auth après modification du cookie .fr sans reset global."""
@@ -2272,6 +2760,30 @@ class MangaApp:
         self.run_on_ui(lambda: self.update_cookie_status(validate=False))
         self.run_on_ui(self.update_runtime_status)
         self._schedule_cookie_listing_probe(domains=("net",), delay_ms=1200)
+
+    def _schedule_auth_status_update_cookie_origines(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .origines sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["origines"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["origines"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("origines",), delay_ms=1200)
+
+    def _schedule_auth_status_update_cookie_hentai(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .hentai-origines sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["hentai"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["hentai"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("hentai",), delay_ms=1200)
 
     def _schedule_auth_status_update_url(self, *_args):
         """Rafraîchit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
@@ -2320,11 +2832,11 @@ class MangaApp:
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
         """Mémorise un résultat auth basé sur une analyse réelle."""
-        if domain not in ("fr", "net"):
+        if domain not in COOKIE_DOMAINS:
             return
         normalized_success = bool(success)
         if not hasattr(self, "analysis_auth_state") or not isinstance(self.analysis_auth_state, dict):
-            self.analysis_auth_state = {"fr": None, "net": None, "ua": None}
+            self.analysis_auth_state = {**{domain_key: None for domain_key in COOKIE_DOMAINS}, "ua": None}
         self.analysis_auth_state[domain] = normalized_success
         # Ne pas invalider le User-Agent sur un échec domaine: 403 est souvent cookie-only.
         if normalized_success:
@@ -2338,12 +2850,12 @@ class MangaApp:
             self._mark_cookie_updated(domain, cookie_value)
 
         label_text = (
-            f"Auth .{domain} validÃ©e (liste chargÃ©e)"
+            f"Auth .{domain} validée (liste chargée)"
             if normalized_success
             else (
-                f"Auth .{domain} non validÃ©e (vÃ©rifier cookie .{domain})"
+                f"Auth .{domain} non validée (vérifier cookie .{domain})"
                 if self.get_direct_user_agent().strip()
-                else f"Auth .{domain} non validÃ©e (vÃ©rifier cookie .{domain} + User-Agent)"
+                else f"Auth .{domain} non validée (vérifier cookie .{domain} + User-Agent)"
             )
         )
         if self.analysis_auth_last_message:
@@ -2355,10 +2867,10 @@ class MangaApp:
 
     def _mark_cookie_updated(self, domain, cookie_value):
         """Met à jour le timestamp local de changement cookie pour le domaine."""
-        if domain not in ("fr", "net"):
+        if domain not in COOKIE_DOMAINS:
             return
         if not hasattr(self, "cookie_updated_at") or not isinstance(self.cookie_updated_at, dict):
-            self.cookie_updated_at = {"fr": "", "net": ""}
+            self.cookie_updated_at = {domain_key: "" for domain_key in COOKIE_DOMAINS}
         value = (cookie_value or "").strip()
         if value:
             self.cookie_updated_at[domain] = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -2370,6 +2882,8 @@ class MangaApp:
         _ = active_domain
         self.cookie_fr_label_var.set("Cookie (.fr) :")
         self.cookie_net_label_var.set("Cookie (.net) :")
+        self.cookie_origines_label_var.set("Cookie (.origines) :")
+        self.cookie_hentai_label_var.set("Cookie (.hentai-origines) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -2381,19 +2895,21 @@ class MangaApp:
             current_url = self.url.get().strip()
             active_domain = self.get_domain_from_url(current_url)
             self._refresh_auth_labels(active_domain=active_domain)
-            if not all(hasattr(self, name) for name in ("cookie_fr_status", "cookie_net_status", "ua_status")):
+            if not all(
+                hasattr(self, name)
+                for name in ("cookie_fr_status", "cookie_net_status", "cookie_origines_status", "cookie_hentai_status", "ua_status")
+            ):
                 return
 
-            for domain in ("fr", "net"):
+            for domain in COOKIE_DOMAINS:
                 analysis_domain_state = (getattr(self, "analysis_auth_state", {}) or {}).get(domain)
                 probe_domain_state = (getattr(self, "cookie_probe_state", {}) or {}).get(domain)
-                cookie_value = (
-                    self.cookie_fr.get().strip()
-                    if domain == "fr"
-                    else self.cookie_net.get().strip()
-                )
+                cookie_var = self._get_cookie_var_for_domain(domain)
+                cookie_value = cookie_var.get().strip() if cookie_var is not None else ""
 
-                badge = self.cookie_fr_status if domain == "fr" else self.cookie_net_status
+                badge = self._get_cookie_badge_for_domain(domain)
+                if badge is None:
+                    continue
                 if analysis_domain_state is True:
                     badge_state = "valid"
                     valid = True
@@ -2441,33 +2957,31 @@ class MangaApp:
             active_cookie = ""
             source = "-"
             cookie_sources = getattr(self, "cookie_sources", {}) or {}
-            if domain == "fr":
-                active_cookie = self.cookie_fr.get().strip()
-                source = (cookie_sources.get("fr") or ("manual" if active_cookie else "none")).strip()
-            elif domain == "net":
-                active_cookie = self.cookie_net.get().strip()
-                source = (cookie_sources.get("net") or ("manual" if active_cookie else "none")).strip()
+            cookie_var = self._get_cookie_var_for_domain(domain)
+            if cookie_var is not None:
+                active_cookie = cookie_var.get().strip()
+                source = (cookie_sources.get(domain) or ("manual" if active_cookie else "none")).strip()
 
-            cookie_state = "prÃ©sent" if active_cookie else "absent"
+            cookie_state = "présent" if active_cookie else "absent"
             source_display_map = {"manual": "manuel", "none": "aucun"}
             source_display = source_display_map.get(source.lower(), source or "aucun")
 
             analysis_state = None
             analysis_ua_state = None
             probe_state = None
-            if domain in ("fr", "net"):
+            if domain in COOKIE_DOMAINS:
                 analysis_state = (getattr(self, "analysis_auth_state", {}) or {}).get(domain)
                 analysis_ua_state = (getattr(self, "analysis_auth_state", {}) or {}).get("ua")
                 probe_state = (getattr(self, "cookie_probe_state", {}) or {}).get(domain)
             ua_present = bool(self.get_direct_user_agent().strip())
 
             if analysis_state is True and (analysis_ua_state is True or ua_present):
-                auth_state = "validÃ©e par analyse"
+                auth_state = "validée par analyse"
             elif analysis_state is False:
                 auth_state = (
-                    f"Ã©chec: vÃ©rifier cookie .{domain}"
+                    f"échec: vérifier cookie .{domain}"
                     if ua_present
-                    else f"Ã©chec: vÃ©rifier cookie .{domain} + User-Agent"
+                    else f"échec: vérifier cookie .{domain} + User-Agent"
                 )
             elif probe_state is True:
                 auth_state = "cookie teste OK (listing)"
@@ -2490,7 +3004,7 @@ class MangaApp:
         threading.Thread(target=self._run_startup_ua_probe, daemon=True).start()
 
     def _run_startup_ua_probe(self):
-        """Micro-test léger: une requête racine sur le domaine actif (.fr/.net)."""
+        """Micro-test léger: une requête racine sur le domaine actif."""
         try:
             ua_value = self.get_direct_user_agent().strip()
             if not ua_value:
@@ -2498,34 +3012,42 @@ class MangaApp:
 
             current_url = self.run_on_ui(self.url.get, wait=True, default="").strip()
             domain = self.get_domain_from_url(current_url)
-            if domain not in ("fr", "net"):
-                self.log("Micro-test User-Agent ignorÃ©: aucun domaine actif .fr/.net.", level="debug")
+            if domain not in COOKIE_DOMAINS:
+                self.log("Micro-test User-Agent ignoré: aucun domaine actif supporté.", level="debug")
                 return
 
-            probe_url = f"https://sushiscan.{domain}/"
+            ua_probe_urls = {
+                "fr": "https://sushiscan.fr/",
+                "net": "https://sushiscan.net/",
+                "origines": "https://mangas-origines.fr/",
+                "hentai": "https://hentai-origines.fr/",
+            }
+            probe_url = ua_probe_urls.get(domain, "")
+            if not probe_url:
+                return
             response = make_request(probe_url, "", ua_value)
             status_code = int(getattr(response, "status_code", 0) or 0)
             if status_code <= 0:
                 return
 
             if not hasattr(self, "analysis_auth_state") or not isinstance(self.analysis_auth_state, dict):
-                self.analysis_auth_state = {"fr": None, "net": None, "ua": None}
+                self.analysis_auth_state = {**{domain_key: None for domain_key in COOKIE_DOMAINS}, "ua": None}
             self.analysis_auth_state["ua"] = True
             self.run_on_ui(lambda: self.update_cookie_status(validate=False))
             self.run_on_ui(self.update_runtime_status)
             self.log(
-                f"Micro-test User-Agent: HTTP {status_code} sur .{domain}, User-Agent validÃ©.",
+                f"Micro-test User-Agent: HTTP {status_code} sur .{domain}, User-Agent validé.",
                 level="info",
             )
         except Exception as exc:
             self.log(f"Micro-test User-Agent non concluant: {exc}", level="debug")
 
-    def _schedule_cookie_listing_probe(self, domains=("fr", "net"), delay_ms=1200):
-        valid_domains = tuple(d for d in (domains or ()) if d in ("fr", "net"))
+    def _schedule_cookie_listing_probe(self, domains=COOKIE_DOMAINS, delay_ms=1200):
+        valid_domains = tuple(d for d in (domains or ()) if d in COOKIE_DOMAINS)
         if not valid_domains:
             return
         if not hasattr(self, "cookie_probe_after_ids") or not isinstance(self.cookie_probe_after_ids, dict):
-            self.cookie_probe_after_ids = {"fr": None, "net": None}
+            self.cookie_probe_after_ids = {domain: None for domain in COOKIE_DOMAINS}
 
         for domain in valid_domains:
             pending_id = self.cookie_probe_after_ids.get(domain)
@@ -2549,13 +3071,13 @@ class MangaApp:
             else:
                 launch_probe()
 
-    def _run_cookie_listing_probe(self, domains=("fr", "net")):
+    def _run_cookie_listing_probe(self, domains=COOKIE_DOMAINS):
         try:
-            valid_domains = tuple(d for d in (domains or ()) if d in ("fr", "net"))
+            valid_domains = tuple(d for d in (domains or ()) if d in COOKIE_DOMAINS)
             if not valid_domains:
                 return
             if not hasattr(self, "cookie_probe_state") or not isinstance(self.cookie_probe_state, dict):
-                self.cookie_probe_state = {"fr": None, "net": None}
+                self.cookie_probe_state = {domain: None for domain in COOKIE_DOMAINS}
 
             ua_value = self.get_direct_user_agent().strip()
             if not ua_value:
@@ -2563,7 +3085,9 @@ class MangaApp:
 
             probe_urls = getattr(self, "cookie_listing_probe_urls", {}) or {}
             for domain in valid_domains:
-                cookie_var = self.cookie_fr if domain == "fr" else self.cookie_net
+                cookie_var = self._get_cookie_var_for_domain(domain)
+                if cookie_var is None:
+                    continue
                 cookie_value = self.run_on_ui(cookie_var.get, wait=True, default="").strip()
                 previous_state = self.cookie_probe_state.get(domain)
 
@@ -2574,7 +3098,15 @@ class MangaApp:
                         self.run_on_ui(self.update_runtime_status)
                     continue
 
-                probe_url = (probe_urls.get(domain) or "").strip() or f"https://sushiscan.{domain}/catalogue/one-piece/"
+                fallback_probe_urls = {
+                    "fr": "https://sushiscan.fr/catalogue/one-piece/",
+                    "net": "https://sushiscan.net/catalogue/one-piece/",
+                    "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
+                    "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
+                }
+                probe_url = (probe_urls.get(domain) or "").strip() or fallback_probe_urls.get(domain, "")
+                if not probe_url:
+                    continue
                 probe_ok = False
                 failure_reason = ""
                 try:
@@ -2641,10 +3173,14 @@ class MangaApp:
         self.ua = tk.StringVar()
         self.cookie_fr = tk.StringVar()
         self.cookie_net = tk.StringVar()
+        self.cookie_origines = tk.StringVar()
+        self.cookie_hentai = tk.StringVar()
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
+        self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
+        self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
-        self.runtime_status = tk.StringVar(value="PrÃªt.")
+        self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
         self.log_autoscroll = tk.BooleanVar(value=True)
         self.console_logs_enabled = tk.BooleanVar(value=True)
@@ -2652,15 +3188,17 @@ class MangaApp:
         self.filter_placeholder_text = "Filtre"
         self.filter_placeholder_active = False
         self.cover_target_height = COVER_TARGET_HEIGHT
-        self.auth_validity = {"fr": False, "net": False, "ua": False}
+        self.auth_validity = {**{domain: False for domain in COOKIE_DOMAINS}, "ua": False}
         self.local_ua_source = "manual"
         self.ua_runtime_validity = None
-        self.analysis_auth_state = {"fr": None, "net": None, "ua": None}
-        self.cookie_probe_state = {"fr": None, "net": None}
-        self.cookie_probe_after_ids = {"fr": None, "net": None}
+        self.analysis_auth_state = {**{domain: None for domain in COOKIE_DOMAINS}, "ua": None}
+        self.cookie_probe_state = {domain: None for domain in COOKIE_DOMAINS}
+        self.cookie_probe_after_ids = {domain: None for domain in COOKIE_DOMAINS}
         self.cookie_listing_probe_urls = {
             "fr": "https://sushiscan.fr/catalogue/one-piece/",
             "net": "https://sushiscan.net/catalogue/one-piece/",
+            "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
+            "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
         }
         self.analysis_auth_last_domain = None
         self.analysis_auth_last_message = ""
@@ -2668,8 +3206,12 @@ class MangaApp:
         self.url.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_net.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_origines.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_hentai.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_auth_status_update_cookie_fr)
         self.cookie_net.trace_add("write", self._schedule_auth_status_update_cookie_net)
+        self.cookie_origines.trace_add("write", self._schedule_auth_status_update_cookie_origines)
+        self.cookie_hentai.trace_add("write", self._schedule_auth_status_update_cookie_hentai)
         self.ua.trace_add("write", self._schedule_auth_status_update)
         self.url.trace_add("write", self._schedule_auth_status_update_url)
 
@@ -2689,6 +3231,8 @@ class MangaApp:
         ) = load_cookie_cache()
         self.cookie_fr.set(cookies.get("fr", ""))
         self.cookie_net.set(cookies.get("net", ""))
+        self.cookie_origines.set(cookies.get("origines", ""))
+        self.cookie_hentai.set(cookies.get("hentai", ""))
         runtime_log(f"{APP_NAME} v{APP_VERSION}", level="info")
         runtime_log(f"Cache cookie : {COOKIE_CACHE_PATH}", level="info")
         runtime_log(f"Config : {CONFIG_PATH}", level="info")
@@ -2696,25 +3240,13 @@ class MangaApp:
         detected_ua, ua_source = detect_local_user_agent()
         self.local_ua_source = ua_source
         self.ua.set((ua or detected_ua or DEFAULT_USER_AGENT).strip())
-        self.cookie_sources = {
-            "fr": (cookie_sources.get("fr") or "").strip(),
-            "net": (cookie_sources.get("net") or "").strip(),
-        }
-        self.cookie_user_agents = {
-            "fr": (cookie_user_agents.get("fr") or "").strip(),
-            "net": (cookie_user_agents.get("net") or "").strip(),
-        }
-        self.cookie_headers = {
-            "fr": (cookie_headers.get("fr") or "").strip(),
-            "net": (cookie_headers.get("net") or "").strip(),
-        }
-        self.cookie_updated_at = {
-            "fr": (cookie_updated_at.get("fr") or "").strip(),
-            "net": (cookie_updated_at.get("net") or "").strip(),
-        }
+        self.cookie_sources = {domain: (cookie_sources.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
+        self.cookie_user_agents = {domain: (cookie_user_agents.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
+        self.cookie_headers = {domain: (cookie_headers.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
+        self.cookie_updated_at = {domain: (cookie_updated_at.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
 
         direct_ua = (self.ua.get() or DIRECT_USER_AGENT_DEFAULT).strip()
-        for domain in ("fr", "net"):
+        for domain in COOKIE_DOMAINS:
             cookie_value = (cookies.get(domain) or "").strip()
             source = (self.cookie_sources.get(domain) or "").strip().lower()
             if source != "manual":
@@ -2729,10 +3261,7 @@ class MangaApp:
             if not self.cookie_headers.get(domain):
                 self.cookie_headers[domain] = f"cf_clearance={cookie_value}" if cookie_value else ""
 
-        self.last_known_cookies = {
-            "fr": (cookies.get("fr") or "").strip(),
-            "net": (cookies.get("net") or "").strip(),
-        }
+        self.last_known_cookies = {domain: (cookies.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
         self.cbz_enabled.set(str(cbz).lower() in ("1", "true", "yes"))
         self.webp2jpg_enabled.set(str(webp2jpg_enabled).lower() in ("1", "true", "yes"))
         self.smart_resume_enabled.set(str(smart_resume_enabled).lower() in ("1", "true", "yes"))
@@ -2773,9 +3302,9 @@ class MangaApp:
         self.update_cookie_status(validate=False)
         self.update_runtime_status()
         self.root.after(600, self._schedule_startup_ua_probe)
-        self.root.after(900, lambda: self._schedule_cookie_listing_probe(domains=("fr", "net"), delay_ms=0))
+        self.root.after(900, lambda: self._schedule_cookie_listing_probe(domains=COOKIE_DOMAINS, delay_ms=0))
 
-        self.log(f"Application dÃ©marrÃ©e - {APP_NAME} v{APP_VERSION}.", level="info")
+        self.log(f"Application démarrée - {APP_NAME} v{APP_VERSION}.", level="info")
         self.root.mainloop()
 
     def log(self, message, level="info", context=None):
@@ -2900,7 +3429,7 @@ class MangaApp:
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
-        self.log("Journal copiÃ© dans le presse-papiers.", level="success")
+        self.log("Journal copié dans le presse-papiers.", level="success")
 
     def export_visible_logs(self):
         """Exporte le journal visible dans un fichier texte."""
@@ -2921,7 +3450,7 @@ class MangaApp:
         try:
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(content + "\n")
-            self.log(f"Journal exportÃ©: {out_path}", level="success")
+            self.log(f"Journal exporté: {out_path}", level="success")
         except Exception as exc:
             self.log(f"Erreur export journal: {exc}", level="error")
 
@@ -2970,7 +3499,7 @@ class MangaApp:
 
     def export_volume_errors(self):
         if not self.volume_error_entries:
-            self.log("Aucune erreur tome Ã  exporter.", level="info")
+            self.log("Aucune erreur tome à exporter.", level="info")
             return
         default_name = f"sushidl_erreurs_tomes_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         out_path = filedialog.asksaveasfilename(
@@ -2990,7 +3519,7 @@ class MangaApp:
                 writer.writeheader()
                 for entry in self.volume_error_entries:
                     writer.writerow(entry)
-            self.log(f"Erreurs par tome exportÃ©es: {out_path}", level="success")
+            self.log(f"Erreurs par tome exportées: {out_path}", level="success")
         except Exception as exc:
             self.log(f"Erreur export erreurs par tome: {exc}", level="error")
 
@@ -3229,11 +3758,33 @@ class MangaApp:
         """Configure tous les elements de l'interface graphique."""
         self.progress = tk.DoubleVar(value=0)
 
+        def create_titled_section(parent, title, bottom_margin):
+            section_wrap = ttk.Frame(parent, style="App.TFrame")
+            section_wrap.pack(fill="x", expand=False, pady=(0, bottom_margin))
+
+            section_tabs = ttk.Notebook(section_wrap)
+            section_tabs.pack(fill="x", expand=False)
+
+            section_tab = ttk.Frame(section_tabs, style="Card.TFrame")
+            section_tabs.add(section_tab, text=title)
+
+            section_panel = tk.Frame(
+                section_tab,
+                bg=self.palette["card_bg"],
+                highlightbackground=self.palette["border"],
+                highlightthickness=1,
+                bd=0,
+            )
+            section_panel.pack(fill="x", expand=True)
+
+            section_content = ttk.Frame(section_panel, style="Card.TFrame")
+            section_content.pack(fill="both", expand=True, padx=12, pady=12)
+            return section_content, section_tabs
+
         main_frame = ttk.Frame(self.root, style="App.TFrame", padding=(18, 12))
         main_frame.pack(fill="both", expand=True)
 
-        config_card = ttk.LabelFrame(main_frame, text="Configuration", style="Card.TLabelframe")
-        config_card.pack(fill="x", pady=(0, 12))
+        config_card, self.config_section_tabs = create_titled_section(main_frame, "Configuration", 12)
         config_card.grid_columnconfigure(1, weight=1)
 
         font_label = ("Segoe UI", 10)
@@ -3292,6 +3843,60 @@ class MangaApp:
             width=16,
         )
         self.cookie_net_status.grid(row=row, column=2, sticky="w", padx=10)
+        row += 1
+
+        ttk.Label(
+            config_card,
+            textvariable=self.cookie_origines_label_var,
+            style="Card.TLabel",
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=4, padx=(4, 8)
+        )
+        self.cookie_origines_entry = ttk.Entry(
+            config_card, textvariable=self.cookie_origines, width=64, font=font_entry, style="Card.TEntry", show="*"
+        )
+        self.cookie_origines_entry.grid(row=row, column=1, pady=4, sticky="ew")
+        self.cookie_origines_status = tk.Label(
+            config_card,
+            text="Validation en cours",
+            font=("Segoe UI Semibold", 9),
+            fg="#1f2937",
+            bg="#FFC067",
+            padx=10,
+            pady=3,
+            relief="solid",
+            borderwidth=1,
+            width=16,
+        )
+        self.cookie_origines_status.grid(row=row, column=2, sticky="w", padx=10)
+        row += 1
+
+        ttk.Label(
+            config_card,
+            textvariable=self.cookie_hentai_label_var,
+            style="Card.TLabel",
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=4, padx=(4, 8)
+        )
+        self.cookie_hentai_entry = ttk.Entry(
+            config_card, textvariable=self.cookie_hentai, width=64, font=font_entry, style="Card.TEntry", show="*"
+        )
+        self.cookie_hentai_entry.grid(row=row, column=1, pady=4, sticky="ew")
+        self.cookie_hentai_status = tk.Label(
+            config_card,
+            text="Validation en cours",
+            font=("Segoe UI Semibold", 9),
+            fg="#1f2937",
+            bg="#FFC067",
+            padx=10,
+            pady=3,
+            relief="solid",
+            borderwidth=1,
+            width=16,
+        )
+        self.cookie_hentai_status.grid(row=row, column=2, sticky="w", padx=10)
         row += 1
 
         ttk.Label(
@@ -3378,8 +3983,7 @@ class MangaApp:
 
         self._setup_auth_link_placeholders()
 
-        source_card = ttk.LabelFrame(main_frame, text="Sources", style="Card.TLabelframe")
-        source_card.pack(fill="x", pady=(0, 10))
+        source_card, self.source_section_tabs = create_titled_section(main_frame, "Sources", 10)
 
         url_cover_frame = ttk.Frame(source_card, style="Card.TFrame")
         url_cover_frame.pack(fill="x")
@@ -3419,7 +4023,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://www.sushiscan.fr|net/catalogue/xxx",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/",
             None,
         )
 
@@ -3435,8 +4039,7 @@ class MangaApp:
         self.status_label = ttk.Label(analyze_frame, text="", style="Card.TLabel", font=("Segoe UI", 9))
         self.status_label.pack(side="left", padx=(12, 0))
 
-        center_card = ttk.LabelFrame(main_frame, text="Tomes / Chapitres", style="Card.TLabelframe")
-        center_card.pack(fill="x", expand=False, pady=(0, 10))
+        center_card, self.selection_section_tabs = create_titled_section(main_frame, "Tomes / Chapitres", 10)
 
         vol_header = ttk.Frame(center_card, style="Card.TFrame")
         vol_header.pack(fill="x", pady=(0, 6))
@@ -3815,7 +4418,14 @@ class MangaApp:
             for child in widget.winfo_children():
                 normalize_widget_text(child)
 
-        for var_name in ("runtime_status", "cookie_fr_label_var", "cookie_net_label_var", "ua_label_var"):
+        for var_name in (
+            "runtime_status",
+            "cookie_fr_label_var",
+            "cookie_net_label_var",
+            "cookie_origines_label_var",
+            "cookie_hentai_label_var",
+            "ua_label_var",
+        ):
             var = getattr(self, var_name, None)
             if isinstance(var, tk.StringVar):
                 try:
@@ -3948,6 +4558,8 @@ class MangaApp:
     def _setup_auth_link_placeholders(self):
         """Initialise les placeholders cliquables pour cookies et User-Agent."""
         ua_link = get_manual_link("user_agent", "https://httpbin.org/user-agent")
+        cookie_origines_link = get_manual_link("cookie_origines", "https://mangas-origines.fr")
+        cookie_hentai_link = get_manual_link("cookie_hentai", "https://hentai-origines.fr")
         self._attach_link_placeholder(
             self.cookie_fr_entry,
             self.cookie_fr,
@@ -3959,6 +4571,18 @@ class MangaApp:
             self.cookie_net,
             'Coller ici votre cookie cf_clearance. Cliquer sur "Aide Cookie" si besoin.',
             None,
+        )
+        self._attach_link_placeholder(
+            self.cookie_origines_entry,
+            self.cookie_origines,
+            'Cookie cf_clearance mangas-origines.fr (cliquer pour ouvrir le site si besoin).',
+            cookie_origines_link,
+        )
+        self._attach_link_placeholder(
+            self.cookie_hentai_entry,
+            self.cookie_hentai,
+            'Cookie cf_clearance hentai-origines.fr (cliquer pour ouvrir le site si besoin).',
+            cookie_hentai_link,
         )
         self._attach_link_placeholder(
             self.ua_entry,
@@ -3973,19 +4597,52 @@ class MangaApp:
             self.cookie_fr_entry.config(show=show_char)
         if hasattr(self, "cookie_net_entry"):
             self.cookie_net_entry.config(show=show_char)
+        if hasattr(self, "cookie_origines_entry"):
+            self.cookie_origines_entry.config(show=show_char)
+        if hasattr(self, "cookie_hentai_entry"):
+            self.cookie_hentai_entry.config(show=show_char)
 
 
     def get_domain_from_url(self, url):
-        """Retourne 'fr' ou 'net' selon l'URL SushiScan."""
-        return get_sushiscan_domain_from_url(url)
+        """Retourne le domaine cookie interne: fr/net/origines."""
+        return get_cookie_domain_from_url(url)
+
+    def _get_cookie_var_for_domain(self, domain):
+        """Retourne la StringVar cookie liée au domaine."""
+        mapping = {
+            "fr": getattr(self, "cookie_fr", None),
+            "net": getattr(self, "cookie_net", None),
+            "origines": getattr(self, "cookie_origines", None),
+            "hentai": getattr(self, "cookie_hentai", None),
+        }
+        return mapping.get(domain)
+
+    def _get_cookie_entry_for_domain(self, domain):
+        """Retourne le widget Entry cookie lié au domaine."""
+        mapping = {
+            "fr": getattr(self, "cookie_fr_entry", None),
+            "net": getattr(self, "cookie_net_entry", None),
+            "origines": getattr(self, "cookie_origines_entry", None),
+            "hentai": getattr(self, "cookie_hentai_entry", None),
+        }
+        return mapping.get(domain)
+
+    def _get_cookie_badge_for_domain(self, domain):
+        """Retourne le badge visuel cookie lié au domaine."""
+        mapping = {
+            "fr": getattr(self, "cookie_fr_status", None),
+            "net": getattr(self, "cookie_net_status", None),
+            "origines": getattr(self, "cookie_origines_status", None),
+            "hentai": getattr(self, "cookie_hentai_status", None),
+        }
+        return mapping.get(domain)
 
     def get_cookie(self, url):
         """Sélectionne automatiquement le cookie selon le domaine"""
         domain = self.get_domain_from_url(url)
-        if domain == "fr":
-            return self.run_on_ui(self.cookie_fr.get, wait=True, default="").strip()
-        if domain == "net":
-            return self.run_on_ui(self.cookie_net.get, wait=True, default="").strip()
+        cookie_var = self._get_cookie_var_for_domain(domain)
+        if cookie_var is not None:
+            return self.run_on_ui(cookie_var.get, wait=True, default="").strip()
         return ""
 
     def get_direct_user_agent(self):
@@ -3994,9 +4651,11 @@ class MangaApp:
 
     def sync_cookie_source_for_domain(self, domain):
         """Synchronise l'origine du cookie si l'utilisateur a saisi une nouvelle valeur."""
-        if domain not in ("fr", "net"):
+        if domain not in COOKIE_DOMAINS:
             return
-        cookie_var = self.cookie_fr if domain == "fr" else self.cookie_net
+        cookie_var = self._get_cookie_var_for_domain(domain)
+        if cookie_var is None:
+            return
         current_cookie = self.run_on_ui(cookie_var.get, wait=True, default="").strip()
         previous_cookie = (self.last_known_cookies.get(domain) or "").strip()
 
@@ -4024,12 +4683,14 @@ class MangaApp:
 
     def get_cookie_header_for_domain(self, domain, fallback_cookie=None):
         """Retourne l'en-tête Cookie effectif (complet si disponible)."""
-        if domain not in ("fr", "net"):
+        if domain not in COOKIE_DOMAINS:
             return ""
         header = (self.cookie_headers.get(domain) or "").strip()
         if header:
             return header
-        cookie_var = self.cookie_fr if domain == "fr" else self.cookie_net
+        cookie_var = self._get_cookie_var_for_domain(domain)
+        if cookie_var is None:
+            return ""
         cookie_value = (fallback_cookie or self.run_on_ui(cookie_var.get, wait=True, default="")).strip()
         if cookie_value:
             return f"cf_clearance={cookie_value}"
@@ -4042,13 +4703,13 @@ class MangaApp:
     def persist_settings(self):
         """Sauvegarde silencieuse des paramètres courants."""
         direct_ua = self.get_direct_user_agent()
-        cookies = {
-            "fr": self.run_on_ui(self.cookie_fr.get, wait=True, default="").strip(),
-            "net": self.run_on_ui(self.cookie_net.get, wait=True, default="").strip(),
-        }
+        cookies = {}
+        for domain in COOKIE_DOMAINS:
+            cookie_var = self._get_cookie_var_for_domain(domain)
+            cookies[domain] = self.run_on_ui(cookie_var.get, wait=True, default="").strip() if cookie_var else ""
 
         # Si l'utilisateur a modifié manuellement un cookie, on repasse en mode UA direct.
-        for domain in ("fr", "net"):
+        for domain in COOKIE_DOMAINS:
             current_cookie = (cookies.get(domain) or "").strip()
             previous_cookie = (self.last_known_cookies.get(domain) or "").strip()
             if current_cookie and current_cookie != previous_cookie:
@@ -4084,10 +4745,7 @@ class MangaApp:
             cookie_headers=self.cookie_headers,
         )
         if isinstance(updated_at, dict):
-            self.cookie_updated_at = {
-                "fr": (updated_at.get("fr") or "").strip(),
-                "net": (updated_at.get("net") or "").strip(),
-            }
+            self.cookie_updated_at = {domain: (updated_at.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
 
     def ensure_cookie_for_domain(self, domain, force_refresh=False, probe_url=None):
         """
@@ -4095,10 +4753,12 @@ class MangaApp:
         Aucun rafraîchissement automatique n'est effectué.
         """
         _ = probe_url
-        if domain not in ("fr", "net"):
+        if domain not in COOKIE_DOMAINS:
             return ""
 
-        cookie_var = self.cookie_fr if domain == "fr" else self.cookie_net
+        cookie_var = self._get_cookie_var_for_domain(domain)
+        if cookie_var is None:
+            return ""
         cookie = self.run_on_ui(cookie_var.get, wait=True, default="").strip()
         direct_ua = self.get_direct_user_agent()
 
@@ -4127,14 +4787,17 @@ class MangaApp:
     def load_volumes(self):
         """Charge la liste des tomes/chapitres pour l'URL donnée."""
         if getattr(self, "analysis_in_progress", False):
-            self.log("Analyse dÃ©jÃ  en cours, patiente quelques secondes.", level="warning")
+            self.log("Analyse déjà en cours, patiente quelques secondes.", level="warning")
             return
 
         self._set_workflow_step("source", "Validation URL et analyse catalogue...")
         self._set_analysis_status_label("Analyse en cours: validation URL...", success=None)
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
-            self.log("URL invalide. Format attendu: https://sushiscan.fr|net/catalogue/slug/", level="error")
+            self.log(
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/",
+                level="error",
+            )
             self._set_analysis_status_label("URL invalide", success=False)
             self.toast("URL invalide")
             return
@@ -4142,9 +4805,9 @@ class MangaApp:
         def set_analysis_step(step):
             labels = {
                 "validate": "Analyse en cours: validation URL...",
-                "fetch": "Analyse en cours: rÃ©cupÃ©ration du catalogue...",
+                "fetch": "Analyse en cours: récupération du catalogue...",
                 "parse": "Analyse en cours: parsing des tomes/chapitres...",
-                "cover": "Analyse en cours: rÃ©cupÃ©ration de la couverture...",
+                "cover": "Analyse en cours: récupération de la couverture...",
             }
             text = labels.get(step)
             if text:
@@ -4153,11 +4816,11 @@ class MangaApp:
         cookie = self.get_cookie(url)
         ua_for_url = self.get_request_user_agent_for_url(url)
         domain = self.get_domain_from_url(url)
-        if domain in ("fr", "net"):
+        if domain in COOKIE_DOMAINS:
             self._reset_analysis_auth_state(reset_domains=(domain,), reset_ua=False, clear_label=False)
             self.update_cookie_status(validate=False)
             self.update_runtime_status()
-        if not cookie and domain in ("fr", "net"):
+        if not cookie and domain in COOKIE_DOMAINS:
             self.log(
                 f"Cookie .{domain} vide: si Cloudflare demande un challenge, renseigne cf_clearance manuellement.",
                 level="warning",
@@ -4184,7 +4847,7 @@ class MangaApp:
                 marker in lowered
                 for marker in (
                     "http 403",
-                    "accÃ¨s refusÃ©",
+                    "accès refusé",
                     "acces refuse",
                     "forbidden",
                     "cloudflare",
@@ -4192,31 +4855,31 @@ class MangaApp:
                     "cookie",
                 )
             )
-            if domain in ("fr", "net"):
-                fail_reason = "Ã©chec d'authentification" if auth_related else "analyse Ã©chouÃ©e"
+            if domain in COOKIE_DOMAINS:
+                fail_reason = "échec d'authentification" if auth_related else "analyse échouée"
                 self._mark_analysis_auth_state(domain, False, fail_reason)
                 self.log(
                     (
-                        f"Auth .{domain} non validÃ©e: vÃ©rifie le cookie cf_clearance .{domain}."
+                        f"Auth .{domain} non validée: vérifie le cookie cf_clearance .{domain}."
                         if ua_for_url.strip()
-                        else f"Auth .{domain} non validÃ©e: vÃ©rifie le cookie cf_clearance .{domain} et le User-Agent."
+                        else f"Auth .{domain} non validée: vérifie le cookie cf_clearance .{domain} et le User-Agent."
                     ),
                     level="warning",
                 )
             else:
-                self._set_analysis_status_label("Analyse Ã©chouÃ©e (auth non concluante)", success=False)
+                self._set_analysis_status_label("Analyse échouée (auth non concluante)", success=False)
 
-            if "http 403" in lowered or "accÃ¨s refusÃ©" in lowered or "acces refuse" in lowered:
+            if "http 403" in lowered or "accès refusé" in lowered or "acces refuse" in lowered:
                 self.log(
                     (
-                        f"HTTP 403 dÃ©tectÃ©: vÃ©rifie le cookie cf_clearance .{domain}."
-                        if ua_for_url.strip() and domain in ("fr", "net")
-                        else "HTTP 403 dÃ©tectÃ©: vÃ©rifie le cookie cf_clearance du domaine et le User-Agent."
+                        f"HTTP 403 détecté: vérifie le cookie cf_clearance .{domain}."
+                        if ua_for_url.strip() and domain in COOKIE_DOMAINS
+                        else "HTTP 403 détecté: vérifie le cookie cf_clearance du domaine et le User-Agent."
                     ),
                     level="warning",
                 )
             self.update_cookie_status(validate=True)
-            self._set_analysis_status_label("Analyse Ã©chouÃ©e", success=False)
+            self._set_analysis_status_label("Analyse échouée", success=False)
             self.toast("Impossible de charger la liste")
             finish_analysis()
 
@@ -4253,7 +4916,7 @@ class MangaApp:
             else:
                 self._hide_volume_empty_state()
             self.canvas.yview_moveto(0)
-            self.log("Liste chargÃ©e avec succÃ¨s.", level="success")
+            self.log("Liste chargée avec succès.", level="success")
             has_pairs = bool(self.pairs)
             self.filter_entry.config(state="normal" if has_pairs else "disabled")
             self.clear_filter_button.config(state="normal" if has_pairs else "disabled")
@@ -4264,9 +4927,9 @@ class MangaApp:
             self.update_master_toggle_button()
             self._refresh_volume_empty_state()
             if has_pairs:
-                self._set_analysis_status_label("Analyse terminÃ©e.", success=True)
+                self._set_analysis_status_label("Analyse terminée.", success=True)
             else:
-                self._set_analysis_status_label("Analyse terminÃ©e: liste vide.", success=False)
+                self._set_analysis_status_label("Analyse terminée: liste vide.", success=False)
             finish_analysis()
 
         def fetch_progress_callback(step):
@@ -4286,24 +4949,24 @@ class MangaApp:
                 self.pairs = pairs
                 self.ua_runtime_validity = bool((ua_for_url or "").strip())
 
-                if domain in ("fr", "net"):
+                if domain in COOKIE_DOMAINS:
                     if self.pairs:
                         self._mark_analysis_auth_state(
                             domain,
                             True,
-                            f"{len(self.pairs)} tome(s)/chapitre(s) dÃ©tectÃ©(s)",
+                            f"{len(self.pairs)} tome(s)/chapitre(s) détecté(s)",
                         )
                         self.log(
-                            f"Auth .{domain} validÃ©e par analyse: cookie + User-Agent OK.",
+                            f"Auth .{domain} validée par analyse: cookie + User-Agent OK.",
                             level="success",
                         )
                     else:
                         self._mark_analysis_auth_state(domain, False, "liste vide")
                         self.log(
                             (
-                                f"Auth .{domain} non validÃ©e: vÃ©rifie le cookie cf_clearance .{domain}."
+                                f"Auth .{domain} non validée: vérifie le cookie cf_clearance .{domain}."
                                 if ua_for_url.strip()
-                                else f"Auth .{domain} non validÃ©e: vÃ©rifie le cookie cf_clearance .{domain} et le User-Agent."
+                                else f"Auth .{domain} non validée: vérifie le cookie cf_clearance .{domain} et le User-Agent."
                             ),
                             level="warning",
                         )
@@ -4322,7 +4985,7 @@ class MangaApp:
                 MangaApp.last_url_used = url
                 self.persist_settings()
             except Exception as save_exc:
-                self.log(f"Erreur sauvegarde paramÃ¨tres: {save_exc}", level="error")
+                self.log(f"Erreur sauvegarde paramètres: {save_exc}", level="error")
 
             try:
                 self.run_on_ui(apply_pairs_ui, wait=True)
@@ -4479,7 +5142,7 @@ class MangaApp:
                 selected.append((vol, link))
 
         if not selected:
-            self.log("Aucun tome sÃ©lectionnÃ©.", level="info")
+            self.log("Aucun tome sélectionné.", level="info")
             return
 
         initial_output_root = (getattr(self, "download_output_root", "") or os.path.abspath(ROOT_FOLDER)).strip()
@@ -4497,13 +5160,13 @@ class MangaApp:
             mustexist=False,
         )
         if not output_root:
-            self.log("TÃ©lÃ©chargement annulÃ©: aucun dossier de destination sÃ©lectionnÃ©.", level="info")
+            self.log("Téléchargement annulé: aucun dossier de destination sélectionné.", level="info")
             return
         output_root = os.path.abspath(output_root)
         self.download_output_root = output_root
         self.log(f"Dossier de destination: {output_root}", level="info")
 
-        self._set_workflow_step("download", "Preparation du telechargement...")
+        self._set_workflow_step("download", "Préparation du téléchargement...")
         self._set_download_controls(True)
         self._set_progress_ui(0)
         self._set_current_volume_ui(None)
@@ -4547,14 +5210,14 @@ class MangaApp:
                 self.run_on_ui(self.root.title, f"SushiDL - {vol}")
                 self.run_on_ui(self._set_current_volume_ui, vol)
 
-                if not cookie and domain in ("fr", "net"):
+                if not cookie and domain in COOKIE_DOMAINS:
                     self.log(
-                        f"Cookie .{domain} vide pour {vol}: tÃ©lÃ©chargement possible seulement si le site ne demande pas de challenge.",
+                        f"Cookie .{domain} vide pour {vol}: téléchargement possible seulement si le site ne demande pas de challenge.",
                         level="warning",
                     )
 
                 self.log(
-                    f"TÃ©lÃ©chargement du tome: {vol}",
+                    f"Téléchargement du tome: {vol}",
                     level="info",
                     context={"domain": domain, "tome": vol, "action": "download_start"},
                 )
@@ -4565,7 +5228,7 @@ class MangaApp:
                     cbz_path = os.path.join(output_root, clean_title, f"{clean_title} - {clean_tome}.cbz")
                     if os.path.exists(cbz_path) and os.path.getsize(cbz_path) > 10_000:
                         self.log(
-                            f"CBZ dÃ©jÃ  existant, saut du tome: {vol}",
+                            f"CBZ déjà existant, saut du tome: {vol}",
                             level="info",
                             context={"domain": domain, "tome": vol, "action": "skip_existing"},
                         )
@@ -4579,7 +5242,7 @@ class MangaApp:
                 ua = self.get_request_user_agent_for_url(link)
                 images = get_images(link, cookie, ua)
                 self.log(
-                    f"{len(images)} image(s) trouvÃ©e(s)",
+                    f"{len(images)} image(s) trouvée(s)",
                     level="info",
                     context={"domain": domain, "tome": vol, "action": "images_count"},
                 )
@@ -4587,14 +5250,20 @@ class MangaApp:
                 if images:
                     self.run_on_ui(self._set_progress_detail_ui, 0, len(images))
                     progress_state = {"last_done": 0, "last_ts": 0.0}
+                    volume_error_state = {"reported": False, "stage": "", "reason": ""}
 
                     def volume_error_callback(payload):
                         if not isinstance(payload, dict):
                             return
+                        stage = payload.get("stage") or "download"
+                        reason = payload.get("reason") or "Erreur inconnue"
+                        volume_error_state["reported"] = True
+                        volume_error_state["stage"] = stage
+                        volume_error_state["reason"] = reason
                         self.add_volume_error(
                             payload.get("tome") or vol,
-                            payload.get("stage") or "download",
-                            payload.get("reason") or "Erreur inconnue",
+                            stage,
+                            reason,
                             payload.get("status_code"),
                             payload.get("action"),
                         )
@@ -4645,7 +5314,7 @@ class MangaApp:
                         self.run_on_ui(self._set_eta_ui, tome_eta, global_eta)
 
                     self.log(
-                        "DÃ©but du tÃ©lÃ©chargement.",
+                        "Début du téléchargement.",
                         level="success",
                         context={"domain": domain, "tome": vol, "action": "download_begin"},
                     )
@@ -4670,30 +5339,34 @@ class MangaApp:
 
                     if dl_result is False:
                         self.log(
-                            "Tome non finalisÃ©.",
+                            "Tome non finalisé.",
                             level="warning",
                             context={"domain": domain, "tome": vol, "action": "download_incomplete"},
                         )
-                        self.add_volume_error(
-                            vol,
-                            "download",
-                            "Tome non finalisÃ©.",
-                            None,
-                            recommend_action_for_failure(None, "Tome non finalisÃ©."),
-                        )
-                        failed.append((vol, link))
+                        if not volume_error_state["reported"]:
+                            self.add_volume_error(
+                                vol,
+                                "download",
+                                "Tome non finalisé.",
+                                None,
+                                recommend_action_for_failure(None, "Tome non finalisé."),
+                            )
+                        stage = (volume_error_state.get("stage") or "").strip().lower()
+                        should_retry = stage not in {"archive_cbz", "archive_cleanup", "prepare"}
+                        if should_retry:
+                            failed.append((vol, link))
                     else:
                         self.run_on_ui(self._set_progress_ui, 100)
                         elapsed = max(0.0, time.time() - volume_start)
                         completed_volume_durations.append(elapsed)
                         self.log(
-                            f"Temps Ã©coulÃ©: {round(elapsed, 2)} secondes",
+                            f"Temps écoulé: {round(elapsed, 2)} secondes",
                             level="info",
                             context={"domain": domain, "tome": vol, "action": "download_done"},
                         )
                 else:
                     self.run_on_ui(self._set_progress_detail_ui, None, None)
-                    reason = "Ã‰chec rÃ©cupÃ©ration images."
+                    reason = "Échec récupération images."
                     self.log(
                         reason,
                         level="warning",
@@ -4714,7 +5387,7 @@ class MangaApp:
             if not self.cancel_event.is_set() and failed:
                 self.run_on_ui(self._set_eta_ui, None, None)
                 self.log(
-                    f"Retry des tomes Ã©chouÃ©s ({len(failed)} restants)",
+                    f"Retry des tomes échoués ({len(failed)} restants)",
                     level="warning",
                 )
                 retry_failed = []
@@ -4727,11 +5400,13 @@ class MangaApp:
                     ua = self.get_request_user_agent_for_url(link)
                     images = get_images(link, cookie, ua)
                     if images:
-                        self.log(f"Retry rÃ©ussi: {vol}", level="info")
+                        self.log(f"Retry réussi: {vol}", level="info")
+                        retry_error_state = {"reported": False}
 
                         def retry_error_callback(payload):
                             if not isinstance(payload, dict):
                                 return
+                            retry_error_state["reported"] = True
                             self.add_volume_error(
                                 payload.get("tome") or vol,
                                 payload.get("stage") or "download",
@@ -4757,18 +5432,19 @@ class MangaApp:
                             output_root=output_root,
                         )
                         if retry_result is False:
-                            self.add_volume_error(
-                                vol,
-                                "retry",
-                                "Retry non finalisÃ©.",
-                                None,
-                                recommend_action_for_failure(None, "Retry non finalisÃ©."),
-                            )
+                            if not retry_error_state["reported"]:
+                                self.add_volume_error(
+                                    vol,
+                                    "retry",
+                                    "Retry non finalisé.",
+                                    None,
+                                    recommend_action_for_failure(None, "Retry non finalisé."),
+                                )
                             retry_failed.append(vol)
                         if retry_result is None and self.cancel_event.is_set():
                             break
                     else:
-                        reason = f"Retry Ã©chouÃ©: rÃ©cupÃ©ration images impossible ({vol})."
+                        reason = f"Retry échoué: récupération images impossible ({vol})."
                         self.log(reason, level="error")
                         self.add_volume_error(
                             vol,
@@ -4781,16 +5457,16 @@ class MangaApp:
 
                 if retry_failed:
                     self.log(
-                        f"Tomes dÃ©finitivement Ã©chouÃ©s: {', '.join(retry_failed)}",
+                        f"Tomes définitivement échoués: {', '.join(retry_failed)}",
                         level="error",
                     )
 
             if self.cancel_event.is_set():
-                self.log("TÃ©lÃ©chargement annulÃ© !", level="warning")
+                self.log("Téléchargement annulé !", level="warning")
                 self.run_on_ui(self._set_progress_ui, 0)
                 self.run_on_ui(self._set_workflow_step, "logs", "Téléchargement annulé. Consulte le journal.")
             else:
-                self.log("Tous les tomes ont Ã©tÃ© traitÃ©s.", level="success")
+                self.log("Tous les tomes ont été traités.", level="success")
                 self.run_on_ui(self._set_workflow_step, "logs", "Traitement terminé. Vérifie le journal final.")
 
             self.cancel_event.clear()
@@ -4803,15 +5479,15 @@ class MangaApp:
     def cancel_download(self):
         """Annule le téléchargement en cours"""
         self.cancel_event.set()
-        self.log("Annulation demandÃ©e...", level="warning")
+        self.log("Annulation demandée...", level="warning")
         self.cancel_button.config(state="disabled")
-        self._set_workflow_step("logs", "Annulation demandee. Attente de fin des threads...")
+        self._set_workflow_step("logs", "Annulation demandée. Attente de fin des threads...")
 
     def save_current_cookie(self):
         """Sauvegarde les paramètres actuels dans le cache"""
         try:
             self.persist_settings()
-            self.log("Cookies, UA, CBZ, WEBP->JPG et prÃ©fÃ©rences logs sauvegardÃ©es !", level="success")
+            self.log("Cookies, UA, CBZ, WEBP->JPG et préférences logs sauvegardées !", level="success")
             self.update_cookie_status()
             self.update_runtime_status()
         except Exception as e:
@@ -4822,4 +5498,3 @@ class MangaApp:
 if __name__ == "__main__":
     runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
     MangaApp()
-

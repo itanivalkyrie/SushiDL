@@ -1,39 +1,36 @@
-<p align="center">
+﻿<p align="center">
   <img alt="SushiDL banner" src="assets/banner.jpg" />
 </p>
 
 # 🍣 SushiDL – Téléchargeur de mangas avec interface graphique
 
-**SushiDL** est une application Python moderne avec interface Tkinter permettant de télécharger automatiquement des chapitres ou tomes de mangas depuis **[sushiscan.fr](https://sushiscan.fr)** et **[sushiscan.net](https://sushiscan.net)**.  
+**SushiDL** est une application Python moderne avec interface Tkinter permettant de télécharger automatiquement des chapitres ou tomes de mangas depuis **[sushiscan.fr](https://sushiscan.fr)**, **[sushiscan.net](https://sushiscan.net)**, **[mangas-origines.fr](https://mangas-origines.fr)** et **[hentai-origines.fr](https://hentai-origines.fr)**.  
 Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avancées comme la gestion de cookies Cloudflare, la conversion en `.cbz`, et une interface filtrable dynamique.
 
-**Version actuelle : `11.2.4`**
+**Version actuelle : `11.2.5`**
 
 ## Nouveautes recentes
 
-### v11.2.4
-- Choix du dossier de destination au clic sur `Télécharger la sélection`.
-- Prise en charge du dossier choisi pour les deux modes de sortie:
-  - `.cbz` (archive),
-  - images (arborescence conservée).
-- Création automatique de l'arborescence `Nom du manga / Tome|Chapitre` dans le dossier sélectionné.
-- Onglet `Erreurs` harmonisé avec `Journal`:
-  - suppression du titre redondant,
-  - ajout du bouton `Copier` (presse-papiers).
-- Uniformisation visuelle des sections principales avec des en-têtes au style "onglet" (sans changer la structure verticale).
+### v11.2.5
+- Ajout du support mangas-origines.fr (/oeuvre/<slug>/) et hentai-origines.fr (/manga/<slug>/).
+- Ajout des cookies dedies .origines et .hentai-origines avec badges et test cookie au demarrage.
+- Prise en charge des chapitres Madara avec priorite au mode style=list (fallback auto depuis style=paged et /p/<n>/).
+- Support des couvertures GIF (affichage apres analyse).
 
-### v11.2.3
-- Ligne de progression unifiee et plus lisible (`Tome/Chapitre en cours` -> `Images` -> `ETA Tome/Global` -> barre + `%`).
-- Indicateur dynamique du tome/chapitre en cours pendant le telechargement.
+### v11.2.4
+- Choix du dossier de destination au clic sur Telecharger la selection.
+- Prise en charge du dossier choisi pour les deux modes de sortie (.cbz et images).
+- Creation automatique de l'arborescence Nom du manga / Tome|Chapitre.
+- Harmonisation visuelle de l'onglet Erreurs avec Journal.
 
 ---
 
 ## ✨ Fonctionnalités
 - 🧠 Analyse des chapitres améliorée : prise en charge des chapitres sans `ts_reader.run(...)` via parsing du DOM `#readerarea`
-- 🛡️ Gestion indépendante des cookies `.fr` / `.net`
-- ✍️ Authentification **100% manuelle** (cookies `.fr` / `.net` + User-Agent)
+- 🛡️ Gestion indépendante des cookies `.fr` / `.net` / `.origines` / `.hentai-origines`
+- ✍️ Authentification **100% manuelle** (cookies `.fr` / `.net` / `.origines` / `.hentai-origines` + User-Agent)
 - 🔗 Placeholders guidés dans les champs :
-  - Cookie `.fr` / `.net` → `Coller ici votre cookie cf_clearance. Cliquer sur "Aide Cookie" si besoin.`
+  - Cookies `.fr` / `.net` / `.origines` / `.hentai-origines` → `Coller ici votre cookie cf_clearance. Cliquer sur "Aide Cookie" si besoin.`
   - User-Agent (cliquable) → `https://httpbin.org/user-agent`
 - 🌐 Détection des sous-domaines SushiScan (`c1.sushiscan.net`, etc.) pour appliquer automatiquement cookie/UA sur les images et la couverture
 - 🏷️ Libellés d’authentification simplifiés + badges `En attente` / `Validée` / `À vérifier`
@@ -157,7 +154,7 @@ python3 SushiDL.py
 ## 🔐 Récupérer `User-Agent` et `cf_clearance`
 SushiDL est désormais en mode **manuel uniquement**.
 
-1. Ouvrez `https://sushiscan.fr` et `https://sushiscan.net` dans votre navigateur.
+1. Ouvrez les sites que vous utilisez (`https://sushiscan.fr`, `https://sushiscan.net`, `https://mangas-origines.fr`, `https://hentai-origines.fr`) dans votre navigateur.
 2. Récupérez les cookies `cf_clearance` (un par domaine).
 3. Récupérez votre User-Agent via :
    - `https://httpbin.org/user-agent`
@@ -175,6 +172,8 @@ SushiDL est désormais en mode **manuel uniquement**.
   "manual_links": {
     "cookie_fr": "https://sushiscan.fr",
     "cookie_net": "https://sushiscan.net",
+    "cookie_origines": "https://mangas-origines.fr",
+    "cookie_hentai": "https://hentai-origines.fr",
     "user_agent": "https://httpbin.org/user-agent",
     "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance"
   }
@@ -208,7 +207,7 @@ SushiDL est désormais en mode **manuel uniquement**.
 ## 🔧 Utilisation
 
 1. Lancez `SushiDL.py`
-2. Entrez une URL de manga depuis sushiscan.fr ou sushiscan.net
+2. Entrez une URL de manga depuis sushiscan.fr, sushiscan.net, mangas-origines.fr ou hentai-origines.fr
 3. Cliquez sur **Analyser**
 4. Filtrez, sélectionnez ou inversez les tomes/chapitres
 5. Cliquez sur **Télécharger** pour générer vos `.cbz`
@@ -230,7 +229,7 @@ SushiDL est désormais en mode **manuel uniquement**.
 - Interface fluide avec journal d’activité avancé
 - Sauvegarde persistante dans `cookie_cache.json`
 - Configuration globale dans `config.json` (mode manuel)
-- Prise en charge de `sushiscan.fr` **et** `sushiscan.net`
+- Prise en charge de `sushiscan.fr`, `sushiscan.net`, `mangas-origines.fr` et `hentai-origines.fr`
 
 ---
 

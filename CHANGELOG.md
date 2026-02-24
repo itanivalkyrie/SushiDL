@@ -7,6 +7,36 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.5] - 2026-02-24
+
+### Ameliorations
+- Support multi-sites etendu:
+  - ajout de `mangas-origines.fr` (format oeuvre: `/oeuvre/<slug>/`),
+  - ajout de `hentai-origines.fr` (format manga: `/manga/<slug>/`),
+  - extraction des chapitres via endpoint AJAX Madara (`ajax/chapters/?t=`) quand la liste est chargee dynamiquement.
+- Extraction images:
+  - priorite forcee au mode `?style=list` pour les chapitres Origines,
+  - fallback automatique depuis `?style=paged` et `/p/<n>/` vers la version `list`.
+- Authentification manuelle:
+  - ajout des cookies dedies `.origines` et `.hentai-origines` dans l'UI,
+  - persistance complete dans `cookie_cache.json` (sources, headers, timestamps),
+  - probes de validation cookie au demarrage pour les nouveaux domaines:
+    - `https://mangas-origines.fr/oeuvre/826-solo-leveling/`
+    - `https://hentai-origines.fr/manga/stop-smoking/`.
+- Couverture:
+  - support et affichage des covers GIF (et sources `data-src` / `data-lazy-src`),
+  - fallback meta etendu (`og:image`, `twitter:image`).
+
+### Corrections
+- Filtrage images Origines:
+  - suppression des doublons,
+  - suppression conditionnelle des publicites probables en debut/fin de chapitre selon la resolution detectee.
+- Validation URL:
+  - prise en charge des formats:
+    - `https://sushiscan.fr|net/catalogue/<slug>/`
+    - `https://mangas-origines.fr/oeuvre/<slug>/`
+    - `https://hentai-origines.fr/manga/<slug>/`.
+
 ## [11.2.4] - 2026-02-24
 
 ### Ameliorations
