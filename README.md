@@ -16,7 +16,9 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 - Panneau `Erreurs par tome` avec etape, code HTTP, raison technique et action recommandee
 - Export CSV des erreurs par tome
 - Normalisation des textes FR affiches (accents/libelles UI)
-- Logs GUI aligns sur les logs terminal (corrections de texte mojibake)
+- Logs GUI alignes sur les logs terminal (corrections de texte mojibake)
+- UI/UX phase 1: cookies masques par defaut, raccourcis clavier, resume de selection, progression images detaillee
+- Nettoyage global d'encodage de `SushiDL.py` + garde-fou `.editorconfig` (UTF-8/LF)
 
 ---
 

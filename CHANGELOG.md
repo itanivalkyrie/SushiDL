@@ -25,11 +25,18 @@ Le format de version suit la regle `X.Y.Z` :
 - Observabilite:
   - ajout d'un panneau `Erreurs par tome` avec `etape`, `code HTTP`, `raison technique`, `action recommandee`.
   - export CSV des erreurs par tome.
+- UI/UX (phase 1):
+  - cookies masques par defaut + option `Afficher cookies`,
+  - raccourcis clavier (`Ctrl+Entree`, `Ctrl+D`, `Ctrl+F`, `Ctrl+L`),
+  - resume de selection en temps reel (`Selection: x/y`),
+  - detail de progression images (`Images: done/total`) en plus du pourcentage et ETA,
+  - journal en `wrap=none` avec barre de scroll horizontale.
 
 ### Corrections
 - Normalisation des textes FR affiches:
   - correction des libelles UI les plus visibles (accents),
   - correction des logs GUI (texte mojibake) pour alignement avec les logs terminal.
+- Nettoyage encodage global de `SushiDL.py` (mojibake) + ajout d'un `.editorconfig` UTF-8/LF.
 
 ## [11.1.9] - 2026-02-22
 

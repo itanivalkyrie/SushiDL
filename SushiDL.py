@@ -1,10 +1,10 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
-SushiDL - Application de tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement de mangas depuis SushiScan.fr/net
-FonctionnalitÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s principales :
+SushiDL - Application de téléchargement de mangas depuis SushiScan.fr/net
+Fonctionnalités principales :
 - Contournement de la protection Cloudflare via les cookies cf_clearance
 - Authentification manuelle via cookies `.fr` / `.net` et User-Agent
-- TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement multi-thread des images
+- Téléchargement multi-thread des images
 - Conversion automatique WebP vers JPG
 - Archivage CBZ des chapitres
 - Interface graphique intuitive avec suivi de progression
@@ -39,7 +39,7 @@ from zipfile import ZipFile
 
 
 def configure_console_io():
-    """Configure la sortie console pour limiter les problÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨mes d'encodage."""
+    """Configure la sortie console pour limiter les problèmes d'encodage."""
     if os.name == "nt":
         try:
             import ctypes
@@ -96,11 +96,11 @@ def repair_mojibake_text(text):
 
 
 class DownloadCancelled(Exception):
-    """Erreur levÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e lorsqu'une annulation utilisateur est demandÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e."""
+    """Erreur levée lorsqu'une annulation utilisateur est demandée."""
 
 
 class ImageDownloadError(Exception):
-    """Erreur de tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement enrichie avec type et code HTTP."""
+    """Erreur de téléchargement enrichie avec type et code HTTP."""
 
     def __init__(self, message, status_code=None, kind="retryable", phase="direct"):
         super().__init__(message)
@@ -110,7 +110,7 @@ class ImageDownloadError(Exception):
 
 
 def get_status_code_from_exception(exc):
-    """Extrait un code HTTP depuis une exception rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©seau si disponible."""
+    """Extrait un code HTTP depuis une exception réseau si disponible."""
     status_code = getattr(exc, "status_code", None)
     if status_code is None:
         response = getattr(exc, "response", None)
@@ -119,7 +119,7 @@ def get_status_code_from_exception(exc):
 
 
 def classify_download_failure(status_code=None, message=""):
-    """Classe les ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©checs de tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement pour piloter la stratÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©gie de retry."""
+    """Classe les échecs de téléchargement pour piloter la stratégie de retry."""
     if status_code in (404, 410):
         return "missing"
     if status_code in (401, 403, 429, 500, 502, 503, 504):
@@ -160,7 +160,7 @@ def recommend_action_for_failure(status_code=None, reason=""):
 
 
 def interruptible_sleep(cancel_event, duration):
-    """Attend `duration` secondes, interrompu si annulation demandÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e."""
+    """Attend `duration` secondes, interrompu si annulation demandée."""
     if duration <= 0:
         return False
     if cancel_event is None:
@@ -170,7 +170,7 @@ def interruptible_sleep(cancel_event, duration):
 
 
 def normalize_tome_label(label):
-    """Normalise l'affichage des labels en remplaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ant 'Volume' par 'Tome'."""
+    """Normalise l'affichage des labels en remplaçant 'Volume' par 'Tome'."""
     cleaned = (label or "").strip()
     if not cleaned:
         return ""
@@ -178,7 +178,7 @@ def normalize_tome_label(label):
 
 
 def normalize_image_url(url):
-    """Normalise les URLs d'images (https forcÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©, schÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ma manquant gÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©)."""
+    """Normalise les URLs d'images (https forcé, schéma manquant géré)."""
     raw = (url or "").strip()
     if not raw:
         return ""
@@ -251,25 +251,25 @@ def _http_get(url, headers=None, timeout=10):
 
 def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=None):
     """
-    TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©charge une image de maniÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨re robuste avec plusieurs tentatives.
-    Contourne les protections Cloudflare et vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rifie l'intÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©gritÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© des images.
+    Télécharge une image de manière robuste avec plusieurs tentatives.
+    Contourne les protections Cloudflare et vérifie l'intégrité des images.
     
     Args:
-        img_url (str): URL de l'image ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©charger
-        headers (dict): En-tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªtes HTTP ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  utiliser
+        img_url (str): URL de l'image à télécharger
+        headers (dict): En-têtes HTTP à utiliser
         max_try (int): Nombre maximum de tentatives
-        delay (int): DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lai initial entre les tentatives (augmente exponentiellement)
+        delay (int): Délai initial entre les tentatives (augmente exponentiellement)
     
     Returns:
         bytes: Contenu brut de l'image
     
     Raises:
-        Exception: AprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chec de toutes les tentatives
+        Exception: Après échec de toutes les tentatives
     """
     last_exc = None
     for attempt in range(1, max_try + 1):
         if cancel_event is not None and cancel_event.is_set():
-            raise DownloadCancelled("TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement annulÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©.")
+            raise DownloadCancelled("Téléchargement annulé.")
         try:
             r = _http_get(img_url, headers=headers, timeout=20)
             status_code = getattr(r, "status_code", None)
@@ -284,15 +284,15 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
             r.raise_for_status()
             raw = r.content
 
-            # DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tection HTML (Cloudflare/captcha au lieu d'une image)
+            # Détection HTML (Cloudflare/captcha au lieu d'une image)
             if raw[:6] == b'<html>' or b'<html' in raw[:1024].lower():
                 raise ImageDownloadError(
-                    "RÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ponse HTML (protection serveur ou Cloudflare)",
+                    "Réponse HTML (protection serveur ou Cloudflare)",
                     kind="blocked_or_retryable",
                     phase="direct",
                 )
 
-            # VÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rifie si c'est bien une image (fail si corrompue/invalide)
+            # Vérifie si c'est bien une image (fail si corrompue/invalide)
             try:
                 Image.open(BytesIO(raw))
             except Exception as test_e:
@@ -307,17 +307,17 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
                     phase="direct",
                 )
                 if interruptible_sleep(cancel_event, delay * attempt):
-                    raise DownloadCancelled("TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement annulÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©.")
+                    raise DownloadCancelled("Téléchargement annulé.")
                 continue
 
-            # SuccÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s - retourne les donnÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es brutes de l'image
+            # Succès - retourne les données brutes de l'image
             return raw
 
         except DownloadCancelled:
             raise
         except ImageDownloadError as e:
             runtime_log(
-                f"Tentative {attempt} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chouÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e pour {img_url}: {e}",
+                f"Tentative {attempt} échouée pour {img_url}: {e}",
                 level="warning",
                 context={"action": "image_retry"},
             )
@@ -326,10 +326,10 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
                 raise e
             sleep_time = min(delay * (2 ** attempt), 60) if e.status_code in (403, 429) else (delay * attempt)
             if interruptible_sleep(cancel_event, sleep_time):
-                raise DownloadCancelled("TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement annulÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©.")
+                raise DownloadCancelled("Téléchargement annulé.")
         except Exception as e:
             runtime_log(
-                f"Tentative {attempt} ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chouÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e pour {img_url}: {e}",
+                f"Tentative {attempt} échouée pour {img_url}: {e}",
                 level="warning",
                 context={"action": "image_retry"},
             )
@@ -349,25 +349,25 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
             if status_code in (403, 429):
                 sleep_time = min(delay * (2 ** attempt), 60)  # Max 60 secondes
                 if interruptible_sleep(cancel_event, sleep_time):
-                    raise DownloadCancelled("TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement annulÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©.")
+                    raise DownloadCancelled("Téléchargement annulé.")
             else:
                 if interruptible_sleep(cancel_event, delay * attempt):
-                    raise DownloadCancelled("TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement annulÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©.")
+                    raise DownloadCancelled("Téléchargement annulé.")
     if isinstance(last_exc, Exception):
         raise last_exc
     raise ImageDownloadError(
-        f"Impossible de tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©charger l'image {img_url} aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s {max_try} tentatives.",
+        f"Impossible de télécharger l'image {img_url} après {max_try} tentatives.",
         kind="retryable",
         phase="direct",
     )
 
 
-# Expressions rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©guliÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨res et constantes globales
+# Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
 APP_VERSION = "11.2.0"
 REGEX_URL = r"^https://sushiscan\.(fr|net)/catalogue/[a-z0-9-]+/$"  # Format des URLs valides
-ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargements
-THREADS = 3  # Nombre de threads pour le tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement parallÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨le
+ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
+THREADS = 3  # Nombre de threads pour le téléchargement parallèle
 BASE_DIR = Path(__file__).resolve().parent
 COOKIE_CACHE_PATH = BASE_DIR / "cookie_cache.json"  # Fichier de cache pour les cookies
 CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
@@ -397,12 +397,12 @@ CF_CHALLENGE_MARKERS = (
 )
 LOG_LEVELS = ("debug", "info", "success", "warning", "error", "cbz")
 LOG_EMOJIS = {
-    "debug": "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â½",
-    "info": "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬",
-    "success": "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦",
-    "warning": "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â",
-    "error": "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚ÂÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â´",
-    "cbz": "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¦",
+    "debug": "🔎",
+    "info": "💬",
+    "success": "✅",
+    "warning": "⚠️",
+    "error": "🔴",
+    "cbz": "📦",
 }
 LOG_ANSI_COLORS = {
     "debug": "\033[90m",
@@ -418,7 +418,7 @@ GUI_USE_EMOJI = False
 
 
 def _merge_config(default_cfg, user_cfg):
-    """Fusionne user_cfg dans default_cfg sans perdre les clÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s par dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©faut."""
+    """Fusionne user_cfg dans default_cfg sans perdre les clés par défaut."""
     if not isinstance(default_cfg, dict):
         return user_cfg
     merged = {}
@@ -448,7 +448,7 @@ def _write_json_file(path, data):
 
 
 def load_app_config():
-    """Charge config.json et applique les valeurs par dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©faut manquantes."""
+    """Charge config.json et applique les valeurs par défaut manquantes."""
     if not CONFIG_PATH.exists():
         cfg = dict(DEFAULT_APP_CONFIG)
         _write_json_file(CONFIG_PATH, cfg)
@@ -462,7 +462,7 @@ def load_app_config():
         return merged
     except Exception as exc:
         try:
-            print(f"[WARN] Erreur lecture config.json ({exc}), valeurs par dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©faut utilisÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es.")
+            print(f"[WARN] Erreur lecture config.json ({exc}), valeurs par défaut utilisées.")
         except Exception:
             pass
         return dict(DEFAULT_APP_CONFIG)
@@ -486,7 +486,7 @@ def strip_console_unsafe_chars(text):
     if os.name != "nt":
         return value
 
-    # Supprime les emojis pour ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©viter les glyphes non supportÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s.
+    # Supprime les emojis pour éviter les glyphes non supportés.
     value = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\ufe0f]", "", value)
 
     # Si la console est bien en UTF, on conserve les accents.
@@ -494,13 +494,13 @@ def strip_console_unsafe_chars(text):
     if "utf" in encoding:
         return value
 
-    # Fallback consoles legacy: translittÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ration ASCII.
+    # Fallback consoles legacy: translittération ASCII.
     value = unicodedata.normalize("NFKD", value)
     return value.encode("ascii", errors="ignore").decode("ascii", errors="ignore")
 
 
 def normalize_log_level(level):
-    """Normalise un niveau de log supportÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©."""
+    """Normalise un niveau de log supporté."""
     candidate = (level or "info").strip().lower()
     return candidate if candidate in LOG_LEVELS else "info"
 
@@ -541,7 +541,7 @@ def console_supports_color():
 
 
 def format_console_line(message, level="info", context=None, timestamp=None, with_emoji=True):
-    """Construit une ligne de log homogÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨ne pour la console."""
+    """Construit une ligne de log homogène pour la console."""
     lvl = normalize_log_level(level)
     ts = timestamp or time.strftime("%H:%M:%S")
     emoji = (LOG_EMOJIS.get(lvl, "") + " ") if with_emoji else ""
@@ -551,7 +551,7 @@ def format_console_line(message, level="info", context=None, timestamp=None, wit
 
 
 def emit_console_log(message, level="info", context=None, timestamp=None, with_emoji=None):
-    """ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°crit un log homogÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨ne en console, avec couleur si possible."""
+    """Écrit un log homogène en console, avec couleur si possible."""
     if with_emoji is None:
         with_emoji = CONSOLE_USE_EMOJI
     line = format_console_line(
@@ -588,7 +588,7 @@ def runtime_log(message, level="info", context=None):
 
 
 def is_cloudflare_challenge_page(content):
-    """DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tecte une page de challenge Cloudflare."""
+    """Détecte une page de challenge Cloudflare."""
     text = (content or "").lower()
     if not text:
         return True
@@ -596,18 +596,18 @@ def is_cloudflare_challenge_page(content):
 
 
 def strip_html_tags(text):
-    """Supprime les balises HTML d'une chaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®ne."""
+    """Supprime les balises HTML d'une chaîne."""
     return re.sub(r"<[^>]+>", "", text or "").strip()
 
 
 # --- Fonctions utilitaires ---
 def sanitize_folder_name(name):
-    """Nettoie les noms de dossier en supprimant les caractÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨res invalids"""
+    """Nettoie les noms de dossier en supprimant les caractères invalids"""
     return re.sub(r'[<>:"/\\|?*\n\r]', "_", name).strip()
 
 
 def make_request(url, cookie, ua):
-    """Effectue une requÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªte HTTP avec les cookies et l'user-agent appropriÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s"""
+    """Effectue une requête HTTP avec les cookies et l'user-agent appropriés"""
     headers = {
         "Accept": "*/*",
         "Accept-Language": "fr-FR,fr;q=0.9",
@@ -640,7 +640,7 @@ def make_request(url, cookie, ua):
 
 def detect_local_user_agent():
     """
-    Tente de gÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rer un User-Agent local cohÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rent avec le navigateur principal.
+    Tente de générer un User-Agent local cohérent avec le navigateur principal.
     Retourne (ua, source).
     """
     # Base stable pour Chrome/Edge sur Windows.
@@ -686,17 +686,17 @@ def detect_local_user_agent():
 
 def parse_lr(text, left, right, recursive, unescape=True):
     """
-    Parse le texte entre deux dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©limiteurs (left et right)
+    Parse le texte entre deux délimiteurs (left et right)
     
     Args:
-        text (str): Texte ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  parser
-        left (str): DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©limiteur gauche
-        right (str): DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©limiteur droit
-        recursive (bool): RÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cupÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨re toutes les occurrences si True
-        unescape (bool): DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©code les entitÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s HTML si True
+        text (str): Texte à parser
+        left (str): Délimiteur gauche
+        right (str): Délimiteur droit
+        recursive (bool): Récupère toutes les occurrences si True
+        unescape (bool): Décode les entités HTML si True
     
     Returns:
-        str/list: RÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©sultat du parsing selon le mode
+        str/list: Résultat du parsing selon le mode
     """
     pattern = re.escape(left) + "(.*?)" + re.escape(right)
     matches = re.findall(pattern, text)
@@ -707,12 +707,12 @@ def parse_lr(text, left, right, recursive, unescape=True):
 
 def test_cookie_validity(domain, cookie, ua, probe_url=None):
     """
-    VÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rifie si un cookie cf_clearance est encore valide
+    Vérifie si un cookie cf_clearance est encore valide
     
     Args:
-        domain (str): Domaine ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  tester (.fr ou .net)
+        domain (str): Domaine à tester (.fr ou .net)
         cookie (str): Valeur du cookie cf_clearance
-        ua (str): User-Agent ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  utiliser
+        ua (str): User-Agent à utiliser
     
     Returns:
         bool: True si le cookie est valide, False sinon
@@ -780,32 +780,32 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
 
 
 def interpret_curl_error(message):
-    """Traduit les erreurs cURL en messages comprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©hensibles"""
+    """Traduit les erreurs cURL en messages compréhensibles"""
     if "curl: (6)" in message:
-        return "Nom d'hÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â´te introuvable (DNS)."
+        return "Nom d'hôte introuvable (DNS)."
     elif "curl: (7)" in message:
-        return "Connexion refusÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e ou impossible (serveur hors ligne ?)."
+        return "Connexion refusée ou impossible (serveur hors ligne ?)."
     elif "curl: (28)" in message:
-        return "DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lai d'attente dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©passÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© (timeout rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©seau)."
+        return "Délai d'attente dépassé (timeout réseau)."
     elif "curl: (35)" in message:
-        return "Erreur SSL/TLS lors de la connexion sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©curisÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e."
+        return "Erreur SSL/TLS lors de la connexion sécurisée."
     elif "curl: (56)" in message:
-        return "Connexion interrompue (rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ponse incomplÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨te ou terminÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©maturÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ment)."
+        return "Connexion interrompue (réponse incomplète ou terminée prématurément)."
     else:
         return None
 
 
 def archive_cbz(folder_path, title, volume):
     """
-    CrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e une archive CBZ ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  partir d'un dossier d'images
+    Crée une archive CBZ à partir d'un dossier d'images
     
     Args:
         folder_path (str): Chemin du dossier contenant les images
         title (str): Titre du manga
-        volume (str): LibellÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© tome/chapitre
+        volume (str): Libellé tome/chapitre
     
     Returns:
-        bool: True si l'archivage a rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ussi, False sinon
+        bool: True si l'archivage a réussi, False sinon
     """
     clean_title = sanitize_folder_name(title)
     clean_volume = sanitize_folder_name(normalize_tome_label(volume))
@@ -813,17 +813,17 @@ def archive_cbz(folder_path, title, volume):
     cbz_name = os.path.join(parent_dir, f"{clean_title} - {clean_volume}.cbz")
     
     try:
-        # CrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ation de l'archive ZIP
+        # Création de l'archive ZIP
         with ZipFile(cbz_name, "w") as cbz:
             for root, _, files in os.walk(folder_path):
-                for file in sorted(files):  # Tri alphabÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tique pour l'ordre des pages
+                for file in sorted(files):  # Tri alphabétique pour l'ordre des pages
                     full_path = os.path.join(root, file)
                     arcname = os.path.relpath(full_path, folder_path)
                     cbz.write(full_path, arcname)
     except Exception:
         return False
     
-    # VÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rification de l'intÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©gritÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© de l'archive
+    # Vérification de l'intégrité de l'archive
     try:
         with ZipFile(cbz_name, "r") as test_zip:
             corrupt_member = test_zip.testzip()
@@ -854,7 +854,7 @@ def download_image(
     progress_callback=None, referer_url=None, webp2jpg_enabled=False
 ):
     """
-    TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©charge une image unique avec gestion d'erreurs et conversion optionnelle
+    Télécharge une image unique avec gestion d'erreurs et conversion optionnelle
     
     Args:
         url (str): URL de l'image
@@ -862,11 +862,11 @@ def download_image(
         cookie (str): Cookie cf_clearance
         ua (str): User-Agent
         i (int): Index de l'image (pour le nom de fichier)
-        number_len (int): Longueur du padding numÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rique (ex: 003.jpg)
-        cancel_event (threading.Event): ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©nement d'annulation
-        failed_downloads (list): Liste des ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©checs ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  remplir
+        number_len (int): Longueur du padding numérique (ex: 003.jpg)
+        cancel_event (threading.Event): Événement d'annulation
+        failed_downloads (list): Liste des échecs à remplir
         progress_callback (func): Callback de progression
-        referer_url (str): URL Referer ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  utiliser
+        referer_url (str): URL Referer à utiliser
         webp2jpg_enabled (bool): Activer la conversion WebP->JPG
     """
     import os
@@ -884,10 +884,10 @@ def download_image(
         )
 
     if cancel_event.is_set():
-        register_failure("cancelled", "Annulation demandÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e avant tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement.")
+        register_failure("cancelled", "Annulation demandée avant téléchargement.")
         return
 
-    # Configuration des en-tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªtes HTTP
+    # Configuration des en-têtes HTTP
     image_domain = get_sushiscan_domain_from_url(normalized_url)
     referer = referer_url or (f"https://sushiscan.{image_domain}/" if image_domain in ("fr", "net") else "https://sushiscan.net/")
     app = getattr(MangaApp, "current_instance", None)
@@ -914,20 +914,20 @@ def download_image(
     if cookie_header:
         headers["Cookie"] = cookie_header
 
-    # DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©termination de l'extension et du nom de fichier
+    # Détermination de l'extension et du nom de fichier
     parsed_path = (urlparse(normalized_url).path or "").lower()
     ext = parsed_path.rsplit(".", 1)[-1] if "." in parsed_path else "jpg"
     if ext not in {"jpg", "jpeg", "png", "webp", "avif"}:
         ext = "jpg"
     filename = os.path.join(folder, f"{str(i + 1).zfill(number_len)}.{ext}")
 
-    # TÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement direct prioritaire
+    # Téléchargement direct prioritaire
     try:
         raw = robust_download_image(normalized_url, headers, cancel_event=cancel_event)
         with open(filename, "wb") as f:
             f.write(raw)
 
-        # Conversion WebP vers JPG si activÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e
+        # Conversion WebP vers JPG si activée
         if webp2jpg_enabled and filename.lower().endswith(".webp"):
             try:
                 img = Image.open(filename).convert("RGB")
@@ -938,7 +938,7 @@ def download_image(
             except Exception as conv_e:
                 runtime_log(f"Erreur conversion WebP->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
 
-        # Mise ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  jour de la progression
+        # Mise à jour de la progression
         if progress_callback:
             progress_callback(i + 1)
         if hasattr(MangaApp, "current_instance") and hasattr(MangaApp.current_instance, "log"):
@@ -949,20 +949,20 @@ def download_image(
         return
 
     except DownloadCancelled:
-        register_failure("cancelled", "Annulation demandÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e pendant tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement direct.")
+        register_failure("cancelled", "Annulation demandée pendant téléchargement direct.")
         return
     except ImageDownloadError as e:
         if e.kind == "missing":
             register_failure("missing", str(e), status_code=e.status_code)
             runtime_log(
-                f"Image absente cÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â´tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© serveur (HTTP {e.status_code}): {normalized_url}",
+                f"Image absente côté serveur (HTTP {e.status_code}): {normalized_url}",
                 level="info",
                 context={"action": "download", "url": normalized_url},
             )
             return
         register_failure(e.kind, str(e), status_code=e.status_code)
         runtime_log(
-            f"ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°chec direct aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s retries: {e}",
+            f"Échec direct après retries: {e}",
             level="warning",
             context={"action": "download", "url": normalized_url},
         )
@@ -972,7 +972,7 @@ def download_image(
         kind = classify_download_failure(status_code, str(e))
         register_failure(kind, str(e), status_code=status_code)
         runtime_log(
-            f"ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°chec direct aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s retries: {e}",
+            f"Échec direct après retries: {e}",
             level="warning",
             context={"action": "download", "url": normalized_url},
         )
@@ -1034,7 +1034,7 @@ def parse_manga_data_from_html(url, html_content):
             if label:
                 pairs.append((label, full_link))
 
-    # ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°limination des doublons
+    # Élimination des doublons
     seen = set()
     unique_pairs = []
     for label, link in pairs:
@@ -1044,11 +1044,11 @@ def parse_manga_data_from_html(url, html_content):
         unique_pairs.append((label, link))
 
     if not unique_pairs:
-        raise Exception("Aucun tome/chapitre dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tectÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© (page protÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©gÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e ou structure modifiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e).")
+        raise Exception("Aucun tome/chapitre détecté (page protégée ou structure modifiée).")
 
     unique_pairs.reverse()  # Pour afficher dans l'ordre croissant
     runtime_log(
-        f"{len(unique_pairs)} tomes/chapitres dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tectÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s",
+        f"{len(unique_pairs)} tomes/chapitres détectés",
         level="info",
         context={"action": "parse_catalogue"},
     )
@@ -1057,7 +1057,7 @@ def parse_manga_data_from_html(url, html_content):
 
 def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None):
     """
-    RÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cupÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨re les donnÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es d'un manga : titre et liste des tomes/chapitres
+    Récupère les données d'un manga : titre et liste des tomes/chapitres
     
     Args:
         url (str): URL de la page catalogue du manga
@@ -1076,8 +1076,8 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None)
         if final_url and final_url != url:
             detail += f" -> {final_url}"
         if int(getattr(r, "status_code", 0) or 0) == 403:
-            detail += " | VÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rifie le cookie cf_clearance du domaine"
-        raise Exception(f"AccÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s refusÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© ou URL invalide ({detail})")
+            detail += " | Vérifie le cookie cf_clearance du domaine"
+        raise Exception(f"Accès refusé ou URL invalide ({detail})")
 
     html_content = r.text or ""
     if callable(progress_callback):
@@ -1090,14 +1090,14 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None)
 
 def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
     """
-    RÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cupÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨re la liste des URLs d'images pour un volume/chapitre
+    Récupère la liste des URLs d'images pour un volume/chapitre
     
     Args:
         link (str): URL de la page du volume
         cookie (str): Cookie cf_clearance
         ua (str): User-Agent
-        retries (int): Tentatives de rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cupÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ration
-        delay (int): DÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lai entre les tentatives
+        retries (int): Tentatives de récupération
+        delay (int): Délai entre les tentatives
         debug_mode (bool): Activer le mode debug
     
     Returns:
@@ -1120,7 +1120,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
         removed = len(images) - len(filtered)
         if removed > 0:
             runtime_log(
-                f"{removed} image(s) parasite(s) supprimÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e(s) dynamiquement.",
+                f"{removed} image(s) parasite(s) supprimée(s) dynamiquement.",
                 level="debug",
                 context={"action": "image_filter", "domain": domain},
             )
@@ -1128,7 +1128,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
 
     def extract_images(r_text, domain):
         """Extrait les URLs d'images depuis le contenu HTML"""
-        # ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°tape 1 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Extraction depuis le JSON ts_reader.run
+        # Étape 1 — Extraction depuis le JSON ts_reader.run
         json_str = parse_lr(r_text, "ts_reader.run(", ");</script>", False)
         if json_str:
             try:
@@ -1139,13 +1139,13 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
                 ]
                 if images:
                     runtime_log(
-                        f"{len(images)} images dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tectÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es via ts_reader.run.",
+                        f"{len(images)} images détectées via ts_reader.run.",
                         level="info",
                         context={"action": "extract_images", "domain": domain},
                     )
                     images = clean_parasites(images, domain)
                     runtime_log(
-                        f"{len(images)} images finales aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s filtrage.",
+                        f"{len(images)} images finales après filtrage.",
                         level="info",
                         context={"action": "extract_images", "domain": domain},
                     )
@@ -1153,7 +1153,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
             except Exception as e:
                 runtime_log(f"Erreur parsing JSON images: {e}", level="warning", context={"action": "extract_images"})
 
-        # ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°tape 2 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Fallback : balises img dans #readerarea
+        # Étape 2 — Fallback : balises img dans #readerarea
         soup = BeautifulSoup(r_text, "html.parser")
 
         # Supprimer les divs inutiles pour .fr
@@ -1177,13 +1177,13 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
             if images:
                 images = clean_parasites(images, domain)
                 runtime_log(
-                    f"{len(images)} images finales aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s filtrage.",
+                    f"{len(images)} images finales après filtrage.",
                     level="info",
                     context={"action": "extract_images", "domain": domain},
                 )
                 return images
 
-        # ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â°tape 3 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Fallback regex brut
+        # Étape 3 — Fallback regex brut
         img_urls = re.findall(
             r'<img[^>]+(?:src|data-src)=["\'](https://[^"\'>]+\.(?:webp|jpg|jpeg|jpe|png|avif))["\']',
             r_text,
@@ -1194,7 +1194,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
         if img_urls:
             img_urls = clean_parasites(img_urls, domain)
             runtime_log(
-                f"{len(img_urls)} images finales aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s filtrage.",
+                f"{len(img_urls)} images finales après filtrage.",
                 level="info",
                 context={"action": "extract_images", "domain": domain},
             )
@@ -1208,7 +1208,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
             r = make_request(link, cookie, ua)
             body = r.text or ""
             runtime_log(
-                f"RequÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªte HTTP directe reÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§ue (len={len(body)}) [tentative {attempt}/{attempt_count}]",
+                f"Requête HTTP directe reçue (len={len(body)}) [tentative {attempt}/{attempt_count}]",
                 level="debug",
                 context={"action": "get_images"},
             )
@@ -1219,7 +1219,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
                 with open(debug_file, "w", encoding="utf-8") as f:
                     f.write(body)
                 runtime_log(
-                    f"Fichier debug gÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©: {debug_file}",
+                    f"Fichier debug généré: {debug_file}",
                     level="debug",
                     context={"action": "debug_dump"},
                 )
@@ -1229,7 +1229,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
                 return images
 
             runtime_log(
-                f"Aucune image trouvÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e en accÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s direct (tentative {attempt}/{attempt_count}).",
+                f"Aucune image trouvée en accès direct (tentative {attempt}/{attempt_count}).",
                 level="warning",
                 context={"action": "get_images"},
             )
@@ -1639,12 +1639,12 @@ def protect_secret_value(value):
         protected = _dpapi_protect_bytes(plain.encode("utf-8"))
         return SECRET_DPAPI_PREFIX + base64.b64encode(protected).decode("ascii")
     except Exception as exc:
-        runtime_log(f"DPAPI indisponible, valeur stockÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©e en clair: {exc}", level="warning")
+        runtime_log(f"DPAPI indisponible, valeur stockée en clair: {exc}", level="warning")
         return plain
 
 
 def unprotect_secret_value(value):
-    """DÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©chiffre une valeur sensible stockÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©e via protect_secret_value."""
+    """Déchiffre une valeur sensible stockée via protect_secret_value."""
     raw = (value or "").strip()
     if not raw:
         return ""
@@ -1656,7 +1656,7 @@ def unprotect_secret_value(value):
         clear_bytes = _dpapi_unprotect_bytes(protected)
         return clear_bytes.decode("utf-8", errors="ignore").strip()
     except Exception as exc:
-        runtime_log(f"Impossible de dÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â©chiffrer une valeur sensible: {exc}", level="warning")
+        runtime_log(f"Impossible de déchiffrer une valeur sensible: {exc}", level="warning")
         return ""
 
 def save_cookie_cache(
@@ -1671,13 +1671,13 @@ def save_cookie_cache(
     cookie_headers=None,
 ):
     """
-    Sauvegarde les paramÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨tres dans un fichier JSON
+    Sauvegarde les paramètres dans un fichier JSON
     
     Args:
         cookies_dict (dict): Cookies par domaine
         ua (str): User-Agent
-        cbz (bool): PrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rence CBZ
-        webp2jpg_enabled (bool): PrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rence conversion
+        cbz (bool): Préférence CBZ
+        webp2jpg_enabled (bool): Préférence conversion
     """
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     normalized_cookies = {
@@ -1765,7 +1765,7 @@ def save_cookie_cache(
 
 
 def load_cookie_cache():
-    """Charge les paramÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨tres depuis le fichier cache"""
+    """Charge les paramètres depuis le fichier cache"""
     default_cbz = True
     default_webp2jpg = True
     default_smart_resume = True
@@ -1805,8 +1805,8 @@ def load_cookie_cache():
                 "net": (cookies.get("net") or "").strip(),
             }
 
-        # Les prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rences (UA, FlareSolverr, etc.) ne dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©pendent pas
-        # de la validitÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© temporelle du cookie Cloudflare.
+        # Les préférences (UA, FlareSolverr, etc.) ne dépendent pas
+        # de la validité temporelle du cookie Cloudflare.
         cookie_sources = data.get("cookie_sources", {})
         if not isinstance(cookie_sources, dict):
             cookie_sources = {}
@@ -1875,7 +1875,7 @@ def load_cookie_cache():
 
 
 def get_cover_image(r_text):
-    """RÃ©cupÃ¨re et affiche l'image de couverture d'un manga."""
+    """Récupère et affiche l'image de couverture d'un manga."""
     runtime_log("Analyse de la couverture en cours.", level="debug", context={"action": "cover"})
     soup = BeautifulSoup(r_text, "html.parser")
     img = soup.select_one("div.thumb img[src], div.thumb-container img[src]")
@@ -1921,7 +1921,7 @@ def get_cover_image(r_text):
             delay=1,
         )
         runtime_log(
-            "TÃ©lÃ©chargement couverture OK via accÃ¨s direct.",
+            "Téléchargement couverture OK via accès direct.",
             level="debug",
             context={"action": "cover"},
         )
@@ -1953,15 +1953,15 @@ def get_cover_image(r_text):
 class MangaApp:
     """
     Classe principale de l'application - Interface graphique Tkinter
-    GÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨re l'ensemble de l'UI et la logique de tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement
+    Gère l'ensemble de l'UI et la logique de téléchargement
     """
     last_url_used = ""
 
     def run_on_ui(self, callback, *args, wait=False, default=None, **kwargs):
         """
-        ExÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cute une fonction sur le thread UI.
+        Exécute une fonction sur le thread UI.
         - wait=False : asynchrone
-        - wait=True  : synchrone (bloque le thread appelant jusqu'au rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©sultat)
+        - wait=True  : synchrone (bloque le thread appelant jusqu'au résultat)
         """
         if threading.current_thread() is threading.main_thread():
             return callback(*args, **kwargs)
@@ -1988,14 +1988,14 @@ class MangaApp:
         return default
 
     def process_ui_queue(self):
-        """Traite les actions UI planifiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es depuis les threads de fond."""
+        """Traite les actions UI planifiées depuis les threads de fond."""
         try:
             for _ in range(200):
                 action = self.ui_queue.get_nowait()
                 try:
                     action()
                 except Exception as exc:
-                    emit_console_log(f"Erreur action UI planifiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e: {exc}", level="error", context={"action": "ui_queue"})
+                    emit_console_log(f"Erreur action UI planifiée: {exc}", level="error", context={"action": "ui_queue"})
         except queue.Empty:
             pass
         finally:
@@ -2013,20 +2013,31 @@ class MangaApp:
         self.eta_label.config(text=f"ETA Tome: {tome_text} | ETA Global: {global_text}")
 
     def _set_download_controls(self, is_running):
+        self.download_in_progress = bool(is_running)
         if is_running:
             self.dl_button.config(text="Téléchargement...", state="disabled")
             self.cancel_button.config(state="normal")
             self.filter_entry.config(state="disabled")
             self.clear_filter_button.config(state="disabled")
+            if hasattr(self, "url_entry"):
+                self.url_entry.config(state="disabled")
+            if hasattr(self, "analyze_button"):
+                self.analyze_button.config(state="disabled")
             if hasattr(self, "invert_button"):
                 self.invert_button.config(state="disabled")
             if hasattr(self, "master_toggle_button"):
                 self.master_toggle_button.config(state="disabled")
         else:
-            self.dl_button.config(text="Télécharger", state="normal")
+            self.dl_button.config(text="Télécharger")
             self.cancel_button.config(state="disabled")
             self.filter_entry.config(state="normal")
             self.clear_filter_button.config(state="normal")
+            if hasattr(self, "url_entry"):
+                self.url_entry.config(state="normal")
+            if hasattr(self, "analyze_button"):
+                self.analyze_button.config(
+                    state="disabled" if getattr(self, "analysis_in_progress", False) else "normal"
+                )
             if hasattr(self, "invert_button"):
                 self.invert_button.config(state="normal")
             if hasattr(self, "master_toggle_button"):
@@ -2034,6 +2045,47 @@ class MangaApp:
             if hasattr(self, "set_filter_placeholder") and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
             self._set_eta_ui()
+            self._set_progress_detail_ui(None, None)
+        self.update_master_toggle_button()
+
+    def _set_progress_detail_ui(self, done=None, total=None):
+        if not hasattr(self, "progress_detail_label"):
+            return
+        if done is None or total is None:
+            self.progress_detail_label.config(text="Images: --/--")
+            return
+        self.progress_detail_label.config(text=f"Images: {int(done)}/{int(total)}")
+
+    def _shortcut_analyze(self, _event=None):
+        if getattr(self, "analysis_in_progress", False):
+            return "break"
+        if getattr(self, "download_in_progress", False):
+            return "break"
+        if hasattr(self, "analyze_button") and str(self.analyze_button.cget("state")) == "disabled":
+            return "break"
+        self.load_volumes()
+        return "break"
+
+    def _shortcut_download(self, _event=None):
+        if hasattr(self, "dl_button") and str(self.dl_button.cget("state")) != "disabled":
+            self.download_selected()
+        return "break"
+
+    def _shortcut_focus_filter(self, _event=None):
+        if not hasattr(self, "filter_entry"):
+            return "break"
+        if str(self.filter_entry.cget("state")) == "disabled":
+            return "break"
+        self.filter_entry.focus_set()
+        self.filter_entry.icursor("end")
+        if getattr(self, "filter_placeholder_active", False):
+            self.clear_filter_placeholder()
+        return "break"
+
+    def _shortcut_focus_logs(self, _event=None):
+        if hasattr(self, "log_text"):
+            self.log_text.focus_set()
+        return "break"
 
     def ask_yes_no(self, title, prompt):
         return self.run_on_ui(
@@ -2054,7 +2106,7 @@ class MangaApp:
         )
 
     def _reset_analysis_auth_state(self, reset_domains=("fr", "net"), reset_ua=True, clear_label=True):
-        """RÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©initialise l'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tat d'auth d'analyse (par domaine et/ou UA)."""
+        """Réinitialise l'état d'auth d'analyse (par domaine et/ou UA)."""
         if not hasattr(self, "analysis_auth_state") or not isinstance(self.analysis_auth_state, dict):
             self.analysis_auth_state = {"fr": None, "net": None, "ua": None}
         domains = tuple(reset_domains or ())
@@ -2069,7 +2121,7 @@ class MangaApp:
             self.run_on_ui(lambda: self.status_label.config(text="", foreground="#5f6f88"))
 
     def _schedule_auth_status_update(self, *_args):
-        """RafraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®chit les badges auth sans invalider l'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tat d'analyse en mÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©moire."""
+        """Rafraîchit les badges auth sans invalider l'état d'analyse en mémoire."""
         if not hasattr(self, "cookie_sources"):
             return
         # Toute modification UA remet le statut UA en attente (ou invalide si vide).
@@ -2079,21 +2131,21 @@ class MangaApp:
         self.run_on_ui(self.update_runtime_status)
 
     def _schedule_auth_status_update_cookie_fr(self, *_args):
-        """RafraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®chit les badges auth aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s modification du cookie .fr sans reset global."""
+        """Rafraîchit les badges auth après modification du cookie .fr sans reset global."""
         if not hasattr(self, "cookie_sources"):
             return
         self.run_on_ui(lambda: self.update_cookie_status(validate=False))
         self.run_on_ui(self.update_runtime_status)
 
     def _schedule_auth_status_update_cookie_net(self, *_args):
-        """RafraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®chit les badges auth aprÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨s modification du cookie .net sans reset global."""
+        """Rafraîchit les badges auth après modification du cookie .net sans reset global."""
         if not hasattr(self, "cookie_sources"):
             return
         self.run_on_ui(lambda: self.update_cookie_status(validate=False))
         self.run_on_ui(self.update_runtime_status)
 
     def _schedule_auth_status_update_url(self, *_args):
-        """RafraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®chit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
+        """Rafraîchit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
         if not hasattr(self, "cookie_sources"):
             return
         self.run_on_ui(lambda: self.update_cookie_status(validate=False))
@@ -2129,14 +2181,14 @@ class MangaApp:
         self.status_label.config(text=repair_mojibake_text(text or ""), foreground=color)
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
-        """MÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©morise un rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©sultat auth basÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© sur une analyse rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©elle."""
+        """Mémorise un résultat auth basé sur une analyse réelle."""
         if domain not in ("fr", "net"):
             return
         normalized_success = bool(success)
         if not hasattr(self, "analysis_auth_state") or not isinstance(self.analysis_auth_state, dict):
             self.analysis_auth_state = {"fr": None, "net": None, "ua": None}
         self.analysis_auth_state[domain] = normalized_success
-        # Ne pas invalider le User-Agent sur un ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chec domaine: 403 est souvent cookie-only.
+        # Ne pas invalider le User-Agent sur un échec domaine: 403 est souvent cookie-only.
         if normalized_success:
             self.analysis_auth_state["ua"] = True
         elif not self.get_direct_user_agent().strip():
@@ -2148,12 +2200,12 @@ class MangaApp:
             self._mark_cookie_updated(domain, cookie_value)
 
         label_text = (
-            f"Auth .{domain} validÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e (liste chargÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e)"
+            f"Auth .{domain} validée (liste chargée)"
             if normalized_success
             else (
-                f"Auth .{domain} non validÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e (vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rifier cookie .{domain})"
+                f"Auth .{domain} non validée (vérifier cookie .{domain})"
                 if self.get_direct_user_agent().strip()
-                else f"Auth .{domain} non validÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e (vÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rifier cookie .{domain} + User-Agent)"
+                else f"Auth .{domain} non validée (vérifier cookie .{domain} + User-Agent)"
             )
         )
         if self.analysis_auth_last_message:
@@ -2164,7 +2216,7 @@ class MangaApp:
         self.run_on_ui(self.update_runtime_status)
 
     def _mark_cookie_updated(self, domain, cookie_value):
-        """Met ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  jour le timestamp local de changement cookie pour le domaine."""
+        """Met à jour le timestamp local de changement cookie pour le domaine."""
         if domain not in ("fr", "net"):
             return
         if not hasattr(self, "cookie_updated_at") or not isinstance(self.cookie_updated_at, dict):
@@ -2176,14 +2228,14 @@ class MangaApp:
             self.cookie_updated_at[domain] = ""
 
     def _refresh_auth_labels(self, active_domain=None):
-        """Met ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  jour les intitulÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s auth en mode manuel."""
+        """Met à jour les intitulés auth en mode manuel."""
         _ = active_domain
         self.cookie_fr_label_var.set("Cookie (.fr) :")
         self.cookie_net_label_var.set("Cookie (.net) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
-        """Met ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  jour badges et libellÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©s de source pour cookies/UA."""
+        """Met à jour badges et libellés de source pour cookies/UA."""
         _ = validate
         try:
             if not hasattr(self, "cookie_sources"):
@@ -2228,7 +2280,7 @@ class MangaApp:
             self.log(f"Erreur statut cookies: {e}", level="error")
 
     def _schedule_runtime_status_update(self, *_args):
-        """Planifie la mise ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  jour de la barre d'ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©tat."""
+        """Planifie la mise à jour de la barre d'état."""
         self.run_on_ui(self.update_runtime_status)
 
     def update_runtime_status(self):
@@ -2282,7 +2334,7 @@ class MangaApp:
         threading.Thread(target=self._run_startup_ua_probe, daemon=True).start()
 
     def _run_startup_ua_probe(self):
-        """Micro-test lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ger: une requÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªte racine sur le domaine actif (.fr/.net)."""
+        """Micro-test léger: une requête racine sur le domaine actif (.fr/.net)."""
         try:
             ua_value = self.get_direct_user_agent().strip()
             if not ua_value:
@@ -2313,7 +2365,7 @@ class MangaApp:
             self.log(f"Micro-test User-Agent non concluant: {exc}", level="debug")
 
     def __init__(self):
-        """Initialise l'interface graphique et charge les paramÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨tres"""
+        """Initialise l'interface graphique et charge les paramètres"""
         MangaApp.current_instance = self
         self.total_chapters_to_process = 0
         self.chapters_done = 0
@@ -2321,7 +2373,7 @@ class MangaApp:
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
 
-        # FenÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªtre modernisÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e: redimensionnable avec taille minimale confortable.
+        # Fenêtre modernisée: redimensionnable avec taille minimale confortable.
         self.root.geometry("1140x980")
         self.root.minsize(940, 760)
         self.root.resizable(True, True)
@@ -2347,6 +2399,7 @@ class MangaApp:
         self.log_filter_level = tk.StringVar(value="all")
         self.log_autoscroll = tk.BooleanVar(value=True)
         self.console_logs_enabled = tk.BooleanVar(value=True)
+        self.show_cookies = tk.BooleanVar(value=False)
         self.filter_placeholder_text = "Filtre"
         self.filter_placeholder_active = False
         self.auth_validity = {"fr": False, "net": False, "ua": False}
@@ -2435,6 +2488,7 @@ class MangaApp:
         self.check_vars = []
         self.check_items = []
         self.image_progress_index = None
+        self.download_in_progress = False
         self.pairs = []
         self.title = ""
         self.cancel_event = threading.Event()
@@ -2443,10 +2497,19 @@ class MangaApp:
 
         # Configuration de l'interface
         self.setup_ui()
+        self._toggle_cookie_visibility()
         self.normalize_display_texts()
         self.log_ready = True
         self.refresh_log_view()
         self.root.bind("<Return>", lambda _e: self.load_volumes())
+        self.root.bind("<Control-Return>", self._shortcut_analyze)
+        self.root.bind("<Control-KP_Enter>", self._shortcut_analyze)
+        self.root.bind("<Control-d>", self._shortcut_download)
+        self.root.bind("<Control-D>", self._shortcut_download)
+        self.root.bind("<Control-f>", self._shortcut_focus_filter)
+        self.root.bind("<Control-F>", self._shortcut_focus_filter)
+        self.root.bind("<Control-l>", self._shortcut_focus_logs)
+        self.root.bind("<Control-L>", self._shortcut_focus_logs)
         self.root.bind("<Control-s>", lambda _e: self.save_current_cookie())
         self.root.bind("<Escape>", lambda _e: self.cancel_download())
         self.root.after(30, self.process_ui_queue)
@@ -2458,7 +2521,7 @@ class MangaApp:
         self.root.mainloop()
 
     def log(self, message, level="info", context=None):
-        """Ajoute une entrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e de log unifiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e (GUI + terminal)."""
+        """Ajoute une entrée de log unifiée (GUI + terminal)."""
         text = repair_mojibake_text(str(message or "").strip())
         if not text:
             return
@@ -2514,7 +2577,7 @@ class MangaApp:
         return level == selected
 
     def _format_log_entry(self, entry):
-        """Formate une entrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e pour affichage dans le widget log."""
+        """Formate une entrée pour affichage dans le widget log."""
         level = normalize_log_level(entry.get("level", "info"))
         timestamp = entry.get("timestamp") or time.strftime("%H:%M:%S")
         message = repair_mojibake_text(entry.get("message", ""))
@@ -2524,7 +2587,7 @@ class MangaApp:
         return repair_mojibake_text(f"[{timestamp}] {message}\n")
 
     def _append_log_entry(self, entry):
-        """Ajoute une entrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e dans la vue GUI si elle passe les filtres."""
+        """Ajoute une entrée dans la vue GUI si elle passe les filtres."""
         if not self._should_display_log_entry(entry):
             return
         entry["message"] = repair_mojibake_text(entry.get("message", ""))
@@ -2537,7 +2600,7 @@ class MangaApp:
             self.log_text.see("end")
 
     def refresh_log_view(self, *_args):
-        """RafraÃƒÂ®chit le journal GUI selon les filtres actifs."""
+        """Rafraîchit le journal GUI selon les filtres actifs."""
         with self.log_lock:
             entries_snapshot = list(self.log_entries)
         self.log_text.configure(state="normal")
@@ -2553,7 +2616,7 @@ class MangaApp:
             self.log_text.see("end")
 
     def clear_log_entries(self):
-        """Efface le journal en mÃƒÂ©moire et dans l'UI."""
+        """Efface le journal en mémoire et dans l'UI."""
         with self.log_lock:
             self.log_entries.clear()
         self.refresh_log_view()
@@ -2566,7 +2629,7 @@ class MangaApp:
             return
         self.root.clipboard_clear()
         self.root.clipboard_append(content)
-        self.log("Journal copiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© dans le presse-papiers.", level="success")
+        self.log("Journal copié dans le presse-papiers.", level="success")
 
     def export_visible_logs(self):
         """Exporte le journal visible dans un fichier texte."""
@@ -2587,7 +2650,7 @@ class MangaApp:
         try:
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(content + "\n")
-            self.log(f"Journal exportÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©: {out_path}", level="success")
+            self.log(f"Journal exporté: {out_path}", level="success")
         except Exception as exc:
             self.log(f"Erreur export journal: {exc}", level="error")
 
@@ -2842,7 +2905,7 @@ class MangaApp:
             row=row, column=0, sticky="w", pady=4, padx=(4, 8)
         )
         self.cookie_fr_entry = ttk.Entry(
-            config_card, textvariable=self.cookie_fr, width=64, font=font_entry, style="Card.TEntry"
+            config_card, textvariable=self.cookie_fr, width=64, font=font_entry, style="Card.TEntry", show="*"
         )
         self.cookie_fr_entry.grid(row=row, column=1, pady=4, sticky="ew")
         self.cookie_fr_status = tk.Label(
@@ -2869,7 +2932,7 @@ class MangaApp:
             row=row, column=0, sticky="w", pady=4, padx=(4, 8)
         )
         self.cookie_net_entry = ttk.Entry(
-            config_card, textvariable=self.cookie_net, width=64, font=font_entry, style="Card.TEntry"
+            config_card, textvariable=self.cookie_net, width=64, font=font_entry, style="Card.TEntry", show="*"
         )
         self.cookie_net_entry.grid(row=row, column=1, pady=4, sticky="ew")
         self.cookie_net_status = tk.Label(
@@ -2939,6 +3002,13 @@ class MangaApp:
             variable=self.console_logs_enabled,
             style="Card.TCheckbutton",
         ).pack(side="left")
+        ttk.Checkbutton(
+            options_left,
+            text="Afficher cookies",
+            variable=self.show_cookies,
+            style="Card.TCheckbutton",
+            command=self._toggle_cookie_visibility,
+        ).pack(side="left", padx=(10, 0))
 
         ttk.Button(
             options_row,
@@ -3092,9 +3162,22 @@ class MangaApp:
             state="disabled",
         )
         self.invert_button.pack(side="left")
+        self.selection_status_label = ttk.Label(
+            left_group,
+            text="Sélection: 0/0",
+            style="Muted.TLabel",
+            font=("Segoe UI", 9),
+        )
+        self.selection_status_label.pack(side="left", padx=(12, 0))
 
         download_group = ttk.Frame(vol_header, style="Card.TFrame")
         download_group.pack(side="right")
+        ttk.Label(
+            vol_header,
+            text="Ctrl+Entrée: Analyser | Ctrl+D: Télécharger | Ctrl+F: Filtre",
+            style="Muted.TLabel",
+            font=("Segoe UI", 8),
+        ).pack(side="right", padx=(0, 12))
 
         self.dl_button = ttk.Button(
             download_group,
@@ -3168,6 +3251,14 @@ class MangaApp:
             anchor="e",
         )
         self.progress_label.pack(side="left", padx=(8, 0))
+        self.progress_detail_label = ttk.Label(
+            progress_frame,
+            text="Images: --/--",
+            style="Muted.TLabel",
+            font=("Segoe UI", 9),
+            anchor="w",
+        )
+        self.progress_detail_label.pack(side="left", padx=(12, 0))
         self.eta_label = ttk.Label(
             progress_frame,
             text="ETA Tome: --:-- | ETA Global: --:--",
@@ -3220,11 +3311,13 @@ class MangaApp:
         ttk.Button(log_toolbar, text="Copier", command=self.copy_visible_logs, style="Secondary.TButton").pack(side="right", padx=(4, 0))
         ttk.Button(log_toolbar, text="Exporter", command=self.export_visible_logs, style="Secondary.TButton").pack(side="right")
 
+        log_text_container = ttk.Frame(log_frame, style="Card.TFrame")
+        log_text_container.pack(fill="both", expand=True)
         self.log_text = tk.Text(
-            log_frame,
+            log_text_container,
             height=8,
             state="disabled",
-            wrap="word",
+            wrap="none",
             bg=self.palette["log_bg"],
             fg=self.palette["text"],
             font=("Consolas", 9),
@@ -3235,9 +3328,11 @@ class MangaApp:
         )
         self.log_text.pack(side="left", fill="both", expand=True)
 
-        log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
+        log_scroll = ttk.Scrollbar(log_text_container, orient="vertical", command=self.log_text.yview)
         log_scroll.pack(side="right", fill="y")
-        self.log_text.configure(yscrollcommand=log_scroll.set)
+        log_scroll_x = ttk.Scrollbar(log_frame, orient="horizontal", command=self.log_text.xview)
+        log_scroll_x.pack(fill="x", pady=(4, 0))
+        self.log_text.configure(yscrollcommand=log_scroll.set, xscrollcommand=log_scroll_x.set)
 
         self.log_text.tag_config("debug", foreground="#64748b")
         self.log_text.tag_config("success", foreground="#27ae60")
@@ -3329,7 +3424,7 @@ class MangaApp:
             pass
 
     def _open_external_link(self, url):
-        """Ouvre un lien externe dans le navigateur par dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©faut."""
+        """Ouvre un lien externe dans le navigateur par défaut."""
         target = (url or "").strip()
         if not target:
             return
@@ -3341,7 +3436,7 @@ class MangaApp:
 
     def _attach_link_placeholder(self, entry_widget, text_variable, placeholder_text, link_url):
         """
-        Place un placeholder cliquable par-dessus un Entry sans modifier la valeur rÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©elle.
+        Place un placeholder cliquable par-dessus un Entry sans modifier la valeur réelle.
         Le champ reste vide en interne tant que l'utilisateur n'a rien saisi.
         """
         if entry_widget is None:
@@ -3423,9 +3518,16 @@ class MangaApp:
         self._attach_link_placeholder(
             self.ua_entry,
             self.ua,
-            'Cliquer ici pour accÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©der ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  : Votre User-Agent ( Copier/Coller seulement la partie ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  droite entre les "" )',
+            'Cliquer ici pour accéder à : Votre User-Agent ( Copier/Coller seulement la partie à droite entre les "" )',
             ua_link,
         )
+
+    def _toggle_cookie_visibility(self):
+        show_char = "" if bool(self.show_cookies.get()) else "*"
+        if hasattr(self, "cookie_fr_entry"):
+            self.cookie_fr_entry.config(show=show_char)
+        if hasattr(self, "cookie_net_entry"):
+            self.cookie_net_entry.config(show=show_char)
 
 
     def get_domain_from_url(self, url):
@@ -3433,7 +3535,7 @@ class MangaApp:
         return get_sushiscan_domain_from_url(url)
 
     def get_cookie(self, url):
-        """SÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lectionne automatiquement le cookie selon le domaine"""
+        """Sélectionne automatiquement le cookie selon le domaine"""
         domain = self.get_domain_from_url(url)
         if domain == "fr":
             return self.run_on_ui(self.cookie_fr.get, wait=True, default="").strip()
@@ -3442,7 +3544,7 @@ class MangaApp:
         return ""
 
     def get_direct_user_agent(self):
-        """UA direct (champ UI), utilisÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© avec cookies manuels."""
+        """UA direct (champ UI), utilisé avec cookies manuels."""
         return self.run_on_ui(self.ua.get, wait=True, default="").strip() or DIRECT_USER_AGENT_DEFAULT
 
     def sync_cookie_source_for_domain(self, domain):
@@ -3476,7 +3578,7 @@ class MangaApp:
         return self.get_request_user_agent_for_domain(domain)
 
     def get_cookie_header_for_domain(self, domain, fallback_cookie=None):
-        """Retourne l'en-tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Âªte Cookie effectif (complet si disponible)."""
+        """Retourne l'en-tête Cookie effectif (complet si disponible)."""
         if domain not in ("fr", "net"):
             return ""
         header = (self.cookie_headers.get(domain) or "").strip()
@@ -3493,14 +3595,14 @@ class MangaApp:
         return self.get_cookie_header_for_domain(domain, fallback_cookie=fallback_cookie)
 
     def persist_settings(self):
-        """Sauvegarde silencieuse des paramÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨tres courants."""
+        """Sauvegarde silencieuse des paramètres courants."""
         direct_ua = self.get_direct_user_agent()
         cookies = {
             "fr": self.run_on_ui(self.cookie_fr.get, wait=True, default="").strip(),
             "net": self.run_on_ui(self.cookie_net.get, wait=True, default="").strip(),
         }
 
-        # Si l'utilisateur a modifiÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© manuellement un cookie, on repasse en mode UA direct.
+        # Si l'utilisateur a modifié manuellement un cookie, on repasse en mode UA direct.
         for domain in ("fr", "net"):
             current_cookie = (cookies.get(domain) or "").strip()
             previous_cookie = (self.last_known_cookies.get(domain) or "").strip()
@@ -3545,7 +3647,7 @@ class MangaApp:
     def ensure_cookie_for_domain(self, domain, force_refresh=False, probe_url=None):
         """
         Retourne le cookie manuel du domaine.
-        Aucun rafraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®chissement automatique n'est effectuÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©.
+        Aucun rafraîchissement automatique n'est effectué.
         """
         _ = probe_url
         if domain not in ("fr", "net"):
@@ -3571,7 +3673,7 @@ class MangaApp:
         return ""
 
     def ensure_cookie_for_url(self, url, force_refresh=False):
-        """RafraÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®chit le cookie du domaine de l'URL si nÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cessaire."""
+        """Rafraîchit le cookie du domaine de l'URL si nécessaire."""
         domain = self.get_domain_from_url(url)
         if not domain:
             return self.get_cookie(url)
@@ -3619,11 +3721,13 @@ class MangaApp:
         self.analysis_in_progress = True
         if hasattr(self, "analyze_button"):
             self.analyze_button.config(state="disabled")
+        self.update_master_toggle_button()
 
         def finish_analysis():
             self.analysis_in_progress = False
             if hasattr(self, "analyze_button"):
                 self.analyze_button.config(state="normal")
+            self.update_master_toggle_button()
 
         def handle_error(error_text):
             error_text = repair_mojibake_text(error_text)
@@ -3693,7 +3797,6 @@ class MangaApp:
                 chk.grid(row=(i // columns) + 2, column=i % columns, padx=15, pady=5, sticky="n")
                 self.check_items.append((chk, vol))
 
-            self.dl_button.config(state="normal")
             self.canvas.yview_moveto(0)
             self.log("Liste chargée avec succès.", level="success")
             self.filter_entry.config(state="normal")
@@ -3770,29 +3873,60 @@ class MangaApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def are_all_volumes_selected(self):
-        """Retourne True si toutes les cases sont cochÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es."""
+        """Retourne True si toutes les cases sont cochées."""
         return bool(self.check_vars) and all(var.get() for var in self.check_vars)
 
     def update_master_toggle_button(self):
-        """Met ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  jour le libellÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© du bouton global de sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lection."""
+        """Met à jour le libellé du bouton global de sélection."""
         if not hasattr(self, "master_toggle_button"):
             return
         text = "Tout décocher" if self.are_all_volumes_selected() else "Tout cocher"
         self.master_toggle_button.config(text=text)
+        self._update_selection_status()
+
+    def _update_selection_status(self):
+        total = len(getattr(self, "check_items", []) or [])
+        selected_total = 0
+        visible_total = 0
+        selected_visible = 0
+
+        for (chk, _label), var in zip(self.check_items, self.check_vars):
+            is_selected = bool(var.get())
+            if is_selected:
+                selected_total += 1
+            if chk.winfo_ismapped():
+                visible_total += 1
+                if is_selected:
+                    selected_visible += 1
+
+        if hasattr(self, "selection_status_label"):
+            label_text = f"Sélection: {selected_total}/{total}"
+            if visible_total and visible_total != total:
+                label_text = f"{label_text} (affichés: {selected_visible}/{visible_total})"
+            self.selection_status_label.config(text=label_text)
+
+        can_download = (
+            total > 0
+            and selected_visible > 0
+            and not getattr(self, "download_in_progress", False)
+            and not getattr(self, "analysis_in_progress", False)
+        )
+        if hasattr(self, "dl_button"):
+            self.dl_button.config(state="normal" if can_download else "disabled")
 
     def toggle_all_button_action(self):
-        """Bascule globalement entre tout cocher et tout dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©cocher."""
+        """Bascule globalement entre tout cocher et tout décocher."""
         target_state = not self.are_all_volumes_selected()
         self.toggle_all_volumes(target_state)
 
     def toggle_all_volumes(self, state):
-        """Coche/dÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©coche toutes les cases ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  cocher."""
+        """Coche/décoche toutes les cases à cocher."""
         for var in self.check_vars:
             var.set(state)
         self.update_master_toggle_button()
     
     def invert_selection(self):
-        """Inverse la sÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lection actuelle."""
+        """Inverse la sélection actuelle."""
         for var in self.check_vars:
             var.set(not var.get())
         self.update_master_toggle_button()
@@ -3808,7 +3942,7 @@ class MangaApp:
         for chk, label in self.check_items:
             label_lower = label.lower()
             
-            # Filtre optimisÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â© avec recherche de sous-chaÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â®ne
+            # Filtre optimisé avec recherche de sous-chaîne
             if not raw or raw in label_lower or \
             (raw.endswith('*') and raw[:-1].isdigit() and label_lower.startswith(raw[:-1])):
                 chk.grid(row=row, column=col, padx=15, pady=5, sticky="n")
@@ -3818,9 +3952,10 @@ class MangaApp:
                     row += 1
             else:
                 chk.grid_remove()
+        self._update_selection_status()
 
     def clear_filter(self):
-        """RÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©initialise le filtre et affiche tous les tomes"""
+        """Réinitialise le filtre et affiche tous les tomes"""
         self.filter_text.set("")
         self.filter_placeholder_active = False
         self.apply_filter()
@@ -3853,13 +3988,13 @@ class MangaApp:
             self.set_filter_placeholder()
 
     def on_clear_filter_enter(self, _event=None):
-        """Survol du bouton de remise ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  zÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ro du filtre."""
+        """Survol du bouton de remise à zéro du filtre."""
         if str(self.clear_filter_button.cget("state")) == "disabled":
             return
         self.clear_filter_button.config(bg="#fbe4ea", fg="#7f1d1d")
 
     def on_clear_filter_leave(self, _event=None):
-        """Fin de survol du bouton de remise ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â  zÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©ro du filtre."""
+        """Fin de survol du bouton de remise à zéro du filtre."""
         if str(self.clear_filter_button.cget("state")) == "disabled":
             return
         self.clear_filter_button.config(bg=self.palette["card_bg"], fg=self.palette["muted"])
@@ -3879,6 +4014,7 @@ class MangaApp:
         self._set_download_controls(True)
         self._set_progress_ui(0)
         self._set_eta_ui()
+        self._set_progress_detail_ui(None, None)
 
         cbz_enabled = self.cbz_enabled.get()
         webp2jpg_enabled = self.webp2jpg_enabled.get()
@@ -3937,6 +4073,7 @@ class MangaApp:
                         level="info",
                         context={"domain": domain, "tome": vol, "action": "skip_existing"},
                     )
+                    self.run_on_ui(self._set_progress_detail_ui, None, None)
                     completed_volumes += 1
                     push_idle_global_eta()
                     continue
@@ -3952,6 +4089,7 @@ class MangaApp:
                 )
 
                 if images:
+                    self.run_on_ui(self._set_progress_detail_ui, 0, len(images))
                     progress_state = {"last_done": 0, "last_ts": 0.0}
 
                     def volume_error_callback(payload):
@@ -3968,6 +4106,7 @@ class MangaApp:
                     def per_image_progress(done, total_images):
                         percent = round((done / total_images) * 100, 1) if total_images else 0
                         self.run_on_ui(self._set_progress_ui, percent)
+                        self.run_on_ui(self._set_progress_detail_ui, done, total_images)
 
                         now = time.time()
                         if (
@@ -4056,6 +4195,7 @@ class MangaApp:
                             context={"domain": domain, "tome": vol, "action": "download_done"},
                         )
                 else:
+                    self.run_on_ui(self._set_progress_detail_ui, None, None)
                     reason = "Échec récupération images."
                     self.log(
                         reason,
@@ -4160,23 +4300,23 @@ class MangaApp:
         threading.Thread(target=task, daemon=True).start()
 
     def cancel_download(self):
-        """Annule le tÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©lÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©chargement en cours"""
+        """Annule le téléchargement en cours"""
         self.cancel_event.set()
-        self.log("Annulation demandÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e...", level="warning")
+        self.log("Annulation demandée...", level="warning")
         self.cancel_button.config(state="disabled")
 
     def save_current_cookie(self):
-        """Sauvegarde les paramÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¨tres actuels dans le cache"""
+        """Sauvegarde les paramètres actuels dans le cache"""
         try:
             self.persist_settings()
-            self.log("Cookies, UA, CBZ, WEBP->JPG et prÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©fÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©rences logs sauvegardÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©es !", level="success")
+            self.log("Cookies, UA, CBZ, WEBP->JPG et préférences logs sauvegardées !", level="success")
             self.update_cookie_status()
             self.update_runtime_status()
         except Exception as e:
             self.log(f"Erreur sauvegarde: {e}", level="error")
 
 
-# Point d'entrÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â©e de l'application
+# Point d'entrée de l'application
 if __name__ == "__main__":
     runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
     MangaApp()
