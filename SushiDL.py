@@ -364,7 +364,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.2"
+APP_VERSION = "11.2.3"
 REGEX_URL = r"^https://sushiscan\.(fr|net)/catalogue/[a-z0-9-]+/$"  # Format des URLs valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -2004,6 +2004,18 @@ class MangaApp:
         self.progress.set(percent)
         self.progress_label.config(text=f"{int(percent)}%")
 
+    def _set_current_volume_ui(self, volume_label=None):
+        if not hasattr(self, "current_volume_status_label"):
+            return
+        label = (volume_label or "").strip()
+        if not label:
+            text = "Tome/Chapitre en cours: --"
+        elif label.lower().startswith(("tome", "chapitre", "volume")):
+            text = f"{label} en cours"
+        else:
+            text = f"Tome/Chapitre {label} en cours"
+        self.current_volume_status_label.config(text=text)
+
     def _set_eta_ui(self, tome_eta=None, global_eta=None):
         if not hasattr(self, "eta_label"):
             return
@@ -2044,6 +2056,7 @@ class MangaApp:
                 self.master_toggle_button.config(state="normal")
             if hasattr(self, "set_filter_placeholder") and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
+            self._set_current_volume_ui(None)
             self._set_eta_ui()
             self._set_progress_detail_ui(None, None)
             if getattr(self, "current_workflow_step", "") != "logs":
@@ -3548,22 +3561,14 @@ class MangaApp:
 
         progress_frame = ttk.Frame(main_frame, style="App.TFrame")
         progress_frame.pack(fill="x", pady=(0, 8))
-        self.progress_bar = ttk.Progressbar(
+        self.current_volume_status_label = ttk.Label(
             progress_frame,
-            variable=self.progress,
-            maximum=100,
-            style="Accent.Horizontal.TProgressbar",
-        )
-        self.progress_bar.pack(side="left", fill="x", expand=True)
-        self.progress_label = ttk.Label(
-            progress_frame,
-            text="0%",
+            text="Tome/Chapitre en cours: --",
             style="Muted.TLabel",
-            font=("Segoe UI Semibold", 9),
-            width=5,
-            anchor="e",
+            font=("Segoe UI", 9),
+            anchor="w",
         )
-        self.progress_label.pack(side="left", padx=(8, 0))
+        self.current_volume_status_label.pack(side="left")
         self.progress_detail_label = ttk.Label(
             progress_frame,
             text="Images: --/--",
@@ -3580,6 +3585,22 @@ class MangaApp:
             anchor="w",
         )
         self.eta_label.pack(side="left", padx=(12, 0))
+        self.progress_bar = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress,
+            maximum=100,
+            style="Accent.Horizontal.TProgressbar",
+        )
+        self.progress_bar.pack(side="left", fill="x", expand=True, padx=(12, 0))
+        self.progress_label = ttk.Label(
+            progress_frame,
+            text="0%",
+            style="Muted.TLabel",
+            font=("Segoe UI Semibold", 9),
+            width=5,
+            anchor="e",
+        )
+        self.progress_label.pack(side="left", padx=(8, 0))
 
         status_frame = ttk.Frame(main_frame, style="Card.TFrame")
         status_frame.pack(side="bottom", fill="x")
@@ -4421,6 +4442,7 @@ class MangaApp:
         self._set_workflow_step("download", "Preparation du telechargement...")
         self._set_download_controls(True)
         self._set_progress_ui(0)
+        self._set_current_volume_ui(None)
         self._set_eta_ui()
         self._set_progress_detail_ui(None, None)
 
@@ -4459,6 +4481,7 @@ class MangaApp:
                 domain = self.get_domain_from_url(link)
                 cookie = self.get_cookie(link)
                 self.run_on_ui(self.root.title, f"SushiDL - {vol}")
+                self.run_on_ui(self._set_current_volume_ui, vol)
 
                 if not cookie and domain in ("fr", "net"):
                     self.log(
@@ -4633,6 +4656,7 @@ class MangaApp:
                 for vol, link in failed:
                     if self.cancel_event.is_set():
                         break
+                    self.run_on_ui(self._set_current_volume_ui, vol)
                     cookie = self.get_cookie(link)
                     ua = self.get_request_user_agent_for_url(link)
                     images = get_images(link, cookie, ua)

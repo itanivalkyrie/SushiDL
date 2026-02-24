@@ -7,6 +7,16 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.3] - 2026-02-24
+
+### Ameliorations
+- Barre de progression reorganisee sur une seule ligne, avec ordre explicite:
+  - `Tome/Chapitre en cours`
+  - `Images`
+  - `ETA Tome` et `ETA Global`
+  - barre de progression + pourcentage.
+- Ajout d'un indicateur dynamique du tome/chapitre en cours pendant le telechargement (et reset en fin de traitement).
+
 ## [11.2.2] - 2026-02-24
 
 ### Corrections

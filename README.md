@@ -7,7 +7,12 @@
 **SushiDL** est une application Python moderne avec interface Tkinter permettant de télécharger automatiquement des chapitres ou tomes de mangas depuis **[sushiscan.fr](https://sushiscan.fr)** et **[sushiscan.net](https://sushiscan.net)**.  
 Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avancées comme la gestion de cookies Cloudflare, la conversion en `.cbz`, et une interface filtrable dynamique.
 
-**Version actuelle : `11.2.2`**
+**Version actuelle : `11.2.3`**
+
+## Nouveautes recentes (v11.2.3)
+- Ligne de progression unifiee et plus lisible:
+  - `Tome/Chapitre en cours` -> `Images` -> `ETA Tome/Global` -> barre + `%`.
+- Indicateur dynamique du tome/chapitre en cours pendant le telechargement.
 
 ## Nouveautes recentes (v11.2.2)
 - Couverture modernisee:
