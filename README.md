@@ -9,25 +9,20 @@ Pensé pour être simple, rapide et efficace, il offre des fonctionnalités avan
 
 **Version actuelle : `11.2.3`**
 
-## Nouveautes recentes (v11.2.3)
-- Ligne de progression unifiee et plus lisible:
-  - `Tome/Chapitre en cours` -> `Images` -> `ETA Tome/Global` -> barre + `%`.
+## Nouveautes recentes
+
+### v11.2.3
+- Ligne de progression unifiee et plus lisible (`Tome/Chapitre en cours` -> `Images` -> `ETA Tome/Global` -> barre + `%`).
 - Indicateur dynamique du tome/chapitre en cours pendant le telechargement.
 
-## Nouveautes recentes (v11.2.2)
-- Couverture modernisee:
-  - placeholder par defaut via `assets/sushidl.png` avant analyse,
-  - ratio fixe 2:3 applique a toutes les couvertures (placeholder + couverture recuperee),
-  - hauteur constante avec largeur adaptee automatiquement,
-  - cadre en relief (profondeur visuelle).
-- Boutons:
-  - `Sauvegarder parametres` et `Analyser le lien` en relief, coherents avec les autres actions.
-- Nettoyage interface:
-  - suppression du texte de raccourcis affiche dans l'en-tete `Tomes / Chapitres`.
-- Maintenance:
-  - correction automatique des commentaires/docstrings mojibake dans `SushiDL.py`.
-- Assets:
-  - ajout de `assets/sushidl.png` et `assets/sushidl_full.png`.
+### v11.2.2
+- Couverture modernisee : placeholder par defaut via `assets/sushidl.png` avant analyse.
+- Ratio fixe 2:3 applique a toutes les couvertures (placeholder + couverture recuperee), avec hauteur constante et largeur adaptee.
+- Cadre de couverture en relief (profondeur visuelle).
+- Boutons `Sauvegarder parametres` et `Analyser le lien` en relief, coherents avec les autres actions.
+- Suppression du texte de raccourcis affiche dans l'en-tete `Tomes / Chapitres`.
+- Correction automatique des commentaires/docstrings mojibake dans `SushiDL.py`.
+- Ajout des assets `assets/sushidl.png` et `assets/sushidl_full.png`.
 
 ---
 
