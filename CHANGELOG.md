@@ -7,6 +7,19 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.7] - 2026-02-25
+
+### Ameliorations
+- Ajout du menu contextuel clic droit `Coller` sur les champs:
+  - cookies (`.fr`, `.net`, `.origines`, `.hentai-origines`),
+  - `User-Agent`,
+  - `URL` source.
+
+### Corrections
+- Harmonisation des libelles et de la documentation:
+  - suppression des mentions textuelles d'age,
+  - conservation du seul marqueur `🔞` pour les contenus adultes.
+
 ## [11.2.6] - 2026-02-24
 
 ### Ameliorations
@@ -40,17 +53,17 @@ Le format de version suit la regle `X.Y.Z` :
 ### Ameliorations
 - Support multi-sites etendu:
   - ajout de `mangas-origines.fr` (format oeuvre: `/oeuvre/<slug>/`),
-  - ajout de `hentai-origines.fr` (format manga: `/manga/<slug>/`, 18+ 🔞),
+  - ajout de `hentai-origines.fr` (format manga: `/manga/<slug>/`, 🔞),
   - extraction des chapitres via endpoint AJAX Madara (`ajax/chapters/?t=`) quand la liste est chargee dynamiquement.
 - Extraction images:
   - priorite forcee au mode `?style=list` pour les chapitres Origines,
   - fallback automatique depuis `?style=paged` et `/p/<n>/` vers la version `list`.
 - Authentification manuelle:
-  - ajout des cookies dedies `.origines` et `.hentai-origines` (18+ 🔞) dans l'UI,
+  - ajout des cookies dedies `.origines` et `.hentai-origines` (🔞) dans l'UI,
   - persistance complete dans `cookie_cache.json` (sources, headers, timestamps),
   - probes de validation cookie au demarrage pour les nouveaux domaines:
     - `https://mangas-origines.fr/oeuvre/826-solo-leveling/`
-    - `https://hentai-origines.fr/manga/stop-smoking/` (18+ 🔞).
+    - `https://hentai-origines.fr/manga/stop-smoking/` (🔞).
 - Couverture:
   - support et affichage des covers GIF (et sources `data-src` / `data-lazy-src`),
   - fallback meta etendu (`og:image`, `twitter:image`).
@@ -63,7 +76,7 @@ Le format de version suit la regle `X.Y.Z` :
   - prise en charge des formats:
     - `https://sushiscan.fr|net/catalogue/<slug>/`
     - `https://mangas-origines.fr/oeuvre/<slug>/`
-    - `https://hentai-origines.fr/manga/<slug>/` (18+ 🔞).
+    - `https://hentai-origines.fr/manga/<slug>/` (🔞).
 
 ## [11.2.4] - 2026-02-24
 

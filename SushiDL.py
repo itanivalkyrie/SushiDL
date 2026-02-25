@@ -446,7 +446,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.6"
+APP_VERSION = "11.2.7"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -2728,22 +2728,168 @@ class MangaApp:
             self._hide_volume_empty_state()
 
     def _update_error_tab_title(self, focus_errors=False):
-        if not hasattr(self, "activity_tabs") or not hasattr(self, "error_tab"):
+        if not hasattr(self, "error_tab"):
             return
         count = len(getattr(self, "volume_error_entries", []) or [])
-        self.activity_tabs.tab(self.error_tab, text=f"Erreurs ({count})")
+        self.error_tab_title = f"Erreurs ({count})"
+        self._refresh_selection_tab_buttons()
         if focus_errors and count > 0:
-            self.activity_tabs.select(self.error_tab)
+            self._select_selection_tab("error")
             self._set_workflow_step("logs", "Des erreurs sont disponibles dans l'onglet Erreurs.")
 
-    def _on_activity_tab_changed(self, _event=None):
-        if not hasattr(self, "activity_tabs"):
-            return
-        selected = self.activity_tabs.select()
-        if hasattr(self, "error_tab") and selected == str(self.error_tab):
+    def _on_selection_tab_changed(self, _event=None):
+        selected = getattr(self, "active_selection_tab", "selection")
+        if selected == "error":
             self._set_workflow_step("logs", "Consulte les erreurs par tome.")
         else:
-            self._set_workflow_step("logs", "Consulte le journal d'exécution.")
+            if getattr(self, "download_in_progress", False):
+                self._set_workflow_step("download", "Téléchargement en cours...")
+            else:
+                self._set_workflow_step("select", "Sélectionne les tomes à télécharger.")
+
+    def _layout_tab_row(self, header, buttons, order):
+        """Place les onglets en chevauchement 1px pour eliminer les doubles separations."""
+        if header is None or not buttons or not order:
+            return
+        try:
+            self.root.update_idletasks()
+        except Exception:
+            return
+        x = 0
+        max_h = 0
+        for index, key in enumerate(order):
+            btn = buttons.get(key)
+            if btn is None:
+                continue
+            try:
+                w = max(1, btn.winfo_reqwidth())
+                h = max(1, btn.winfo_reqheight())
+            except Exception:
+                continue
+            if index > 0:
+                x -= 1
+            btn.place(x=x, y=0, width=w, height=h)
+            x += w
+            if h > max_h:
+                max_h = h
+        if max_h > 0:
+            header.configure(height=max_h)
+
+    def _refresh_selection_tab_buttons(self):
+        """Rafraichit les onglets visuels Tomes / Chapitres et Erreurs."""
+        if not hasattr(self, "selection_tab_buttons"):
+            return
+        palette = getattr(self, "palette", {}) or {}
+        active_key = getattr(self, "active_selection_tab", "selection")
+        default_bg = palette.get("card_alt", "#f3f6fa")
+        default_fg = palette.get("muted", "#5f6b7a")
+        selected_bg = "#ffffff"
+        selected_fg = palette.get("text", "#1f2937")
+        border_color = palette.get("border", "#b8c0cb")
+        titles = {
+            "selection": "Tomes / Chapitres",
+            "error": getattr(self, "error_tab_title", "Erreurs (0)"),
+        }
+        selected_widget = None
+        for key, button in self.selection_tab_buttons.items():
+            is_selected = key == active_key
+            bg, fg = (selected_bg, selected_fg) if is_selected else (default_bg, default_fg)
+            button.configure(
+                text=titles.get(key, ""),
+                bg=bg,
+                fg=fg,
+                activebackground=bg,
+                activeforeground=fg,
+                relief="flat",
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=border_color,
+                highlightcolor=border_color,
+            )
+            if is_selected:
+                selected_widget = button
+        self._layout_tab_row(
+            getattr(self, "selection_tabs_header", None),
+            self.selection_tab_buttons,
+            getattr(self, "selection_tab_order", ("selection", "error")),
+        )
+        if selected_widget is not None:
+            try:
+                selected_widget.lift()
+            except Exception:
+                pass
+        self._update_selection_top_border_mask(selected_widget, selected_bg)
+
+    def _update_selection_top_border_mask(self, selected_widget, mask_bg):
+        """Masque la ligne haute de l'encart sous l'onglet actif (style attache)."""
+        if not hasattr(self, "selection_content_border") or not hasattr(self, "selection_tabs_header"):
+            return
+        if not hasattr(self, "selection_top_border_mask"):
+            self.selection_top_border_mask = tk.Frame(
+                self.selection_content_border,
+                bg=self.palette.get("card_bg", "#f7f9fc"),
+                bd=0,
+                highlightthickness=0,
+            )
+        if not hasattr(self, "selection_tab_bottom_mask"):
+            self.selection_tab_bottom_mask = tk.Frame(
+                self.selection_tabs_header,
+                bg=self.palette.get("card_bg", "#f7f9fc"),
+                bd=0,
+                highlightthickness=0,
+            )
+        if selected_widget is None:
+            self.selection_top_border_mask.place_forget()
+            self.selection_tab_bottom_mask.place_forget()
+            return
+        try:
+            self.root.update_idletasks()
+            hx = selected_widget.winfo_x()
+            hy = selected_widget.winfo_y()
+            hh = selected_widget.winfo_height()
+            w = selected_widget.winfo_width()
+            header_x = self.selection_tabs_header.winfo_x()
+            border_x = self.selection_content_border.winfo_x()
+            x = header_x + hx - border_x
+            if w <= 1:
+                self.selection_top_border_mask.place_forget()
+                self.selection_tab_bottom_mask.place_forget()
+                return
+            inner_x = max(1, x + 1)
+            inner_w = max(1, w - 2)
+            self.selection_top_border_mask.configure(bg=mask_bg)
+            self.selection_top_border_mask.place(
+                x=inner_x,
+                y=0,
+                width=inner_w,
+                height=1,
+            )
+            self.selection_top_border_mask.lift()
+            self.selection_tab_bottom_mask.configure(bg=mask_bg)
+            self.selection_tab_bottom_mask.place(
+                x=max(1, hx + 1),
+                y=max(0, hy + hh - 1),
+                width=inner_w,
+                height=1,
+            )
+            self.selection_tab_bottom_mask.lift()
+        except Exception:
+            self.selection_top_border_mask.place_forget()
+            self.selection_tab_bottom_mask.place_forget()
+
+    def _select_selection_tab(self, tab_key):
+        """Affiche l'onglet selection (tomes) ou erreurs dans l'encart du bas."""
+        if not hasattr(self, "selection_tab_pages"):
+            return
+        page = self.selection_tab_pages.get(tab_key)
+        if page is None:
+            return
+        self.active_selection_tab = tab_key
+        for tab_page in self.selection_tab_pages.values():
+            tab_page.pack_forget()
+        page.pack(fill="both", expand=True)
+        self._refresh_selection_tab_buttons()
+        self._on_selection_tab_changed()
 
     def _shortcut_analyze(self, _event=None):
         if getattr(self, "analysis_in_progress", False):
@@ -2904,50 +3050,150 @@ class MangaApp:
             widget.config(text="A vérifier", bg=invalid_bg, fg=invalid_fg)
 
     def _apply_auth_tab_state_style(self, state):
-        """Colorise l'onglet Authentification selon l'état global: valid / pending / invalid."""
-        if not hasattr(self, "root"):
+        """Memorise l'etat visuel de l'onglet Authentification et rafraichit son rendu."""
+        normalized = str(state or "pending").strip().lower()
+        if normalized not in {"valid", "pending", "invalid"}:
+            normalized = "pending"
+        self.auth_tab_visual_state = normalized
+        self._refresh_config_tab_buttons()
+
+    def _refresh_config_tab_buttons(self):
+        """Rafraichit les onglets visuels Journal / Authentification / Options."""
+        if not hasattr(self, "config_tab_buttons"):
             return
         palette = getattr(self, "palette", {}) or {}
-        colors = {
-            "valid": ("#cdeed7", "#1b5e20"),
-            "pending": ("#ffe2b8", "#6a4b00"),
-            "invalid": ("#f4c3c9", "#7a1f28"),
+        active_key = getattr(self, "active_config_tab", "journal")
+        auth_state = getattr(self, "auth_tab_visual_state", "pending")
+        auth_colors = {
+            "valid": ("#c6e8d2", "#1f2937"),
+            "pending": ("#FFC067", "#6a4b00"),
+            "invalid": ("#efc2c7", "#7a1f28"),
         }
-        selected_bg, selected_fg = colors.get(state, colors["pending"])
-        base_bg = palette.get("card_alt", "#f3f6fa")
-        text = palette.get("text", "#1f2937")
-        muted = palette.get("muted", "#5f6b7a")
-        selected_is_auth = False
-        if hasattr(self, "config_content_tabs") and hasattr(self, "config_auth_page"):
-            try:
-                selected_is_auth = self.config_content_tabs.select() == str(self.config_auth_page)
-            except Exception:
-                selected_is_auth = False
-        if not selected_is_auth:
-            selected_bg, selected_fg = "#ffffff", text
+        default_bg = palette.get("card_alt", "#f3f6fa")
+        default_fg = palette.get("muted", "#5f6b7a")
+        selected_bg = "#ffffff"
+        selected_fg = palette.get("text", "#1f2937")
+        border_color = palette.get("border", "#b8c0cb")
+        selected_border_color = palette.get("border", "#b8c0cb")
 
-        style = ttk.Style(self.root)
-        style.configure(
-            "ConfigContent.TNotebook.Tab",
-            background=base_bg,
-            foreground=muted,
-            padding=(11, 5),
-            font=("Segoe UI Semibold", 9),
-            borderwidth=1,
-            relief="flat",
+        titles = {
+            "journal": "Journal",
+            "auth": getattr(self, "auth_tab_title", "Authentification (0/5)"),
+            "options": "Options",
+        }
+
+        selected_widget = None
+        selected_bg_for_mask = selected_bg
+        for key, button in self.config_tab_buttons.items():
+            is_selected = key == active_key
+            if key == "auth":
+                bg, fg = auth_colors.get(auth_state, auth_colors["pending"])
+            else:
+                bg, fg = (selected_bg, selected_fg) if is_selected else (default_bg, default_fg)
+
+            tab_border = selected_border_color if is_selected else border_color
+
+            button.configure(
+                text=titles.get(key, ""),
+                bg=bg,
+                fg=fg,
+                activebackground=bg,
+                activeforeground=fg,
+                relief="flat",
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=tab_border,
+                highlightcolor=tab_border,
+            )
+            if is_selected:
+                selected_widget = button
+                selected_bg_for_mask = bg
+
+        self._layout_tab_row(
+            getattr(self, "config_tabs_header", None),
+            self.config_tab_buttons,
+            getattr(self, "config_tab_order", ("journal", "auth", "options")),
         )
-        style.map(
-            "ConfigContent.TNotebook.Tab",
-            background=[("selected", selected_bg), ("active", "#ebf1f9")],
-            foreground=[("selected", selected_fg), ("active", text)],
-            padding=[("selected", (11, 5)), ("!selected", (11, 5))],
-            expand=[("selected", (0, 0, 0, 0)), ("!selected", (0, 0, 0, 0))],
-            relief=[("selected", "flat"), ("!selected", "flat")],
-        )
+        if selected_widget is not None:
+            try:
+                selected_widget.lift()
+            except Exception:
+                pass
+        self._update_config_top_border_mask(selected_widget, selected_bg_for_mask)
+
+    def _update_config_top_border_mask(self, selected_widget, mask_bg):
+        """Masque la ligne haute de l'encart + le bas de l'onglet actif (effet attache)."""
+        if not hasattr(self, "config_content_border"):
+            return
+        if not hasattr(self, "config_top_border_mask"):
+            self.config_top_border_mask = tk.Frame(
+                self.config_content_border,
+                bg=self.palette.get("card_bg", "#f7f9fc"),
+                bd=0,
+                highlightthickness=0,
+            )
+        if not hasattr(self, "config_tab_bottom_mask"):
+            self.config_tab_bottom_mask = tk.Frame(
+                self.config_tabs_header,
+                bg=self.palette.get("card_bg", "#f7f9fc"),
+                bd=0,
+                highlightthickness=0,
+            )
+        if selected_widget is None:
+            self.config_top_border_mask.place_forget()
+            self.config_tab_bottom_mask.place_forget()
+            return
+        try:
+            self.root.update_idletasks()
+            hx = selected_widget.winfo_x()
+            hy = selected_widget.winfo_y()
+            hh = selected_widget.winfo_height()
+            w = selected_widget.winfo_width()
+            header_x = self.config_tabs_header.winfo_x()
+            border_x = self.config_content_border.winfo_x()
+            x = header_x + hx - border_x
+            if w <= 1:
+                self.config_top_border_mask.place_forget()
+                self.config_tab_bottom_mask.place_forget()
+                return
+            inner_x = max(1, x + 1)
+            inner_w = max(1, w - 2)
+            self.config_top_border_mask.configure(bg=mask_bg)
+            self.config_top_border_mask.place(
+                x=inner_x,
+                y=0,
+                width=inner_w,
+                height=1,
+            )
+            self.config_top_border_mask.lift()
+            self.config_tab_bottom_mask.configure(bg=mask_bg)
+            self.config_tab_bottom_mask.place(
+                x=max(0, hx),
+                y=max(0, hy + hh - 1),
+                width=max(1, w),
+                height=1,
+            )
+            self.config_tab_bottom_mask.lift()
+        except Exception:
+            self.config_top_border_mask.place_forget()
+            self.config_tab_bottom_mask.place_forget()
+
+    def _select_config_tab(self, tab_key):
+        """Affiche la page de configuration choisie."""
+        if not hasattr(self, "config_tab_pages"):
+            return
+        page = self.config_tab_pages.get(tab_key)
+        if page is None:
+            return
+        self.active_config_tab = tab_key
+        for tab_page in self.config_tab_pages.values():
+            tab_page.pack_forget()
+        page.pack(fill="both", expand=True)
+        self._refresh_config_tab_buttons()
 
     def _refresh_auth_tab_badge(self):
-        """Met à jour le titre et la couleur de l'onglet d'authentification."""
-        if not hasattr(self, "config_content_tabs") or not hasattr(self, "config_auth_page"):
+        """Met a jour le titre et la couleur de l'onglet d'authentification."""
+        if not hasattr(self, "config_auth_page"):
             return
         states = getattr(self, "auth_badge_states", {}) or {}
         keys = list(COOKIE_DOMAINS) + ["ua"]
@@ -2961,12 +3207,34 @@ class MangaApp:
             auth_state = "invalid"
         else:
             auth_state = "pending"
+        self.auth_tab_title = f"Authentification ({valid_count}/{total})"
         self._apply_auth_tab_state_style(auth_state)
-        self.config_content_tabs.tab(self.config_auth_page, text=f"Authentification ({valid_count}/{total})")
+        self._refresh_config_tab_buttons()
 
     def _on_config_tab_changed(self, _event=None):
-        """Rafraîchit le style de l'onglet Authentification au changement d'onglet."""
-        self._refresh_auth_tab_badge()
+        """Synchronise les onglets visuels avec l'onglet de configuration actif."""
+        self._refresh_config_tab_buttons()
+
+    def _finalize_config_panel_layout(self):
+        """Stabilise la hauteur du bloc haut pour eviter les sauts entre onglets."""
+        if not hasattr(self, "config_content_panel"):
+            return
+        try:
+            self.root.update_idletasks()
+        except Exception:
+            return
+        option_h = getattr(self, "config_options_page", None)
+        option_h = option_h.winfo_reqheight() if option_h is not None else 0
+        auth_h = getattr(self, "config_auth_page", None)
+        auth_h = auth_h.winfo_reqheight() if auth_h is not None else 0
+        journal_h = getattr(self, "config_journal_page", None)
+        journal_h = journal_h.winfo_reqheight() if journal_h is not None else 0
+
+        target_h = max(option_h, auth_h, journal_h, 220)
+        self.config_panel_min_height = target_h
+        self.config_content_panel.pack_propagate(False)
+        self.config_content_panel.configure(height=target_h)
+        self._refresh_config_tab_buttons()
 
     def run_auth_diagnostics(self):
         """Lance un test complet cookies + User-Agent sur tous les domaines."""
@@ -3054,7 +3322,7 @@ class MangaApp:
         self.cookie_fr_label_var.set("Cookie (.fr) :")
         self.cookie_net_label_var.set("Cookie (.net) :")
         self.cookie_origines_label_var.set("Cookie (.origines) :")
-        self.cookie_hentai_label_var.set("Cookie (.hentai-origines 18+ 🔞) :")
+        self.cookie_hentai_label_var.set("Cookie (.hentai-origines 🔞) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -3354,7 +3622,7 @@ class MangaApp:
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
-        self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines 18+ 🔞) :")
+        self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines 🔞) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
@@ -3901,7 +4169,7 @@ class MangaApp:
         )
         style.map(
             "TNotebook.Tab",
-            background=[("selected", "#ffffff"), ("active", "#ebf1f9")],
+            background=[("selected", "#ffffff"), ("active", "#ebf1f9"), ("!selected", self.palette["card_alt"])],
             foreground=[("selected", self.palette["text"]), ("active", self.palette["text"])],
             padding=[("selected", (11, 5)), ("!selected", (11, 5))],
             expand=[("selected", (0, 0, 0, 0)), ("!selected", (0, 0, 0, 0))],
@@ -3913,23 +4181,7 @@ class MangaApp:
             borderwidth=0,
             tabmargins=(0, 0, 0, 0),
         )
-        style.configure(
-            "ConfigContent.TNotebook.Tab",
-            background=self.palette["card_alt"],
-            foreground=self.palette["muted"],
-            padding=(11, 5),
-            font=("Segoe UI Semibold", 9),
-            borderwidth=1,
-            relief="flat",
-        )
-        style.map(
-            "ConfigContent.TNotebook.Tab",
-            background=[("selected", "#ffe2b8"), ("active", "#ebf1f9")],
-            foreground=[("selected", "#6a4b00"), ("active", self.palette["text"])],
-            padding=[("selected", (11, 5)), ("!selected", (11, 5))],
-            expand=[("selected", (0, 0, 0, 0)), ("!selected", (0, 0, 0, 0))],
-            relief=[("selected", "flat"), ("!selected", "flat")],
-        )
+        style.layout("ConfigContent.TNotebook.Tab", [])
         style.configure(
             "Treeview",
             background=self.palette["card_bg"],
@@ -3965,47 +4217,202 @@ class MangaApp:
         def create_titled_section(parent, title, bottom_margin):
             section_wrap = ttk.Frame(parent, style="App.TFrame")
             section_wrap.pack(fill="x", expand=False, pady=(0, bottom_margin))
+            section_tabs_header = tk.Frame(
+                section_wrap,
+                bg=self.palette["app_bg"],
+                bd=0,
+                highlightthickness=0,
+            )
+            section_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
+            section_tab_label = tk.Label(
+                section_tabs_header,
+                text=title,
+                font=("Segoe UI Semibold", 9),
+                padx=11,
+                pady=4,
+                bd=0,
+                relief="flat",
+                bg="#ffffff",
+                fg=self.palette["text"],
+                highlightthickness=1,
+                highlightbackground=self.palette["border"],
+                highlightcolor=self.palette["border"],
+            )
+            section_tab_label.pack(side="left", padx=(0, 0), pady=(0, 0))
 
-            section_tabs = ttk.Notebook(section_wrap)
-            section_tabs.pack(fill="x", expand=False)
-
-            section_tab = ttk.Frame(section_tabs, style="Card.TFrame")
-            section_tabs.add(section_tab, text=title)
-
-            section_panel = tk.Frame(
-                section_tab,
+            section_border = tk.Frame(
+                section_wrap,
                 bg=self.palette["card_bg"],
                 highlightbackground=self.palette["border"],
+                highlightcolor=self.palette["border"],
                 highlightthickness=1,
                 bd=0,
             )
-            section_panel.pack(fill="x", expand=True)
+            section_border.pack(fill="x", expand=False)
 
-            section_content = ttk.Frame(section_panel, style="Card.TFrame")
+            section_top_mask = tk.Frame(
+                section_border,
+                bg="#ffffff",
+                bd=0,
+                highlightthickness=0,
+            )
+            section_top_mask.place(x=1, y=0, width=2, height=1)
+
+            section_content_panel = tk.Frame(
+                section_border,
+                bg=self.palette["card_bg"],
+                bd=0,
+                highlightthickness=0,
+            )
+            section_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
+
+            section_content = ttk.Frame(section_content_panel, style="Card.TFrame")
             section_content.pack(fill="both", expand=True, padx=12, pady=9)
-            return section_content, section_tabs
+
+            def update_section_mask(_event=None):
+                try:
+                    section_wrap.update_idletasks()
+                    x = section_tabs_header.winfo_x() + section_tab_label.winfo_x() - section_border.winfo_x() + 1
+                    w = max(1, section_tab_label.winfo_width() - 2)
+                    section_top_mask.place_configure(x=x, width=w)
+                except Exception:
+                    pass
+
+            section_tab_label.bind("<Configure>", update_section_mask)
+            section_tabs_header.bind("<Configure>", update_section_mask)
+            self.root.after_idle(update_section_mask)
+            return section_content, section_wrap
 
         main_frame = ttk.Frame(self.root, style="App.TFrame", padding=(18, 8))
         main_frame.pack(fill="both", expand=True)
 
-        config_wrap = ttk.Frame(main_frame, style="App.TFrame")
-        config_wrap.pack(fill="x", expand=False, pady=(0, 6))
-        self.config_content_tabs = ttk.Notebook(config_wrap, style="ConfigContent.TNotebook")
-        self.config_content_tabs.pack(fill="x", expand=False)
-        self.config_auth_page = ttk.Frame(self.config_content_tabs, style="Card.TFrame")
-        self.config_options_page = ttk.Frame(self.config_content_tabs, style="Card.TFrame")
-        self.config_content_tabs.add(self.config_auth_page, text="Authentification (0/5)")
-        self.config_content_tabs.add(self.config_options_page, text="Options")
-        self.config_content_tabs.bind("<<NotebookTabChanged>>", self._on_config_tab_changed)
+        top_tabs_wrap = ttk.Frame(main_frame, style="App.TFrame")
+        top_tabs_wrap.pack(fill="x", expand=False, pady=(0, 6))
+
+        self.config_tabs_header = tk.Frame(
+            top_tabs_wrap,
+            bg=self.palette["app_bg"],
+            bd=0,
+            highlightthickness=0,
+        )
+        self.config_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
+
+        self.config_content_border = tk.Frame(
+            top_tabs_wrap,
+            bg=self.palette["card_bg"],
+            highlightbackground=self.palette["border"],
+            highlightcolor=self.palette["border"],
+            highlightthickness=1,
+            bd=0,
+        )
+        self.config_content_border.pack(fill="x", expand=False, pady=(0, 0))
+        self.config_content_panel = tk.Frame(
+            self.config_content_border,
+            bg=self.palette["card_bg"],
+            bd=0,
+            highlightthickness=0,
+        )
+        self.config_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
+
+        self.config_journal_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
+        self.config_auth_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
+        self.config_options_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
+
+        self.config_tab_pages = {
+            "journal": self.config_journal_page,
+            "auth": self.config_auth_page,
+            "options": self.config_options_page,
+        }
+        self.config_tab_buttons = {}
+        self.config_tab_order = ("journal", "auth", "options")
+        self.active_config_tab = "journal"
+        self.auth_tab_title = "Authentification (0/5)"
+        self.auth_tab_visual_state = "pending"
+
+        for idx, (key, title) in enumerate((("journal", "Journal"), ("auth", self.auth_tab_title), ("options", "Options"))):
+            button = tk.Label(
+                self.config_tabs_header,
+                text=title,
+                font=("Segoe UI Semibold", 9),
+                cursor="hand2",
+                padx=11,
+                pady=4,
+                bd=0,
+                relief="flat",
+                highlightthickness=1,
+            )
+            button.bind("<Button-1>", lambda _event, tab_key=key: self._select_config_tab(tab_key))
+            self.config_tab_buttons[key] = button
+        self.config_tabs_header.bind(
+            "<Configure>",
+            lambda _e: self._layout_tab_row(self.config_tabs_header, self.config_tab_buttons, self.config_tab_order),
+        )
 
         def create_config_tab_content(parent):
             content = ttk.Frame(parent, style="Card.TFrame", padding=(12, 12, 12, 12))
             content.pack(fill="both", expand=True)
             return content
 
+        self.config_journal_tab = create_config_tab_content(self.config_journal_page)
         self.config_auth_tab = create_config_tab_content(self.config_auth_page)
         self.config_options_tab = create_config_tab_content(self.config_options_page)
+        self._refresh_config_tab_buttons()
+        self._select_config_tab("journal")
         self.config_auth_tab.grid_columnconfigure(1, weight=1)
+
+        log_frame = ttk.Frame(self.config_journal_tab, style="Card.TFrame")
+        log_frame.pack(fill="both", expand=True)
+        log_toolbar = ttk.Frame(log_frame, style="Card.TFrame")
+        log_toolbar.pack(fill="x", pady=(0, 4))
+        ttk.Label(log_toolbar, text="Niveau:", style="Card.TLabel", font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
+        self.log_filter_combo = ttk.Combobox(
+            log_toolbar,
+            width=9,
+            state="readonly",
+            values=["all", "info", "success", "warning", "error", "debug", "cbz"],
+            textvariable=self.log_filter_level,
+            style="Card.TCombobox",
+        )
+        self.log_filter_combo.pack(side="left")
+        self.log_filter_combo.bind("<<ComboboxSelected>>", self.refresh_log_view)
+        self.log_filter_combo.set("all")
+        ttk.Checkbutton(
+            log_toolbar,
+            text="Auto-scroll",
+            variable=self.log_autoscroll,
+            style="Card.TCheckbutton",
+        ).pack(side="left", padx=(10, 0))
+        ttk.Button(log_toolbar, text="Effacer", command=self.clear_log_entries, style="Secondary.TButton").pack(side="right", padx=(4, 0))
+        ttk.Button(log_toolbar, text="Copier", command=self.copy_visible_logs, style="Secondary.TButton").pack(side="right", padx=(4, 0))
+        ttk.Button(log_toolbar, text="Exporter", command=self.export_visible_logs, style="Secondary.TButton").pack(side="right")
+
+        log_text_container = ttk.Frame(log_frame, style="Card.TFrame")
+        log_text_container.pack(fill="both", expand=True)
+        self.log_text = tk.Text(
+            log_text_container,
+            height=6,
+            state="disabled",
+            wrap="word",
+            bg=self.palette["log_bg"],
+            fg=self.palette["text"],
+            font=("Consolas", 9),
+            relief="flat",
+            bd=0,
+            padx=8,
+            pady=4,
+        )
+        self.log_text.pack(side="left", fill="both", expand=True)
+
+        log_scroll = ttk.Scrollbar(log_text_container, orient="vertical", command=self.log_text.yview)
+        log_scroll.pack(side="right", fill="y")
+        self.log_text.configure(yscrollcommand=log_scroll.set)
+
+        self.log_text.tag_config("debug", foreground="#64748b")
+        self.log_text.tag_config("success", foreground="#27ae60")
+        self.log_text.tag_config("info", foreground="#3daee9")
+        self.log_text.tag_config("error", foreground="#da4453")
+        self.log_text.tag_config("warning", foreground="#f67400")
+        self.log_text.tag_config("cbz", foreground="#7c3aed")
 
         font_label = ("Segoe UI", 10)
         font_entry = ("Segoe UI", 10)
@@ -4339,7 +4746,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (18+ 🔞)",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞)",
             None,
         )
 
@@ -4355,7 +4762,76 @@ class MangaApp:
         self.status_label = ttk.Label(analyze_frame, text="", style="Card.TLabel", font=("Segoe UI", 9))
         self.status_label.pack(side="left", padx=(12, 0))
 
-        center_card, self.selection_section_tabs = create_titled_section(main_frame, "Tomes / Chapitres", 6)
+        selection_wrap = ttk.Frame(main_frame, style="App.TFrame")
+        selection_wrap.pack(fill="both", expand=True, pady=(0, 4))
+        self.selection_tabs_header = tk.Frame(
+            selection_wrap,
+            bg=self.palette["app_bg"],
+            bd=0,
+            highlightthickness=0,
+        )
+        self.selection_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
+        self.selection_content_border = tk.Frame(
+            selection_wrap,
+            bg=self.palette["card_bg"],
+            highlightbackground=self.palette["border"],
+            highlightcolor=self.palette["border"],
+            highlightthickness=1,
+            bd=0,
+        )
+        self.selection_content_border.pack(fill="both", expand=True, pady=(0, 0))
+        self.selection_content_panel = tk.Frame(
+            self.selection_content_border,
+            bg=self.palette["card_bg"],
+            bd=0,
+            highlightthickness=0,
+        )
+        self.selection_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
+
+        selection_tab = ttk.Frame(self.selection_content_panel, style="Card.TFrame")
+        self.error_tab = ttk.Frame(self.selection_content_panel, style="Card.TFrame")
+        self.selection_tab_pages = {
+            "selection": selection_tab,
+            "error": self.error_tab,
+        }
+        self.selection_tab_buttons = {}
+        self.selection_tab_order = ("selection", "error")
+        self.active_selection_tab = "selection"
+        self.error_tab_title = "Erreurs (0)"
+
+        for idx, (key, title) in enumerate((("selection", "Tomes / Chapitres"), ("error", self.error_tab_title))):
+            button = tk.Label(
+                self.selection_tabs_header,
+                text=title,
+                font=("Segoe UI Semibold", 9),
+                cursor="hand2",
+                padx=11,
+                pady=4,
+                bd=0,
+                relief="flat",
+                highlightthickness=1,
+            )
+            button.bind("<Button-1>", lambda _event, tab_key=key: self._select_selection_tab(tab_key))
+            self.selection_tab_buttons[key] = button
+        self.selection_tabs_header.bind(
+            "<Configure>",
+            lambda _e: self._layout_tab_row(
+                self.selection_tabs_header, self.selection_tab_buttons, self.selection_tab_order
+            ),
+        )
+        self._refresh_selection_tab_buttons()
+        self._select_selection_tab("selection")
+
+        selection_panel = tk.Frame(
+            selection_tab,
+            bg=self.palette["card_bg"],
+            highlightbackground=self.palette["border"],
+            highlightthickness=0,
+            bd=0,
+        )
+        selection_panel.pack(fill="both", expand=True)
+        center_card = ttk.Frame(selection_panel, style="Card.TFrame")
+        center_card.pack(fill="both", expand=True, padx=12, pady=9)
 
         vol_header = ttk.Frame(center_card, style="Card.TFrame")
         vol_header.pack(fill="x", pady=(0, 4))
@@ -4477,7 +4953,7 @@ class MangaApp:
             highlightthickness=1,
             bd=0,
         )
-        vol_frame_container.pack(fill="x", expand=False)
+        vol_frame_container.pack(fill="both", expand=True)
 
         canvas_frame = ttk.Frame(vol_frame_container, style="Card.TFrame")
         canvas_frame.pack(fill="both", expand=True, padx=1, pady=1)
@@ -4486,7 +4962,7 @@ class MangaApp:
             canvas_frame,
             bg=self.palette["canvas_bg"],
             highlightthickness=0,
-            height=148,  # ~4 lignes visibles puis scroll.
+            height=220,  # Zone volontairement plus haute pour afficher davantage de tomes.
         )
         self.scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
         self.canvas.pack(side="left", fill="both", expand=True)
@@ -4556,88 +5032,18 @@ class MangaApp:
         )
         self.progress_label.pack(side="left", padx=(8, 0))
 
-        status_frame = ttk.Frame(main_frame, style="Card.TFrame")
-        status_frame.pack(side="bottom", fill="x")
-        status_box = tk.Label(
-            status_frame,
-            textvariable=self.runtime_status,
-            anchor="w",
-            fg=self.palette["muted"],
-            bg=self.palette["card_alt"],
-            font=("Segoe UI", 8),
-            padx=10,
-            pady=6,
-            relief="solid",
-            borderwidth=1,
-        )
-        status_box.pack(fill="x")
-
-        self.activity_tabs = ttk.Notebook(main_frame)
-        self.activity_tabs.pack(fill="x", expand=False, pady=(0, 4))
-        log_tab = ttk.Frame(self.activity_tabs, style="Card.TFrame")
-        self.error_tab = ttk.Frame(self.activity_tabs, style="Card.TFrame")
-        self.activity_tabs.add(log_tab, text="Journal")
-        self.activity_tabs.add(self.error_tab, text="Erreurs (0)")
-        self.activity_tabs.bind("<<NotebookTabChanged>>", self._on_activity_tab_changed)
-
-        log_frame = ttk.Frame(log_tab, style="Card.TFrame")
-        log_frame.pack(fill="both", expand=True)
-        log_toolbar = ttk.Frame(log_frame, style="Card.TFrame")
-        log_toolbar.pack(fill="x", pady=(0, 6))
-        ttk.Label(log_toolbar, text="Niveau:", style="Card.TLabel", font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
-        self.log_filter_combo = ttk.Combobox(
-            log_toolbar,
-            width=9,
-            state="readonly",
-            values=["all", "info", "success", "warning", "error", "debug", "cbz"],
-            textvariable=self.log_filter_level,
-            style="Card.TCombobox",
-        )
-        self.log_filter_combo.pack(side="left")
-        self.log_filter_combo.bind("<<ComboboxSelected>>", self.refresh_log_view)
-        self.log_filter_combo.set("all")
-        ttk.Checkbutton(
-            log_toolbar,
-            text="Auto-scroll",
-            variable=self.log_autoscroll,
-            style="Card.TCheckbutton",
-        ).pack(side="left", padx=(10, 0))
-        ttk.Button(log_toolbar, text="Effacer", command=self.clear_log_entries, style="Secondary.TButton").pack(side="right", padx=(4, 0))
-        ttk.Button(log_toolbar, text="Copier", command=self.copy_visible_logs, style="Secondary.TButton").pack(side="right", padx=(4, 0))
-        ttk.Button(log_toolbar, text="Exporter", command=self.export_visible_logs, style="Secondary.TButton").pack(side="right")
-
-        log_text_container = ttk.Frame(log_frame, style="Card.TFrame")
-        log_text_container.pack(fill="both", expand=True)
-        self.log_text = tk.Text(
-            log_text_container,
-            height=5,
-            state="disabled",
-            wrap="word",
-            bg=self.palette["log_bg"],
-            fg=self.palette["text"],
-            font=("Consolas", 9),
-            relief="flat",
+        error_panel = tk.Frame(
+            self.error_tab,
+            bg=self.palette["card_bg"],
+            highlightbackground=self.palette["border"],
+            highlightthickness=0,
             bd=0,
-            padx=8,
-            pady=4,
         )
-        self.log_text.pack(side="left", fill="both", expand=True)
-
-        log_scroll = ttk.Scrollbar(log_text_container, orient="vertical", command=self.log_text.yview)
-        log_scroll.pack(side="right", fill="y")
-        self.log_text.configure(yscrollcommand=log_scroll.set)
-
-        self.log_text.tag_config("debug", foreground="#64748b")
-        self.log_text.tag_config("success", foreground="#27ae60")
-        self.log_text.tag_config("info", foreground="#3daee9")
-        self.log_text.tag_config("error", foreground="#da4453")
-        self.log_text.tag_config("warning", foreground="#f67400")
-        self.log_text.tag_config("cbz", foreground="#7c3aed")
-
-        error_frame = ttk.Frame(self.error_tab, style="Card.TFrame")
-        error_frame.pack(fill="both", expand=True)
+        error_panel.pack(fill="both", expand=True)
+        error_frame = ttk.Frame(error_panel, style="Card.TFrame")
+        error_frame.pack(fill="both", expand=True, padx=12, pady=9)
         error_toolbar = ttk.Frame(error_frame, style="Card.TFrame")
-        error_toolbar.pack(fill="x", pady=(0, 6))
+        error_toolbar.pack(fill="x", pady=(0, 4))
         ttk.Button(
             error_toolbar,
             text="Effacer",
@@ -4663,7 +5069,7 @@ class MangaApp:
             error_tree_container,
             columns=("time", "tome", "stage", "http", "reason", "action"),
             show="headings",
-            height=5,
+            height=8,
         )
         self.error_tree.heading("time", text="Heure")
         self.error_tree.heading("tome", text="Tome")
@@ -4681,6 +5087,23 @@ class MangaApp:
         error_scroll = ttk.Scrollbar(error_tree_container, orient="vertical", command=self.error_tree.yview)
         error_scroll.pack(side="right", fill="y")
         self.error_tree.configure(yscrollcommand=error_scroll.set)
+
+        status_frame = ttk.Frame(main_frame, style="Card.TFrame")
+        status_frame.pack(fill="x")
+        status_box = tk.Label(
+            status_frame,
+            textvariable=self.runtime_status,
+            anchor="w",
+            fg=self.palette["muted"],
+            bg=self.palette["card_alt"],
+            font=("Segoe UI", 8),
+            padx=10,
+            pady=6,
+            relief="solid",
+            borderwidth=1,
+        )
+        status_box.pack(fill="x")
+
         self._update_error_tab_title(focus_errors=False)
         self._set_workflow_step("auth", "Renseigne cookies et User-Agent manuels.")
 
@@ -4861,6 +5284,92 @@ class MangaApp:
         except Exception as exc:
             self.log(f"Impossible d'ouvrir le lien {target}: {exc}", level="error")
 
+    def _paste_into_entry(self, entry_widget):
+        """Colle le contenu du presse-papiers dans un Entry cible."""
+        if entry_widget is None:
+            return
+        try:
+            if str(entry_widget.cget("state")) == "disabled":
+                return
+        except Exception:
+            pass
+        try:
+            clip_text = self.root.clipboard_get()
+        except Exception:
+            return
+        if clip_text is None:
+            return
+        clip_text = str(clip_text)
+        try:
+            entry_widget.focus_set()
+        except Exception:
+            pass
+        try:
+            if bool(entry_widget.selection_present()):
+                entry_widget.delete("sel.first", "sel.last")
+        except Exception:
+            pass
+        try:
+            entry_widget.insert("insert", clip_text)
+            entry_widget.icursor("end")
+        except Exception:
+            pass
+
+    def _show_entry_context_menu(self, event, entry_widget):
+        """Affiche un menu contextuel minimal avec action Coller."""
+        if entry_widget is None:
+            return "break"
+        self._context_menu_entry = entry_widget
+        if not hasattr(self, "entry_paste_menu"):
+            menu = tk.Menu(self.root, tearoff=0)
+            menu.add_command(label="Coller", command=lambda: self._paste_into_entry(self._context_menu_entry))
+            self.entry_paste_menu = menu
+        can_paste = True
+        try:
+            if str(entry_widget.cget("state")) == "disabled":
+                can_paste = False
+        except Exception:
+            pass
+        if can_paste:
+            try:
+                _ = self.root.clipboard_get()
+            except Exception:
+                can_paste = False
+        self.entry_paste_menu.entryconfigure(0, state=("normal" if can_paste else "disabled"))
+        try:
+            self.entry_paste_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                self.entry_paste_menu.grab_release()
+            except Exception:
+                pass
+        return "break"
+
+    def _bind_entry_paste_menu(self, entry_widget, placeholder_widget=None):
+        """Active le clic droit Coller sur un Entry (et son placeholder si présent)."""
+        if entry_widget is None:
+            return
+        entry_widget.bind(
+            "<Button-3>",
+            lambda event, target=entry_widget: self._show_entry_context_menu(event, target),
+            add="+",
+        )
+        # Compatibilité Linux/macOS selon backend Tk.
+        entry_widget.bind(
+            "<Button-2>",
+            lambda event, target=entry_widget: self._show_entry_context_menu(event, target),
+            add="+",
+        )
+        if placeholder_widget is not None:
+            placeholder_widget.bind(
+                "<Button-3>",
+                lambda event, target=entry_widget: self._show_entry_context_menu(event, target),
+            )
+            placeholder_widget.bind(
+                "<Button-2>",
+                lambda event, target=entry_widget: self._show_entry_context_menu(event, target),
+            )
+
     def _attach_link_placeholder(self, entry_widget, text_variable, placeholder_text, link_url):
         """
         Place un placeholder cliquable par-dessus un Entry sans modifier la valeur réelle.
@@ -4924,6 +5433,7 @@ class MangaApp:
             placeholder.bind("<Button-1>", lambda _e: entry_widget.focus_set())
         entry_widget.bind("<FocusIn>", on_focus_in, add="+")
         entry_widget.bind("<FocusOut>", on_focus_out, add="+")
+        self._bind_entry_paste_menu(entry_widget, placeholder_widget=placeholder)
         text_variable.trace_add("write", lambda *_args: show_placeholder())
         show_placeholder()
 
@@ -4955,7 +5465,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.cookie_hentai_entry,
             self.cookie_hentai,
-            'Cookie cf_clearance hentai-origines.fr (18+ 🔞, cliquer pour ouvrir le site si besoin).',
+            'Cookie cf_clearance hentai-origines.fr (🔞, cliquer pour ouvrir le site si besoin).',
             cookie_hentai_link,
         )
         self._attach_link_placeholder(
@@ -4964,6 +5474,7 @@ class MangaApp:
             'Cliquer ici pour accéder à : Votre User-Agent (copier/coller seulement la partie à droite entre les "" )',
             ua_link,
         )
+        self.root.after_idle(self._finalize_config_panel_layout)
 
     def _toggle_cookie_visibility(self):
         show_char = "" if bool(self.show_cookies.get()) else "*"
@@ -5169,7 +5680,7 @@ class MangaApp:
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (18+ 🔞).",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞).",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
