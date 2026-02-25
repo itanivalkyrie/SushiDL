@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="SushiDL banner" src="assets/banner.png" />
+  <img alt="SushiDL banner" src="assets/banner.jpg" />
 </p>
 
 # 🍣 SushiDL – Téléchargeur de mangas avec interface graphique
