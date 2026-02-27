@@ -2916,6 +2916,39 @@ class MangaApp:
             return
         count = len(getattr(self, "volume_error_entries", []) or [])
         self.error_tab_title = f"Erreurs ({count})"
+        if hasattr(self, "error_count_badge"):
+            if count > 0:
+                self.error_count_badge.configure(
+                    text=f"{count} erreur{'s' if count > 1 else ''}",
+                    fg_color="#f4d8dc",
+                    text_color="#7a1f28",
+                )
+            else:
+                self.error_count_badge.configure(
+                    text="Aucune erreur",
+                    fg_color="#d9efe3",
+                    text_color="#24533a",
+                )
+        if hasattr(self, "error_summary_label"):
+            if count > 0:
+                if count == 1:
+                    summary_text = "1 erreur recente capturee. Utilise Copier ou Exporter pour diagnostiquer."
+                else:
+                    summary_text = f"{count} erreurs recentes capturees. Utilise Copier ou Exporter pour diagnostiquer."
+                self.error_summary_label.configure(
+                    text=summary_text
+                )
+            else:
+                self.error_summary_label.configure(
+                    text="Aucune erreur capturee pour le moment. Les echecs de traitement apparaitront ici."
+                )
+        if hasattr(self, "error_empty_label"):
+            if count > 0:
+                self.error_empty_label.place_forget()
+            else:
+                host = getattr(self, "error_tree_shell", None)
+                if host is not None:
+                    self.error_empty_label.place(in_=host, relx=0.5, rely=0.5, anchor="center")
         self._refresh_selection_tab_buttons()
         if focus_errors and count > 0:
             self._select_selection_tab("error")
@@ -4250,7 +4283,11 @@ class MangaApp:
             entry.get("reason", ""),
             entry.get("action", ""),
         )
-        self.error_tree.insert("", "end", values=values)
+        row_index = len(self.error_tree.get_children())
+        tags = ["even" if row_index % 2 == 0 else "odd"]
+        if status_text:
+            tags.append("http_error")
+        self.error_tree.insert("", "end", values=values, tags=tuple(tags))
         children = self.error_tree.get_children()
         if len(children) > 500:
             for item_id in children[:-500]:
@@ -4360,20 +4397,21 @@ class MangaApp:
             pass
 
         self.palette = {
-            "app_bg": "#eef4fb",
-            "card_bg": "#f9fbff",
-            "card_alt": "#f1f6fd",
-            "panel_bg": "#f5f9ff",
-            "text": "#1f2937",
-            "muted": "#5f6b7a",
+            "app_bg": "#e8f0f7",
+            "card_bg": "#fbfdff",
+            "card_alt": "#edf4fb",
+            "panel_bg": "#f4f8fd",
+            "text": "#1d2835",
+            "muted": "#5a6878",
             "accent": "#1d6fd6",
-            "accent_hover": "#175db5",
-            "danger": "#d14343",
-            "border": "#d6e0ec",
+            "accent_hover": "#1659ae",
+            "danger": "#d34b4b",
+            "border": "#cfd9e6",
             "input_bg": "#ffffff",
-            "canvas_bg": "#f1f6fd",
-            "log_bg": "#f9fbff",
-            "progress_trough": "#d8e3ef",
+            "canvas_bg": "#eef4fb",
+            "log_bg": "#f7faff",
+            "progress_trough": "#d7e2ee",
+            "tree_alt": "#f6f9fd",
         }
 
         try:
@@ -4525,7 +4563,7 @@ class MangaApp:
             background=self.palette["card_bg"],
             fieldbackground=self.palette["card_bg"],
             foreground=self.palette["text"],
-            rowheight=22,
+            rowheight=24,
             bordercolor=self.palette["border"],
             lightcolor=self.palette["border"],
             darkcolor=self.palette["border"],
@@ -4540,6 +4578,39 @@ class MangaApp:
             font=("Segoe UI Semibold", 9),
         )
         style.map("Treeview.Heading", background=[("active", "#e9f0f9")])
+        style.map(
+            "Treeview",
+            background=[("selected", "#dcecff")],
+            foreground=[("selected", self.palette["text"])],
+        )
+        style.configure(
+            "Error.Treeview",
+            background="#ffffff",
+            fieldbackground="#ffffff",
+            foreground=self.palette["text"],
+            rowheight=28,
+            bordercolor=self.palette["border"],
+            lightcolor=self.palette["border"],
+            darkcolor=self.palette["border"],
+        )
+        style.configure(
+            "Error.Treeview.Heading",
+            background=self.palette["card_alt"],
+            foreground=self.palette["text"],
+            borderwidth=0,
+            relief="flat",
+            padding=(8, 6),
+            font=("Segoe UI Semibold", 9),
+        )
+        style.map(
+            "Error.Treeview.Heading",
+            background=[("active", "#e6effa")],
+        )
+        style.map(
+            "Error.Treeview",
+            background=[("selected", "#dcecff")],
+            foreground=[("selected", self.palette["text"])],
+        )
 
         style.configure(
             "Accent.Horizontal.TProgressbar",
@@ -4984,52 +5055,54 @@ class MangaApp:
         left_stack.grid_rowconfigure(0, weight=0)
         left_stack.grid_rowconfigure(1, weight=1)
 
-        output_box = tk.Frame(
+        output_box = ctk.CTkFrame(
             left_stack,
-            bg=self.palette["card_bg"],
-            highlightbackground=self.palette["border"],
-            highlightcolor=self.palette["border"],
-            highlightthickness=1,
-            bd=0,
-            takefocus=0,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
         )
         output_box.grid(row=0, column=0, sticky="nsew")
-        output_inner = ttk.Frame(output_box, style="Card.TFrame")
+        output_inner = ctk.CTkFrame(output_box, fg_color="transparent")
         output_inner.pack(fill="both", expand=True, padx=10, pady=(8, 8))
 
-        save_row = ttk.Frame(left_stack, style="Card.TFrame")
+        save_row = ctk.CTkFrame(left_stack, fg_color="transparent")
         save_row.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
 
-        logs_box = tk.Frame(
+        logs_box = ctk.CTkFrame(
             options_groups,
-            bg=self.palette["card_bg"],
-            highlightbackground=self.palette["border"],
-            highlightcolor=self.palette["border"],
-            highlightthickness=1,
-            bd=0,
-            takefocus=0,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
         )
         logs_box.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
-        logs_inner = ttk.Frame(logs_box, style="Card.TFrame")
+        logs_inner = ctk.CTkFrame(logs_box, fg_color="transparent")
         logs_inner.pack(fill="both", expand=True, padx=10, pady=10)
 
-        ttk.Label(
+        ctk.CTkLabel(
             output_inner,
             text="Sortie",
-            style="Card.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["text"],
             font=("Segoe UI Semibold", 9),
         ).pack(anchor="w", pady=(0, 8))
-        ttk.Label(
+        ctk.CTkLabel(
             logs_inner,
             text="Journal et affichage",
-            style="Card.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["text"],
             font=("Segoe UI Semibold", 9),
         ).pack(anchor="w", pady=(0, 8))
-        ttk.Button(
+        ctk.CTkButton(
             save_row,
             text="Sauvegarder paramètres",
             command=self.save_current_cookie,
-            style="Primary.TButton",
+            height=36,
+            corner_radius=12,
+            fg_color=self.palette["accent"],
+            hover_color=self.palette["accent_hover"],
+            text_color="#ffffff",
         ).pack(expand=True)
 
         def add_option_line(parent, text, variable, description, command=None, bottom=8):
@@ -5456,44 +5529,90 @@ class MangaApp:
         )
         self.progress_label.pack(side="left", padx=(8, 12), pady=10)
 
-        error_panel = tk.Frame(
-            self.error_tab,
-            bg=self.palette["card_bg"],
-            highlightbackground=self.palette["border"],
-            highlightthickness=0,
-            bd=0,
-        )
+        error_panel = ctk.CTkFrame(self.error_tab, fg_color="transparent")
         error_panel.pack(fill="both", expand=True)
-        error_frame = ttk.Frame(error_panel, style="Card.TFrame")
+        error_frame = ctk.CTkFrame(
+            error_panel,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=18,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
         error_frame.pack(fill="both", expand=True, padx=12, pady=9)
-        error_toolbar = ttk.Frame(error_frame, style="Card.TFrame")
-        error_toolbar.pack(fill="x", pady=(0, 4))
-        ttk.Button(
-            error_toolbar,
-            text="Effacer",
-            command=self.clear_volume_errors,
-            style="Secondary.TButton",
-        ).pack(side="right", padx=(4, 0))
-        ttk.Button(
-            error_toolbar,
-            text="Copier",
-            command=self.copy_volume_errors,
-            style="Secondary.TButton",
-        ).pack(side="right", padx=(4, 0))
-        ttk.Button(
-            error_toolbar,
-            text="Exporter",
-            command=self.export_volume_errors,
-            style="Secondary.TButton",
-        ).pack(side="right")
+        error_toolbar = ctk.CTkFrame(error_frame, fg_color="transparent")
+        error_toolbar.pack(fill="x", padx=14, pady=(14, 10))
+        error_toolbar.grid_columnconfigure(0, weight=1)
 
-        error_tree_container = ttk.Frame(error_frame, style="Card.TFrame")
-        error_tree_container.pack(fill="both", expand=True)
+        error_intro = ctk.CTkFrame(error_toolbar, fg_color="transparent")
+        error_intro.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            error_intro,
+            text="Historique des erreurs",
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 12),
+        ).pack(anchor="w")
+        self.error_summary_label = ctk.CTkLabel(
+            error_intro,
+            text="Aucune erreur capturee pour le moment. Les echecs de traitement apparaitront ici.",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+        )
+        self.error_summary_label.pack(anchor="w", pady=(2, 0))
+
+        error_actions = ctk.CTkFrame(error_toolbar, fg_color="transparent")
+        error_actions.grid(row=0, column=1, sticky="e")
+        self.error_count_badge = ctk.CTkLabel(
+            error_actions,
+            text="Aucune erreur",
+            width=118,
+            height=32,
+            corner_radius=999,
+            fg_color="#d9efe3",
+            text_color="#24533a",
+            font=("Segoe UI Semibold", 10),
+        )
+        self.error_count_badge.pack(side="left", padx=(0, 10))
+        for label, command in (
+            ("Exporter", self.export_volume_errors),
+            ("Copier", self.copy_volume_errors),
+            ("Effacer", self.clear_volume_errors),
+        ):
+            ctk.CTkButton(
+                error_actions,
+                text=label,
+                command=command,
+                height=34,
+                corner_radius=12,
+                fg_color=self.palette["card_bg"],
+                hover_color=self.palette["card_alt"],
+                border_width=1,
+                border_color=self.palette["border"],
+                text_color=self.palette["text"],
+            ).pack(side="right", padx=(6, 0))
+
+        self.error_tree_shell = ctk.CTkFrame(
+            error_frame,
+            fg_color="#ffffff",
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        self.error_tree_shell.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        error_tree_container = tk.Frame(
+            self.error_tree_shell,
+            bg="#ffffff",
+            bd=0,
+            highlightthickness=0,
+        )
+        error_tree_container.pack(fill="both", expand=True, padx=1, pady=1)
         self.error_tree = ttk.Treeview(
             error_tree_container,
             columns=("time", "tome", "stage", "http", "reason", "action"),
             show="headings",
             height=8,
+            style="Error.Treeview",
         )
         self.error_tree.heading("time", text="Heure")
         self.error_tree.heading("tome", text="Tome")
@@ -5508,25 +5627,47 @@ class MangaApp:
         self.error_tree.column("reason", width=290, anchor="w", stretch=True)
         self.error_tree.column("action", width=360, anchor="w", stretch=True)
         self.error_tree.pack(side="left", fill="both", expand=True)
+        self.error_tree.tag_configure("even", background="#ffffff")
+        self.error_tree.tag_configure("odd", background=self.palette["tree_alt"])
+        self.error_tree.tag_configure("http_error", foreground="#8a2f3b")
         error_scroll = ttk.Scrollbar(error_tree_container, orient="vertical", command=self.error_tree.yview)
         error_scroll.pack(side="right", fill="y")
         self.error_tree.configure(yscrollcommand=error_scroll.set)
+        self.error_empty_label = ctk.CTkLabel(
+            self.error_tree_shell,
+            text="Aucune erreur affichee pour le moment.",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+        )
 
-        status_frame = ttk.Frame(main_frame, style="Card.TFrame")
-        status_frame.pack(fill="x")
-        status_box = tk.Label(
+        status_frame = ctk.CTkFrame(
+            main_frame,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        status_frame.pack(fill="x", pady=(2, 0))
+        ctk.CTkLabel(
+            status_frame,
+            text="Runtime",
+            width=84,
+            height=28,
+            corner_radius=999,
+            fg_color=self.palette["card_bg"],
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(side="left", padx=(12, 10), pady=10)
+        self.runtime_status_label = ctk.CTkLabel(
             status_frame,
             textvariable=self.runtime_status,
             anchor="w",
-            fg=self.palette["muted"],
-            bg=self.palette["card_alt"],
-            font=("Segoe UI", 8),
-            padx=10,
-            pady=6,
-            relief="solid",
-            borderwidth=1,
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 9),
         )
-        status_box.pack(fill="x")
+        self.runtime_status_label.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=10)
 
         self._update_error_tab_title(focus_errors=False)
         self._set_workflow_step("auth", "Renseigne cookies et User-Agent manuels.")
