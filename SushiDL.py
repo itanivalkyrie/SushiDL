@@ -2821,13 +2821,69 @@ class MangaApp:
         self.volume_render_token = getattr(self, "volume_render_token", 0) + 1
 
     def _get_volume_grid_columns(self, total_items):
+        compact = self._should_use_compact_volume_mode(total_items)
+        if compact:
+            if total_items >= 900:
+                return 5
+            if total_items >= 240:
+                return 4
+            if total_items >= 80:
+                return 3
+            return 2
         if total_items >= 240:
             return 4
         if total_items >= 60:
             return 3
         return 2
 
+    def _get_volume_render_batch_size(self, total_items):
+        if self._should_use_compact_volume_mode(total_items):
+            if total_items >= 900:
+                return 108
+            if total_items >= 240:
+                return 72
+        return VOLUME_RENDER_BATCH_SIZE
+
+    def _get_volume_layout_mode_name(self):
+        mode = (getattr(self, "volume_layout_mode", None).get() if hasattr(self, "volume_layout_mode") else "Auto") or "Auto"
+        return str(mode).strip().title() or "Auto"
+
+    def _should_use_compact_volume_mode(self, total_items=None):
+        if total_items is None:
+            total_items = len(getattr(self, "pairs", []) or [])
+        mode = (getattr(self, "volume_layout_mode", None).get() if hasattr(self, "volume_layout_mode") else "Auto") or "Auto"
+        mode = str(mode).strip().lower()
+        if mode == "dense":
+            return True
+        if mode == "confort":
+            return False
+        return total_items >= VOLUME_COMPACT_MODE_THRESHOLD
+
+    def _capture_volume_selection_state(self):
+        return [bool(var.get()) for var in getattr(self, "check_vars", []) or []]
+
+    def _rerender_volume_layout(self):
+        if getattr(self, "analysis_in_progress", False):
+            return
+        if not getattr(self, "pairs", None):
+            self.use_compact_volume_mode = self._should_use_compact_volume_mode(0)
+            self._update_volume_render_badges(0, 0)
+            return
+        selection_state = self._capture_volume_selection_state()
+        self._start_volume_render(selection_state=selection_state)
+
+    def _on_volume_layout_mode_change(self, selected_value):
+        if not hasattr(self, "volume_layout_mode"):
+            return
+        value = (selected_value or "Auto").strip().title()
+        if value not in {"Auto", "Dense", "Confort"}:
+            value = "Auto"
+        self.volume_layout_mode.set(value)
+        self._rerender_volume_layout()
+
     def _update_volume_render_badges(self, built_count, total_count):
+        layout_name = self._get_volume_layout_mode_name()
+        effective_mode = "Dense" if getattr(self, "use_compact_volume_mode", False) else "Confort"
         if hasattr(self, "volume_count_badge"):
             if total_count <= 0:
                 self.volume_count_badge.configure(text="0 element")
@@ -2835,17 +2891,22 @@ class MangaApp:
                 self.volume_count_badge.configure(text=f"{built_count}/{total_count} rendus")
             else:
                 self.volume_count_badge.configure(text=f"{total_count} elements")
+        if hasattr(self, "volume_layout_chip"):
+            chip_text = effective_mode if layout_name == "Auto" else layout_name
+            chip_color = self.palette["accent_soft"] if effective_mode == "Confort" else self.palette["accent"]
+            chip_text_color = self.palette["accent_hover"] if effective_mode == "Confort" else "#ffffff"
+            self.volume_layout_chip.configure(text=f"Vue {chip_text}", fg_color=chip_color, text_color=chip_text_color)
         if hasattr(self, "selection_hint_label"):
             if total_count <= 0:
                 hint = "Aucun tome ou chapitre detecte."
             elif built_count < total_count:
-                mode_label = "compact" if getattr(self, "use_compact_volume_mode", False) else "detaille"
-                hint = f"Construction de la grille {mode_label} {built_count}/{total_count}..."
+                mode_label = "dense" if getattr(self, "use_compact_volume_mode", False) else "confort"
+                hint = f"Vue {layout_name} -> rendu {mode_label} {built_count}/{total_count}..."
             else:
                 hint = (
-                    "Mode compact active pour garder la liste fluide."
+                    f"Vue {layout_name}: mode dense actif pour garder la liste fluide."
                     if getattr(self, "use_compact_volume_mode", False)
-                    else "Selectionne les tomes ou chapitres a telecharger."
+                    else f"Vue {layout_name}: selectionne les tomes ou chapitres a telecharger."
                 )
             self.selection_hint_label.configure(text=hint)
 
@@ -2860,13 +2921,13 @@ class MangaApp:
         title = getattr(card, "volume_title_label", None)
         index = getattr(card, "volume_index_label", None)
         if selected:
-            card.configure(fg_color="#eaf3ff", border_color=self.palette["accent"])
+            card.configure(fg_color=self.palette["accent_soft"], border_color=self.palette["accent"])
             if title is not None:
                 title.configure(text_color=self.palette["text"])
             if index is not None:
                 index.configure(fg_color=self.palette["accent"], text_color="#ffffff")
         else:
-            card.configure(fg_color="#ffffff", border_color=self.palette["border"])
+            card.configure(fg_color=self.palette["card_bg"], border_color=self.palette["panel_shell"])
             if title is not None:
                 title.configure(text_color=self.palette["text"])
             if index is not None:
@@ -2879,10 +2940,10 @@ class MangaApp:
     def _create_volume_card(self, parent, volume_label, var, index):
         card = ctk.CTkFrame(
             parent,
-            fg_color="#ffffff",
+            fg_color=self.palette["card_bg"],
             corner_radius=16,
             border_width=1,
-            border_color=self.palette["border"],
+            border_color=self.palette["panel_shell"],
             height=58,
         )
         card.grid_propagate(False)
@@ -2978,6 +3039,8 @@ class MangaApp:
         self.master_toggle_button.configure(state="normal" if has_pairs else "disabled")
         self.invert_button.configure(state="normal" if has_pairs else "disabled")
         self.update_master_toggle_button()
+        if has_pairs and not self.filter_placeholder_active and self.filter_text.get().strip():
+            self.apply_filter()
         self._refresh_volume_empty_state()
         self._update_volume_render_badges(len(self.check_items), len(self.pairs))
         if has_pairs:
@@ -3000,10 +3063,13 @@ class MangaApp:
             self._finalize_volume_render()
             return
         columns = getattr(self, "volume_grid_columns", self._get_volume_grid_columns(total))
-        end_index = min(start_index + VOLUME_RENDER_BATCH_SIZE, total)
+        end_index = min(start_index + getattr(self, "volume_render_batch_size", VOLUME_RENDER_BATCH_SIZE), total)
         for i in range(start_index, end_index):
             vol, _link = self.pairs[i]
-            var = tk.BooleanVar(value=True)
+            selected_by_default = True
+            if i < len(getattr(self, "volume_render_selection_state", []) or []):
+                selected_by_default = bool(self.volume_render_selection_state[i])
+            var = tk.BooleanVar(value=selected_by_default)
             self.check_vars.append(var)
             chk = self._create_volume_item(self.vol_frame, vol, var, i)
             if getattr(self, "use_compact_volume_mode", False):
@@ -3022,7 +3088,7 @@ class MangaApp:
             return
         self._finalize_volume_render()
 
-    def _start_volume_render(self, on_complete=None):
+    def _start_volume_render(self, on_complete=None, selection_state=None):
         self._cancel_pending_volume_render()
         self.volume_render_complete_callback = on_complete
         for widget in self.vol_frame.winfo_children():
@@ -3031,8 +3097,10 @@ class MangaApp:
         self.check_vars = []
         self.check_items = []
         total = len(self.pairs)
-        self.use_compact_volume_mode = total >= VOLUME_COMPACT_MODE_THRESHOLD
+        self.use_compact_volume_mode = self._should_use_compact_volume_mode(total)
+        self.volume_render_selection_state = list(selection_state or [])
         self.volume_grid_columns = self._get_volume_grid_columns(total)
+        self.volume_render_batch_size = self._get_volume_render_batch_size(total)
         for col in range(self.volume_grid_columns):
             self.vol_frame.grid_columnconfigure(col, weight=1)
         if total <= 0:
@@ -3184,11 +3252,11 @@ class MangaApp:
             self.selection_tab_value_to_key = {titles.get(key, key): key for key in order}
             self.selection_tab_control.configure(
                 values=values,
-                fg_color=self.palette["border"],
-                selected_color="#d9eafc",
-                selected_hover_color="#cfe3fb",
+                fg_color=self.palette["panel_shell"],
+                selected_color=self.palette["accent_soft_hover"],
+                selected_hover_color=self.palette["accent_soft"],
                 unselected_color=self.palette["panel_bg"],
-                unselected_hover_color=self.palette["card_alt"],
+                unselected_hover_color=self.palette["accent_soft"],
                 text_color=self.palette["text"],
             )
             active_title = titles.get(getattr(self, "active_selection_tab", "selection"), values[0] if values else None)
@@ -3546,22 +3614,22 @@ class MangaApp:
             values = [titles.get(key, key) for key in order]
             self.config_tab_value_to_key = {titles.get(key, key): key for key in order}
             selected_map = {
-                "valid": ("#d9efe3", "#cfe7d9"),
-                "pending": ("#ffe5b6", "#ffdca0"),
-                "invalid": ("#f4d8dc", "#efcbd1"),
+                "valid": (self.palette["success_soft"], "#cee8d8"),
+                "pending": ("#ffe3b3", "#ffd796"),
+                "invalid": (self.palette["danger_soft"], "#efc6ce"),
             }
             selected_color, selected_hover = (
                 selected_map.get(auth_state, selected_map["pending"])
                 if active_key == "auth"
-                else ("#d9eafc", "#cfe3fb")
+                else (self.palette["accent_soft_hover"], self.palette["accent_soft"])
             )
             self.config_tab_control.configure(
                 values=values,
-                fg_color=self.palette["border"],
+                fg_color=self.palette["panel_shell"],
                 selected_color=selected_color,
                 selected_hover_color=selected_hover,
                 unselected_color=self.palette["panel_bg"],
-                unselected_hover_color=self.palette["card_alt"],
+                unselected_hover_color=self.palette["accent_soft"],
                 text_color=self.palette["text"],
             )
             active_title = titles.get(active_key, values[0] if values else None)
@@ -3776,16 +3844,16 @@ class MangaApp:
         if not hasattr(self, "status_label"):
             return
         if success is True:
-            fg_color = "#dff4e7"
+            fg_color = self.palette["success_soft"]
             text_color = "#1c6b41"
             self._set_workflow_step("select", "Analyse terminée. Sélectionne les tomes à télécharger.")
         elif success is False:
-            fg_color = "#f7d8dd"
+            fg_color = self.palette["danger_soft"]
             text_color = "#8a2f3b"
             self._set_workflow_step("source", "Analyse en échec. Vérifie URL/cookies puis relance.")
         else:
-            fg_color = "#dcecff"
-            text_color = "#1859a8"
+            fg_color = self.palette["accent_soft"]
+            text_color = self.palette["accent_hover"]
             self._set_workflow_step("source", "Analyse en cours...")
         safe_text = repair_mojibake_text(text or "")
         if self._is_ctk_widget(self.status_label):
@@ -4157,6 +4225,7 @@ class MangaApp:
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
+        self.volume_layout_mode = tk.StringVar(value="Auto")
         self.log_autoscroll = tk.BooleanVar(value=True)
         self.console_logs_enabled = tk.BooleanVar(value=True)
         self.show_cookies = tk.BooleanVar(value=False)
@@ -4263,6 +4332,7 @@ class MangaApp:
         self.volume_render_token = 0
         self.volume_render_complete_callback = None
         self.use_compact_volume_mode = False
+        self.volume_render_selection_state = []
         self.volume_error_entries = []
         self.error_row_widgets = []
         self.download_output_root = os.path.abspath(ROOT_FOLDER)
@@ -4670,18 +4740,23 @@ class MangaApp:
             pass
 
         self.palette = {
-            "app_bg": "#e8f0f7",
-            "card_bg": "#fbfdff",
-            "card_alt": "#edf4fb",
-            "panel_bg": "#f4f8fd",
-            "text": "#1d2835",
-            "muted": "#5a6878",
-            "accent": "#1d6fd6",
-            "accent_hover": "#1659ae",
+            "app_bg": "#e2ecf6",
+            "card_bg": "#ffffff",
+            "card_alt": "#e5eff9",
+            "panel_bg": "#eef4fb",
+            "panel_shell": "#d7e4f1",
+            "text": "#162538",
+            "muted": "#607084",
+            "accent": "#0f6bdc",
+            "accent_hover": "#0b57b8",
+            "accent_soft": "#d9eaff",
+            "accent_soft_hover": "#c6ddfb",
             "danger": "#d34b4b",
-            "border": "#cfd9e6",
+            "danger_soft": "#f7d8dd",
+            "success_soft": "#dff4e7",
+            "border": "#bfd0e2",
             "input_bg": "#ffffff",
-            "canvas_bg": "#eef4fb",
+            "canvas_bg": "#f6fafe",
             "log_bg": "#f7faff",
             "progress_trough": "#d7e2ee",
             "tree_alt": "#f6f9fd",
@@ -4910,14 +4985,14 @@ class MangaApp:
                 font=("Bahnschrift SemiBold", 11),
                 height=32,
                 corner_radius=999,
-                fg_color="#dcecff",
-                text_color=self.palette["accent_hover"],
+                fg_color=self.palette["accent"],
+                text_color="#ffffff",
             )
             section_tab_label.pack(side="left", padx=(0, 0), pady=(0, 0))
 
             section_border = ctk.CTkFrame(
                 section_wrap,
-                fg_color=self.palette["card_bg"],
+                fg_color=self.palette["panel_shell"],
                 corner_radius=18,
                 border_width=1,
                 border_color=self.palette["border"],
@@ -4926,7 +5001,7 @@ class MangaApp:
 
             section_content_panel = ctk.CTkFrame(
                 section_border,
-                fg_color="transparent",
+                fg_color=self.palette["card_bg"],
                 corner_radius=0,
             )
             section_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
@@ -4947,7 +5022,7 @@ class MangaApp:
 
         self.config_content_border = ctk.CTkFrame(
             top_tabs_wrap,
-            fg_color=self.palette["card_bg"],
+            fg_color=self.palette["panel_shell"],
             corner_radius=20,
             border_width=1,
             border_color=self.palette["border"],
@@ -4955,7 +5030,7 @@ class MangaApp:
         self.config_content_border.pack(fill="x", expand=False, pady=(0, 0))
         self.config_content_panel = ctk.CTkFrame(
             self.config_content_border,
-            fg_color="transparent",
+            fg_color=self.palette["card_bg"],
             corner_radius=0,
         )
         self.config_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
@@ -4990,7 +5065,7 @@ class MangaApp:
             width=102,
             height=32,
             corner_radius=999,
-            fg_color="#FFC067",
+            fg_color="#ffe3b3",
             text_color="#6a4b00",
             font=("Bahnschrift SemiBold", 10),
         )
@@ -5012,7 +5087,7 @@ class MangaApp:
 
         log_frame = ctk.CTkFrame(
             self.config_journal_tab,
-            fg_color=self.palette["panel_bg"],
+            fg_color=self.palette["card_bg"],
             corner_radius=18,
             border_width=1,
             border_color=self.palette["border"],
@@ -5125,14 +5200,14 @@ class MangaApp:
                 width=132,
                 height=30,
                 corner_radius=999,
-                fg_color="#FFC067",
+                fg_color="#ffe3b3",
                 text_color="#6a4b00",
                 font=("Bahnschrift SemiBold", 11),
             )
 
         auth_surface = ctk.CTkFrame(
             self.config_auth_tab,
-            fg_color=self.palette["panel_bg"],
+            fg_color=self.palette["card_bg"],
             corner_radius=16,
             border_width=1,
             border_color=self.palette["border"],
@@ -5446,7 +5521,7 @@ class MangaApp:
 
         url_cover_frame = ctk.CTkFrame(
             source_card,
-            fg_color=self.palette["panel_bg"],
+            fg_color=self.palette["card_bg"],
             corner_radius=18,
             border_width=1,
             border_color=self.palette["border"],
@@ -5458,16 +5533,16 @@ class MangaApp:
             url_cover_frame,
             width=cover_w,
             height=cover_h,
-            fg_color="#ffffff",
+            fg_color=self.palette["canvas_bg"],
             corner_radius=14,
             border_width=1,
-            border_color=self.palette["border"],
+            border_color=self.palette["panel_shell"],
         )
         self.cover_frame.pack_propagate(False)
         self.cover_frame.pack(side="left", padx=(14, 16), pady=14)
         self.cover_label = tk.Label(
             self.cover_frame,
-            bg="#ffffff",
+            bg=self.palette["canvas_bg"],
             relief="flat",
             borderwidth=0,
             highlightthickness=0,
@@ -5542,7 +5617,7 @@ class MangaApp:
         self.selection_tabs_header.grid_columnconfigure(0, weight=1)
         self.selection_content_border = ctk.CTkFrame(
             selection_wrap,
-            fg_color=self.palette["card_bg"],
+            fg_color=self.palette["panel_shell"],
             corner_radius=20,
             border_width=1,
             border_color=self.palette["border"],
@@ -5550,7 +5625,7 @@ class MangaApp:
         self.selection_content_border.pack(fill="both", expand=True, pady=(0, 0))
         self.selection_content_panel = ctk.CTkFrame(
             self.selection_content_border,
-            fg_color="transparent",
+            fg_color=self.palette["card_bg"],
             corner_radius=0,
         )
         self.selection_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
@@ -5584,7 +5659,7 @@ class MangaApp:
         selection_panel.pack(fill="both", expand=True)
         center_card = ctk.CTkFrame(
             selection_panel,
-            fg_color=self.palette["panel_bg"],
+            fg_color=self.palette["card_bg"],
             corner_radius=18,
             border_width=1,
             border_color=self.palette["border"],
@@ -5606,7 +5681,7 @@ class MangaApp:
             fg_color=self.palette["input_bg"],
             corner_radius=14,
             border_width=1,
-            border_color=self.palette["border"],
+            border_color=self.palette["panel_shell"],
         )
         filter_box.pack(side="left", padx=(0, 10))
 
@@ -5647,8 +5722,8 @@ class MangaApp:
             command=self.toggle_all_button_action,
             height=36,
             corner_radius=12,
-            fg_color=self.palette["card_bg"],
-            hover_color=self.palette["card_alt"],
+            fg_color=self.palette["accent_soft"],
+            hover_color=self.palette["accent_soft_hover"],
             border_width=1,
             border_color=self.palette["border"],
             text_color=self.palette["text"],
@@ -5663,8 +5738,8 @@ class MangaApp:
             command=self.invert_selection,
             height=36,
             corner_radius=12,
-            fg_color=self.palette["card_bg"],
-            hover_color=self.palette["card_alt"],
+            fg_color=self.palette["accent_soft"],
+            hover_color=self.palette["accent_soft_hover"],
             border_width=1,
             border_color=self.palette["border"],
             text_color=self.palette["text"],
@@ -5678,7 +5753,7 @@ class MangaApp:
             width=104,
             height=30,
             corner_radius=999,
-            fg_color="#dcecff",
+            fg_color=self.palette["accent_soft"],
             text_color=self.palette["accent_hover"],
             font=("Bahnschrift SemiBold", 10),
         )
@@ -5691,6 +5766,43 @@ class MangaApp:
             font=("Segoe UI", 9),
         )
         self.selection_status_label.pack(side="left", padx=(12, 0))
+
+        layout_group = ctk.CTkFrame(left_group, fg_color="transparent")
+        layout_group.pack(side="left", padx=(18, 0))
+        ctk.CTkLabel(
+            layout_group,
+            text="Vue",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+        ).pack(side="left", padx=(0, 8))
+        self.volume_layout_control = ctk.CTkSegmentedButton(
+            layout_group,
+            values=["Auto", "Dense", "Confort"],
+            variable=self.volume_layout_mode,
+            command=self._on_volume_layout_mode_change,
+            height=34,
+            corner_radius=12,
+            font=("Bahnschrift SemiBold", 10),
+            fg_color=self.palette["panel_shell"],
+            selected_color=self.palette["accent_soft_hover"],
+            selected_hover_color=self.palette["accent_soft"],
+            unselected_color=self.palette["panel_bg"],
+            unselected_hover_color=self.palette["accent_soft"],
+            text_color=self.palette["text"],
+        )
+        self.volume_layout_control.pack(side="left")
+        self.volume_layout_chip = ctk.CTkLabel(
+            layout_group,
+            text="Vue Auto",
+            width=96,
+            height=28,
+            corner_radius=999,
+            fg_color=self.palette["accent_soft"],
+            text_color=self.palette["accent_hover"],
+            font=("Bahnschrift SemiBold", 10),
+        )
+        self.volume_layout_chip.pack(side="left", padx=(10, 0))
 
         download_group = ctk.CTkFrame(vol_header, fg_color="transparent")
         download_group.pack(side="right")
@@ -5733,12 +5845,13 @@ class MangaApp:
         self.selection_hint_label = ctk.CTkLabel(
             center_card,
             text="La liste sera rendue progressivement sur les gros catalogues.",
-            fg_color="transparent",
-            text_color=self.palette["muted"],
+            fg_color=self.palette["accent_soft"],
+            corner_radius=12,
+            text_color=self.palette["accent_hover"],
             font=("Segoe UI", 9),
             anchor="w",
         )
-        self.selection_hint_label.pack(fill="x", padx=(2, 2), pady=(0, 6))
+        self.selection_hint_label.pack(fill="x", padx=(2, 2), pady=(0, 8), ipady=6)
 
         self.set_filter_placeholder()
         self.filter_entry.configure(state="disabled")
@@ -5750,7 +5863,7 @@ class MangaApp:
             fg_color=self.palette["canvas_bg"],
             corner_radius=16,
             border_width=1,
-            border_color=self.palette["border"],
+            border_color=self.palette["panel_shell"],
         )
         vol_frame_container.pack(fill="both", expand=True)
         self.volume_list_container = vol_frame_container
@@ -6727,6 +6840,7 @@ class MangaApp:
         selected_total = 0
         visible_total = 0
         selected_visible = 0
+        layout_name = self._get_volume_layout_mode_name()
 
         for (chk, _label), var in zip(self.check_items, self.check_vars):
             is_selected = bool(var.get())
@@ -6745,15 +6859,21 @@ class MangaApp:
             else:
                 badge_text = f"{total} elements"
             self.volume_count_badge.configure(text=badge_text)
+        if hasattr(self, "volume_layout_chip"):
+            effective_mode = "Dense" if getattr(self, "use_compact_volume_mode", False) else "Confort"
+            chip_text = effective_mode if layout_name == "Auto" else layout_name
+            chip_color = self.palette["accent_soft"] if effective_mode == "Confort" else self.palette["accent"]
+            chip_text_color = self.palette["accent_hover"] if effective_mode == "Confort" else "#ffffff"
+            self.volume_layout_chip.configure(text=f"Vue {chip_text}", fg_color=chip_color, text_color=chip_text_color)
         if hasattr(self, "selection_hint_label") and not getattr(self, "analysis_in_progress", False):
             if total == 0:
                 hint_text = "Charge une source pour construire la grille."
             elif visible_total != total and visible_total > 0:
-                hint_text = f"Filtre actif: {visible_total} element(s) visibles."
+                hint_text = f"Vue {layout_name}: filtre actif, {visible_total} element(s) visibles."
             elif getattr(self, "use_compact_volume_mode", False):
-                hint_text = "Mode compact actif pour garder les gros catalogues fluides."
+                hint_text = f"Vue {layout_name}: mode dense actif pour garder les gros catalogues fluides."
             else:
-                hint_text = "Selectionne les tomes ou chapitres a telecharger."
+                hint_text = f"Vue {layout_name}: selectionne les tomes ou chapitres a telecharger."
             self.selection_hint_label.configure(text=hint_text)
 
         if hasattr(self, "selection_status_label"):
@@ -6803,18 +6923,23 @@ class MangaApp:
         raw = ""
         if not self.filter_placeholder_active:
             raw = self.filter_text.get().strip().lower()
-        
+
+        columns = max(1, int(getattr(self, "volume_grid_columns", self._get_volume_grid_columns(len(self.check_items) or 0)) or 1))
+        is_compact = bool(getattr(self, "use_compact_volume_mode", False))
+        grid_padx = 12 if is_compact else 10
+        grid_pady = 6 if is_compact else 8
+        grid_sticky = "w" if is_compact else "ew"
         row = 0
         col = 0
         for chk, label in self.check_items:
             label_lower = label.lower()
-            
+
             # Filtre optimisé avec recherche de sous-chaîne
             if not raw or raw in label_lower or \
             (raw.endswith('*') and raw[:-1].isdigit() and label_lower.startswith(raw[:-1])):
-                chk.grid(row=row, column=col, padx=10, pady=8, sticky="ew")
+                chk.grid(row=row, column=col, padx=grid_padx, pady=grid_pady, sticky=grid_sticky)
                 col += 1
-                if col == 4:
+                if col == columns:
                     col = 0
                     row += 1
             else:
