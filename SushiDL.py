@@ -452,6 +452,9 @@ REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oe
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
+VOLUME_RENDER_BATCH_SIZE = 36  # Rendu progressif des gros listings pour eviter les timeouts UI
+VOLUME_COMPACT_MODE_THRESHOLD = 180  # Au-dela, bascule vers un rendu compact plus rapide
+MAX_VISIBLE_ERROR_ROWS = 500
 COOKIE_DOMAINS = ("fr", "net", "origines", "hentai")
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
@@ -2807,14 +2810,57 @@ class MangaApp:
         var.set(not bool(var.get()))
         self.update_master_toggle_button()
 
+    def _cancel_pending_volume_render(self):
+        after_id = getattr(self, "volume_render_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.volume_render_after_id = None
+        self.volume_render_token = getattr(self, "volume_render_token", 0) + 1
+
+    def _get_volume_grid_columns(self, total_items):
+        if total_items >= 240:
+            return 4
+        if total_items >= 60:
+            return 3
+        return 2
+
+    def _update_volume_render_badges(self, built_count, total_count):
+        if hasattr(self, "volume_count_badge"):
+            if total_count <= 0:
+                self.volume_count_badge.configure(text="0 element")
+            elif built_count < total_count:
+                self.volume_count_badge.configure(text=f"{built_count}/{total_count} rendus")
+            else:
+                self.volume_count_badge.configure(text=f"{total_count} elements")
+        if hasattr(self, "selection_hint_label"):
+            if total_count <= 0:
+                hint = "Aucun tome ou chapitre detecte."
+            elif built_count < total_count:
+                mode_label = "compact" if getattr(self, "use_compact_volume_mode", False) else "detaille"
+                hint = f"Construction de la grille {mode_label} {built_count}/{total_count}..."
+            else:
+                hint = (
+                    "Mode compact active pour garder la liste fluide."
+                    if getattr(self, "use_compact_volume_mode", False)
+                    else "Selectionne les tomes ou chapitres a telecharger."
+                )
+            self.selection_hint_label.configure(text=hint)
+
     def _sync_volume_card_style(self, card):
         if card is None or not self._is_ctk_widget(card):
+            return
+        if getattr(card, "is_compact_volume_item", False):
+            selected = bool(getattr(card, "volume_var", None).get()) if hasattr(card, "volume_var") else False
+            card.configure(text_color=self.palette["text"] if selected else self.palette["muted"])
             return
         selected = bool(getattr(card, "volume_var", None).get()) if hasattr(card, "volume_var") else False
         title = getattr(card, "volume_title_label", None)
         index = getattr(card, "volume_index_label", None)
         if selected:
-            card.configure(fg_color="#edf5ff", border_color=self.palette["accent"])
+            card.configure(fg_color="#eaf3ff", border_color=self.palette["accent"])
             if title is not None:
                 title.configure(text_color=self.palette["text"])
             if index is not None:
@@ -2834,10 +2880,10 @@ class MangaApp:
         card = ctk.CTkFrame(
             parent,
             fg_color="#ffffff",
-            corner_radius=14,
+            corner_radius=16,
             border_width=1,
             border_color=self.palette["border"],
-            height=64,
+            height=58,
         )
         card.grid_propagate(False)
         card.grid_columnconfigure(0, weight=0)
@@ -2852,19 +2898,19 @@ class MangaApp:
             corner_radius=999,
             fg_color=self.palette["card_alt"],
             text_color=self.palette["muted"],
-            font=("Segoe UI Semibold", 10),
+            font=("Bahnschrift SemiBold", 10),
         )
-        index_label.grid(row=0, column=0, padx=(12, 10), pady=12)
+        index_label.grid(row=0, column=0, padx=(12, 10), pady=10)
 
         title_label = ctk.CTkLabel(
             card,
             text=volume_label,
             fg_color="transparent",
             text_color=self.palette["text"],
-            font=("Segoe UI Semibold", 11),
+            font=("Segoe UI Semibold", 10),
             anchor="w",
         )
-        title_label.grid(row=0, column=1, sticky="ew", pady=12)
+        title_label.grid(row=0, column=1, sticky="ew", pady=10)
 
         checkbox = ctk.CTkCheckBox(
             card,
@@ -2881,7 +2927,7 @@ class MangaApp:
             checkmark_color="#ffffff",
             command=self.update_master_toggle_button,
         )
-        checkbox.grid(row=0, column=2, padx=(10, 12), pady=12)
+        checkbox.grid(row=0, column=2, padx=(10, 12), pady=10)
 
         toggle = lambda _event=None, _var=var: self._toggle_volume_card(_var)
         card.bind("<Button-1>", toggle)
@@ -2894,6 +2940,115 @@ class MangaApp:
         card.volume_checkbox = checkbox
         self._sync_volume_card_style(card)
         return card
+
+    def _create_compact_volume_item(self, parent, volume_label, var, index):
+        item = ctk.CTkCheckBox(
+            parent,
+            text=f"{index + 1:>3}  {volume_label}",
+            variable=var,
+            fg_color=self.palette["accent"],
+            hover_color=self.palette["accent_hover"],
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 10),
+            command=self.update_master_toggle_button,
+            checkbox_width=22,
+            checkbox_height=22,
+            corner_radius=6,
+        )
+        item.volume_var = var
+        item.is_compact_volume_item = True
+        self._sync_volume_card_style(item)
+        return item
+
+    def _create_volume_item(self, parent, volume_label, var, index):
+        if getattr(self, "use_compact_volume_mode", False):
+            return self._create_compact_volume_item(parent, volume_label, var, index)
+        return self._create_volume_card(parent, volume_label, var, index)
+
+    def _finalize_volume_render(self):
+        self.volume_render_after_id = None
+        self._scroll_volumes_to_top()
+        has_pairs = bool(self.pairs)
+        self.filter_entry.configure(state="normal" if has_pairs else "disabled")
+        self.clear_filter_button.configure(state="normal" if has_pairs else "disabled")
+        self._style_clear_filter_button(disabled=not has_pairs)
+        if has_pairs and not self.filter_text.get().strip():
+            self.set_filter_placeholder()
+        self.master_toggle_button.configure(state="normal" if has_pairs else "disabled")
+        self.invert_button.configure(state="normal" if has_pairs else "disabled")
+        self.update_master_toggle_button()
+        self._refresh_volume_empty_state()
+        self._update_volume_render_badges(len(self.check_items), len(self.pairs))
+        if has_pairs:
+            self.log("Liste chargée avec succès.", level="success")
+            self._set_analysis_status_label(f"Analyse terminée: {len(self.pairs)} éléments.", success=True)
+        else:
+            self._show_volume_empty_state("Aucun tome detecte pour cette URL.", tone="warning")
+            self.log("Aucun tome detecte.", level="warning")
+            self._set_analysis_status_label("Analyse terminée: liste vide.", success=False)
+        callback = getattr(self, "volume_render_complete_callback", None)
+        self.volume_render_complete_callback = None
+        if callable(callback):
+            callback()
+
+    def _render_volume_cards_batch(self, token, start_index=0):
+        if token != getattr(self, "volume_render_token", 0):
+            return
+        total = len(self.pairs)
+        if total <= 0:
+            self._finalize_volume_render()
+            return
+        columns = getattr(self, "volume_grid_columns", self._get_volume_grid_columns(total))
+        end_index = min(start_index + VOLUME_RENDER_BATCH_SIZE, total)
+        for i in range(start_index, end_index):
+            vol, _link = self.pairs[i]
+            var = tk.BooleanVar(value=True)
+            self.check_vars.append(var)
+            chk = self._create_volume_item(self.vol_frame, vol, var, i)
+            if getattr(self, "use_compact_volume_mode", False):
+                chk.grid(row=(i // columns), column=i % columns, padx=12, pady=6, sticky="w")
+            else:
+                chk.grid(row=(i // columns), column=i % columns, padx=10, pady=8, sticky="ew")
+            self.check_items.append((chk, vol))
+
+        self._update_volume_render_badges(end_index, total)
+        if end_index < total:
+            self._set_analysis_status_label(f"Analyse terminée: rendu {end_index}/{total}...", success=None)
+            self.volume_render_after_id = self.root.after(
+                1,
+                lambda current=end_index, current_token=token: self._render_volume_cards_batch(current_token, current),
+            )
+            return
+        self._finalize_volume_render()
+
+    def _start_volume_render(self, on_complete=None):
+        self._cancel_pending_volume_render()
+        self.volume_render_complete_callback = on_complete
+        for widget in self.vol_frame.winfo_children():
+            widget.destroy()
+
+        self.check_vars = []
+        self.check_items = []
+        total = len(self.pairs)
+        self.use_compact_volume_mode = total >= VOLUME_COMPACT_MODE_THRESHOLD
+        self.volume_grid_columns = self._get_volume_grid_columns(total)
+        for col in range(self.volume_grid_columns):
+            self.vol_frame.grid_columnconfigure(col, weight=1)
+        if total <= 0:
+            self._update_volume_render_badges(0, 0)
+            self._finalize_volume_render()
+            return
+        self._hide_volume_empty_state()
+        self.filter_entry.configure(state="disabled")
+        self.clear_filter_button.configure(state="disabled")
+        self.master_toggle_button.configure(state="disabled")
+        self.invert_button.configure(state="disabled")
+        self._style_clear_filter_button(disabled=True)
+        token = getattr(self, "volume_render_token", 0)
+        self._update_volume_render_badges(0, total)
+        self._set_analysis_status_label(f"Analyse terminée: rendu 0/{total}...", success=None)
+        self._render_volume_cards_batch(token, 0)
 
     def _refresh_volume_empty_state(self):
         if not hasattr(self, "check_items"):
@@ -3220,7 +3375,7 @@ class MangaApp:
         if clear_label and hasattr(self, "status_label"):
             def clear_status():
                 if self._is_ctk_widget(self.status_label):
-                    self.status_label.configure(text="", text_color="#5f6f88")
+                    self.status_label.configure(text="", fg_color="transparent", text_color="#5f6f88")
                 else:
                     self.status_label.configure(text="", foreground="#5f6f88")
 
@@ -3621,19 +3776,22 @@ class MangaApp:
         if not hasattr(self, "status_label"):
             return
         if success is True:
-            color = "#0f9d58"
+            fg_color = "#dff4e7"
+            text_color = "#1c6b41"
             self._set_workflow_step("select", "Analyse terminée. Sélectionne les tomes à télécharger.")
         elif success is False:
-            color = "#d93025"
+            fg_color = "#f7d8dd"
+            text_color = "#8a2f3b"
             self._set_workflow_step("source", "Analyse en échec. Vérifie URL/cookies puis relance.")
         else:
-            color = "#2f73d9"
+            fg_color = "#dcecff"
+            text_color = "#1859a8"
             self._set_workflow_step("source", "Analyse en cours...")
         safe_text = repair_mojibake_text(text or "")
         if self._is_ctk_widget(self.status_label):
-            self.status_label.configure(text=safe_text, text_color=color)
+            self.status_label.configure(text=safe_text, fg_color=fg_color, text_color=text_color)
         else:
-            self.status_label.configure(text=safe_text, foreground=color)
+            self.status_label.configure(text=safe_text, foreground=text_color)
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
         """Mémorise un résultat auth basé sur une analyse réelle."""
@@ -4101,7 +4259,12 @@ class MangaApp:
         self.cover_animation_durations = []
         self.cover_animation_index = 0
         self.cover_animation_after_id = None
+        self.volume_render_after_id = None
+        self.volume_render_token = 0
+        self.volume_render_complete_callback = None
+        self.use_compact_volume_mode = False
         self.volume_error_entries = []
+        self.error_row_widgets = []
         self.download_output_root = os.path.abspath(ROOT_FOLDER)
 
         # Configuration de l'interface
@@ -4270,28 +4433,135 @@ class MangaApp:
         except Exception as exc:
             self.log(f"Erreur export journal: {exc}", level="error")
 
-    def _append_volume_error_row(self, entry):
-        if not hasattr(self, "error_tree"):
+    def _scroll_error_rows_to_end(self):
+        canvas = getattr(getattr(self, "error_list_frame", None), "_parent_canvas", None)
+        if canvas is None:
             return
+        try:
+            canvas.yview_moveto(1.0)
+        except Exception:
+            pass
+
+    def _create_error_row_widget(self, parent, entry, index):
         status_code = entry.get("status_code")
         status_text = "" if status_code in (None, "") else str(status_code)
-        values = (
-            entry.get("time", ""),
-            entry.get("tome", ""),
-            entry.get("stage", ""),
-            status_text,
-            entry.get("reason", ""),
-            entry.get("action", ""),
+        stage_value = repair_mojibake_text(entry.get("stage", "") or "download")
+        reason_value = repair_mojibake_text(entry.get("reason", "") or "Erreur inconnue")
+        action_value = repair_mojibake_text(entry.get("action", "") or "Aucune recommandation")
+        tome_value = repair_mojibake_text(entry.get("tome", "") or "?")
+        time_value = repair_mojibake_text(entry.get("time", "") or "--:--:--")
+
+        row = ctk.CTkFrame(
+            parent,
+            fg_color="#ffffff" if index % 2 == 0 else self.palette["tree_alt"],
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
         )
-        row_index = len(self.error_tree.get_children())
-        tags = ["even" if row_index % 2 == 0 else "odd"]
+        row.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkFrame(row, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
+        header.grid_columnconfigure(1, weight=1)
+
+        badges = ctk.CTkFrame(header, fg_color="transparent")
+        badges.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            badges,
+            text=time_value,
+            width=72,
+            height=28,
+            corner_radius=999,
+            fg_color=self.palette["card_alt"],
+            text_color=self.palette["muted"],
+            font=("Bahnschrift SemiBold", 10),
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(
+            badges,
+            text=stage_value,
+            width=88,
+            height=28,
+            corner_radius=999,
+            fg_color="#dcecff",
+            text_color=self.palette["accent_hover"],
+            font=("Bahnschrift SemiBold", 10),
+        ).pack(side="left", padx=(0, 8))
         if status_text:
-            tags.append("http_error")
-        self.error_tree.insert("", "end", values=values, tags=tuple(tags))
-        children = self.error_tree.get_children()
-        if len(children) > 500:
-            for item_id in children[:-500]:
-                self.error_tree.delete(item_id)
+            ctk.CTkLabel(
+                badges,
+                text=f"HTTP {status_text}",
+                width=90,
+                height=28,
+                corner_radius=999,
+                fg_color="#f8d8dc",
+                text_color="#8a2f3b",
+                font=("Bahnschrift SemiBold", 10),
+            ).pack(side="left")
+
+        ctk.CTkLabel(
+            header,
+            text=tome_value,
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Bahnschrift SemiBold", 11),
+            anchor="w",
+        ).grid(row=0, column=1, sticky="ew")
+
+        body = ctk.CTkFrame(row, fg_color="transparent")
+        body.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+        body.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            body,
+            text="Cause",
+            width=60,
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Bahnschrift SemiBold", 10),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="nw", padx=(0, 8))
+        ctk.CTkLabel(
+            body,
+            text=reason_value,
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI", 10),
+            anchor="w",
+            justify="left",
+            wraplength=760,
+        ).grid(row=0, column=1, sticky="ew")
+        ctk.CTkLabel(
+            body,
+            text="Action",
+            width=60,
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Bahnschrift SemiBold", 10),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="nw", padx=(0, 8), pady=(6, 0))
+        ctk.CTkLabel(
+            body,
+            text=action_value,
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI", 10),
+            anchor="w",
+            justify="left",
+            wraplength=760,
+        ).grid(row=1, column=1, sticky="ew", pady=(6, 0))
+        return row
+
+    def _append_volume_error_row(self, entry):
+        if not hasattr(self, "error_list_frame"):
+            return
+        row_index = len(self.error_row_widgets)
+        row = self._create_error_row_widget(self.error_list_frame, entry, row_index)
+        row.pack(fill="x", pady=(0, 10))
+        self.error_row_widgets.append(row)
+        if len(self.error_row_widgets) > MAX_VISIBLE_ERROR_ROWS:
+            stale = self.error_row_widgets.pop(0)
+            stale.destroy()
+        self._scroll_error_rows_to_end()
 
     def add_volume_error(self, tome, stage, reason, status_code=None, action=None):
         entry = {
@@ -4312,9 +4582,12 @@ class MangaApp:
 
     def clear_volume_errors(self):
         self.volume_error_entries = []
-        if hasattr(self, "error_tree"):
-            for item_id in self.error_tree.get_children():
-                self.error_tree.delete(item_id)
+        for widget in getattr(self, "error_row_widgets", []) or []:
+            try:
+                widget.destroy()
+            except Exception:
+                pass
+        self.error_row_widgets = []
         self.run_on_ui(self._update_error_tab_title, False)
 
     def export_volume_errors(self):
@@ -4634,11 +4907,11 @@ class MangaApp:
             section_tab_label = ctk.CTkLabel(
                 section_tabs_header,
                 text=title,
-                font=("Segoe UI Semibold", 10),
-                height=30,
+                font=("Bahnschrift SemiBold", 11),
+                height=32,
                 corner_radius=999,
-                fg_color="#ffffff",
-                text_color=self.palette["text"],
+                fg_color="#dcecff",
+                text_color=self.palette["accent_hover"],
             )
             section_tab_label.pack(side="left", padx=(0, 0), pady=(0, 0))
 
@@ -4706,20 +4979,20 @@ class MangaApp:
             self.config_tabs_header,
             values=["Journal", self.auth_tab_title, "Options"],
             command=self._on_config_segment_change,
-            height=34,
-            corner_radius=12,
-            font=("Segoe UI Semibold", 10),
+            height=38,
+            corner_radius=14,
+            font=("Bahnschrift SemiBold", 10),
         )
         self.config_tab_control.grid(row=0, column=0, sticky="ew")
         self.config_auth_status_badge = ctk.CTkLabel(
             self.config_tabs_header,
             text="Auth 0/5",
             width=102,
-            height=30,
+            height=32,
             corner_radius=999,
             fg_color="#FFC067",
             text_color="#6a4b00",
-            font=("Segoe UI Semibold", 10),
+            font=("Bahnschrift SemiBold", 10),
         )
         self.config_auth_status_badge.grid(row=0, column=1, padx=(12, 0))
 
@@ -4815,6 +5088,7 @@ class MangaApp:
                 border_width=1,
                 border_color=self.palette["border"],
                 text_color=self.palette["text"],
+                font=("Bahnschrift SemiBold", 10),
             ).pack(side="right", padx=(6, 0))
 
         self.log_text = ctk.CTkTextbox(
@@ -4853,7 +5127,7 @@ class MangaApp:
                 corner_radius=999,
                 fg_color="#FFC067",
                 text_color="#6a4b00",
-                font=badge_font,
+                font=("Bahnschrift SemiBold", 11),
             )
 
         auth_surface = ctk.CTkFrame(
@@ -5103,6 +5377,7 @@ class MangaApp:
             fg_color=self.palette["accent"],
             hover_color=self.palette["accent_hover"],
             text_color="#ffffff",
+            font=("Bahnschrift SemiBold", 10),
         ).pack(expand=True)
 
         def add_option_line(parent, text, variable, description, command=None, bottom=8):
@@ -5242,19 +5517,21 @@ class MangaApp:
             analyze_frame,
             text="Analyser le lien",
             command=self.load_volumes,
-            height=36,
-            corner_radius=12,
+            height=40,
+            corner_radius=14,
             fg_color=self.palette["accent"],
             hover_color=self.palette["accent_hover"],
             text_color="#ffffff",
+            font=("Bahnschrift SemiBold", 11),
         )
         self.analyze_button.pack(side="left")
         self.status_label = ctk.CTkLabel(
             analyze_frame,
             text="",
             fg_color="transparent",
+            corner_radius=999,
             text_color=self.palette["muted"],
-            font=("Segoe UI", 10),
+            font=("Bahnschrift SemiBold", 10),
         )
         self.status_label.pack(side="left", padx=(12, 0))
 
@@ -5292,9 +5569,9 @@ class MangaApp:
             self.selection_tabs_header,
             values=["Tomes / Chapitres", self.error_tab_title],
             command=self._on_selection_segment_change,
-            height=34,
-            corner_radius=12,
-            font=("Segoe UI Semibold", 10),
+            height=38,
+            corner_radius=14,
+            font=("Bahnschrift SemiBold", 10),
         )
         self.selection_tab_control.grid(row=0, column=0, sticky="ew")
         self._refresh_selection_tab_buttons()
@@ -5368,13 +5645,14 @@ class MangaApp:
             left_group,
             text="Tout cocher",
             command=self.toggle_all_button_action,
-            height=34,
+            height=36,
             corner_radius=12,
             fg_color=self.palette["card_bg"],
             hover_color=self.palette["card_alt"],
             border_width=1,
             border_color=self.palette["border"],
             text_color=self.palette["text"],
+            font=("Bahnschrift SemiBold", 10),
             state="disabled",
         )
         self.master_toggle_button.pack(side="left", padx=(0, 8))
@@ -5383,16 +5661,28 @@ class MangaApp:
             left_group,
             text="Inverser",
             command=self.invert_selection,
-            height=34,
+            height=36,
             corner_radius=12,
             fg_color=self.palette["card_bg"],
             hover_color=self.palette["card_alt"],
             border_width=1,
             border_color=self.palette["border"],
             text_color=self.palette["text"],
+            font=("Bahnschrift SemiBold", 10),
             state="disabled",
         )
         self.invert_button.pack(side="left")
+        self.volume_count_badge = ctk.CTkLabel(
+            left_group,
+            text="0 element",
+            width=104,
+            height=30,
+            corner_radius=999,
+            fg_color="#dcecff",
+            text_color=self.palette["accent_hover"],
+            font=("Bahnschrift SemiBold", 10),
+        )
+        self.volume_count_badge.pack(side="left", padx=(10, 0))
         self.selection_status_label = ctk.CTkLabel(
             left_group,
             text="Sélection: 0/0",
@@ -5409,11 +5699,12 @@ class MangaApp:
             download_group,
             text="Télécharger la sélection",
             command=self.download_selected,
-            height=36,
-            corner_radius=12,
+            height=40,
+            corner_radius=14,
             fg_color="#bfe8c7",
             hover_color="#a9dbb4",
             text_color="#1f2937",
+            font=("Bahnschrift SemiBold", 11),
             state="disabled",
         )
         self.dl_button.pack(side="left", padx=(0, 8))
@@ -5422,11 +5713,12 @@ class MangaApp:
             download_group,
             text="Annuler",
             command=self.cancel_download,
-            height=36,
-            corner_radius=12,
+            height=40,
+            corner_radius=14,
             fg_color="#d45757",
             hover_color="#bf4949",
             text_color="#ffffff",
+            font=("Bahnschrift SemiBold", 11),
             state="disabled",
         )
         self.cancel_button.pack(side="left")
@@ -5438,6 +5730,15 @@ class MangaApp:
             font=("Segoe UI", 8),
         )
         self.download_hint_label.pack(side="left", padx=(10, 0))
+        self.selection_hint_label = ctk.CTkLabel(
+            center_card,
+            text="La liste sera rendue progressivement sur les gros catalogues.",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 9),
+            anchor="w",
+        )
+        self.selection_hint_label.pack(fill="x", padx=(2, 2), pady=(0, 6))
 
         self.set_filter_placeholder()
         self.filter_entry.configure(state="disabled")
@@ -5590,6 +5891,7 @@ class MangaApp:
                 border_width=1,
                 border_color=self.palette["border"],
                 text_color=self.palette["text"],
+                font=("Bahnschrift SemiBold", 10),
             ).pack(side="right", padx=(6, 0))
 
         self.error_tree_shell = ctk.CTkFrame(
@@ -5600,39 +5902,48 @@ class MangaApp:
             border_color=self.palette["border"],
         )
         self.error_tree_shell.pack(fill="both", expand=True, padx=14, pady=(0, 14))
-        error_tree_container = tk.Frame(
+        error_tree_header = ctk.CTkFrame(
             self.error_tree_shell,
-            bg="#ffffff",
-            bd=0,
-            highlightthickness=0,
+            fg_color=self.palette["card_alt"],
+            corner_radius=12,
         )
-        error_tree_container.pack(fill="both", expand=True, padx=1, pady=1)
-        self.error_tree = ttk.Treeview(
-            error_tree_container,
-            columns=("time", "tome", "stage", "http", "reason", "action"),
-            show="headings",
-            height=8,
-            style="Error.Treeview",
+        error_tree_header.pack(fill="x", padx=10, pady=(10, 6))
+        ctk.CTkLabel(
+            error_tree_header,
+            text="Chronologie",
+            width=120,
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Bahnschrift SemiBold", 10),
+            anchor="w",
+        ).pack(side="left", padx=(12, 8), pady=8)
+        ctk.CTkLabel(
+            error_tree_header,
+            text="Tome / Chapitre",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Bahnschrift SemiBold", 10),
+            anchor="w",
+        ).pack(side="left", padx=(0, 8), pady=8)
+        ctk.CTkLabel(
+            error_tree_header,
+            text="Cause et action recommandee",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Bahnschrift SemiBold", 10),
+            anchor="w",
+        ).pack(side="right", padx=(8, 12), pady=8)
+
+        self.error_list_frame = ctk.CTkScrollableFrame(
+            self.error_tree_shell,
+            fg_color="transparent",
+            corner_radius=0,
+            border_width=0,
+            scrollbar_fg_color=self.palette["card_bg"],
+            scrollbar_button_color="#c5d3e2",
+            scrollbar_button_hover_color="#aebfd1",
         )
-        self.error_tree.heading("time", text="Heure")
-        self.error_tree.heading("tome", text="Tome")
-        self.error_tree.heading("stage", text="Étape")
-        self.error_tree.heading("http", text="HTTP")
-        self.error_tree.heading("reason", text="Cause")
-        self.error_tree.heading("action", text="Action recommandée")
-        self.error_tree.column("time", width=64, anchor="center", stretch=False)
-        self.error_tree.column("tome", width=160, anchor="w", stretch=False)
-        self.error_tree.column("stage", width=90, anchor="center", stretch=False)
-        self.error_tree.column("http", width=60, anchor="center", stretch=False)
-        self.error_tree.column("reason", width=290, anchor="w", stretch=True)
-        self.error_tree.column("action", width=360, anchor="w", stretch=True)
-        self.error_tree.pack(side="left", fill="both", expand=True)
-        self.error_tree.tag_configure("even", background="#ffffff")
-        self.error_tree.tag_configure("odd", background=self.palette["tree_alt"])
-        self.error_tree.tag_configure("http_error", foreground="#8a2f3b")
-        error_scroll = ttk.Scrollbar(error_tree_container, orient="vertical", command=self.error_tree.yview)
-        error_scroll.pack(side="right", fill="y")
-        self.error_tree.configure(yscrollcommand=error_scroll.set)
+        self.error_list_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self.error_empty_label = ctk.CTkLabel(
             self.error_tree_shell,
             text="Aucune erreur affichee pour le moment.",
@@ -6276,6 +6587,7 @@ class MangaApp:
         self.filter_text.set("")
 
         self.analysis_in_progress = True
+        self._cancel_pending_volume_render()
         if hasattr(self, "analyze_button"):
             self.analyze_button.configure(state="disabled")
         self.update_master_toggle_button()
@@ -6332,44 +6644,7 @@ class MangaApp:
             finish_analysis()
 
         def apply_pairs_ui():
-            for widget in self.vol_frame.winfo_children():
-                widget.destroy()
-
-            self.check_vars = []
-            self.check_items = []
-            columns = 4
-            for col in range(columns):
-                self.vol_frame.grid_columnconfigure(col, weight=1)
-
-            for i, (vol, _link) in enumerate(self.pairs):
-                var = tk.BooleanVar(value=True)
-                self.check_vars.append(var)
-                chk = self._create_volume_card(self.vol_frame, vol, var, i)
-                chk.grid(row=(i // columns), column=i % columns, padx=10, pady=8, sticky="ew")
-                self.check_items.append((chk, vol))
-
-            if not self.pairs:
-                self._show_volume_empty_state("Aucun tome detecte pour cette URL.", tone="warning")
-                self.log("Aucun tome detecte.", level="warning")
-            else:
-                self._hide_volume_empty_state()
-            self._scroll_volumes_to_top()
-            self.log("Liste chargée avec succès.", level="success")
-            has_pairs = bool(self.pairs)
-            self.filter_entry.configure(state="normal" if has_pairs else "disabled")
-            self.clear_filter_button.configure(state="normal" if has_pairs else "disabled")
-            self._style_clear_filter_button(disabled=not has_pairs)
-            if has_pairs and not self.filter_text.get().strip():
-                self.set_filter_placeholder()
-            self.master_toggle_button.configure(state="normal" if has_pairs else "disabled")
-            self.invert_button.configure(state="normal" if has_pairs else "disabled")
-            self.update_master_toggle_button()
-            self._refresh_volume_empty_state()
-            if has_pairs:
-                self._set_analysis_status_label("Analyse terminée.", success=True)
-            else:
-                self._set_analysis_status_label("Analyse terminée: liste vide.", success=False)
-            finish_analysis()
+            self._start_volume_render(on_complete=finish_analysis)
 
         def fetch_progress_callback(step):
             set_analysis_step(step)
@@ -6461,6 +6736,25 @@ class MangaApp:
                 visible_total += 1
                 if is_selected:
                     selected_visible += 1
+
+        if hasattr(self, "volume_count_badge"):
+            if total <= 0:
+                badge_text = "0 element"
+            elif visible_total and visible_total != total:
+                badge_text = f"{visible_total}/{total} visibles"
+            else:
+                badge_text = f"{total} elements"
+            self.volume_count_badge.configure(text=badge_text)
+        if hasattr(self, "selection_hint_label") and not getattr(self, "analysis_in_progress", False):
+            if total == 0:
+                hint_text = "Charge une source pour construire la grille."
+            elif visible_total != total and visible_total > 0:
+                hint_text = f"Filtre actif: {visible_total} element(s) visibles."
+            elif getattr(self, "use_compact_volume_mode", False):
+                hint_text = "Mode compact actif pour garder les gros catalogues fluides."
+            else:
+                hint_text = "Selectionne les tomes ou chapitres a telecharger."
+            self.selection_hint_label.configure(text=hint_text)
 
         if hasattr(self, "selection_status_label"):
             label_text = f"Sélection: {selected_total}/{total}"
