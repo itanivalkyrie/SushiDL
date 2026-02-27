@@ -2663,6 +2663,8 @@ class MangaApp:
 
     def _set_progress_ui(self, percent):
         self.progress.set(percent)
+        if hasattr(self, "progress_bar") and self._is_ctk_widget(self.progress_bar):
+            self.progress_bar.set(max(0.0, min(1.0, float(percent) / 100.0)))
         self.progress_label.config(text=f"{int(percent)}%")
 
     def _set_current_volume_ui(self, volume_label=None):
@@ -2699,9 +2701,10 @@ class MangaApp:
                 self.invert_button.config(state="disabled")
             if hasattr(self, "master_toggle_button"):
                 self.master_toggle_button.config(state="disabled")
+            self._style_clear_filter_button(disabled=True)
             self._set_workflow_step("download", "Téléchargement en cours...")
         else:
-            self.dl_button.config(text="Télécharger")
+            self.dl_button.config(text="Télécharger la sélection")
             self.cancel_button.config(state="disabled")
             self.filter_entry.config(state="normal")
             self.clear_filter_button.config(state="normal")
@@ -2715,6 +2718,7 @@ class MangaApp:
                 self.invert_button.config(state="normal")
             if hasattr(self, "master_toggle_button"):
                 self.master_toggle_button.config(state="normal")
+            self._style_clear_filter_button(disabled=False)
             if hasattr(self, "set_filter_placeholder") and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
             self._set_current_volume_ui(None)
@@ -2828,8 +2832,33 @@ class MangaApp:
             else:
                 self._set_workflow_step("select", "Sélectionne les tomes à télécharger.")
 
+    def _set_segmented_control_value(self, control, value):
+        if control is None or value is None:
+            return
+        self._segmented_control_sync = True
+        try:
+            control.set(value)
+        finally:
+            self._segmented_control_sync = False
+
+    def _on_selection_segment_change(self, selected_value):
+        if getattr(self, "_segmented_control_sync", False):
+            return
+        key = (getattr(self, "selection_tab_value_to_key", {}) or {}).get(selected_value)
+        if key and key != getattr(self, "active_selection_tab", None):
+            self._select_selection_tab(key)
+
+    def _on_config_segment_change(self, selected_value):
+        if getattr(self, "_segmented_control_sync", False):
+            return
+        key = (getattr(self, "config_tab_value_to_key", {}) or {}).get(selected_value)
+        if key and key != getattr(self, "active_config_tab", None):
+            self._select_config_tab(key)
+
     def _layout_tab_row(self, header, buttons, order):
         """Place les onglets en chevauchement 1px pour eliminer les doubles separations."""
+        if self._is_ctk_widget(header):
+            return
         if header is None or not buttons or not order:
             return
         try:
@@ -2858,6 +2887,26 @@ class MangaApp:
 
     def _refresh_selection_tab_buttons(self):
         """Rafraichit les onglets visuels Tomes / Chapitres et Erreurs."""
+        if hasattr(self, "selection_tab_control"):
+            titles = {
+                "selection": "Tomes / Chapitres",
+                "error": getattr(self, "error_tab_title", "Erreurs (0)"),
+            }
+            order = getattr(self, "selection_tab_order", ("selection", "error"))
+            values = [titles.get(key, key) for key in order]
+            self.selection_tab_value_to_key = {titles.get(key, key): key for key in order}
+            self.selection_tab_control.configure(
+                values=values,
+                fg_color=self.palette["border"],
+                selected_color="#d9eafc",
+                selected_hover_color="#cfe3fb",
+                unselected_color=self.palette["panel_bg"],
+                unselected_hover_color=self.palette["card_alt"],
+                text_color=self.palette["text"],
+            )
+            active_title = titles.get(getattr(self, "active_selection_tab", "selection"), values[0] if values else None)
+            self._set_segmented_control_value(self.selection_tab_control, active_title)
+            return
         if not hasattr(self, "selection_tab_buttons"):
             return
         palette = getattr(self, "palette", {}) or {}
@@ -2903,6 +2952,8 @@ class MangaApp:
 
     def _update_selection_top_border_mask(self, selected_widget, mask_bg):
         """Masque la ligne haute de l'encart sous l'onglet actif (style attache)."""
+        if hasattr(self, "selection_tab_control"):
+            return
         if not hasattr(self, "selection_content_border") or not hasattr(self, "selection_tabs_header"):
             return
         if not hasattr(self, "selection_top_border_mask"):
@@ -3123,7 +3174,7 @@ class MangaApp:
             return False
         return widget.__class__.__module__.startswith("customtkinter")
 
-    def _set_auth_badge(self, widget, state):
+    def _set_auth_badge(self, widget, state, text_override=None):
         """Applique un badge visuel pour statut auth: pending / valid / invalid."""
         pending_bg = "#FFC067"
         pending_fg = "#6a4b00"
@@ -3136,20 +3187,55 @@ class MangaApp:
         else:
             normalized = str(state or "").strip().lower()
         if normalized in ("pending", "en_attente", "waiting"):
+            label_text = text_override or "Validation en cours"
             if self._is_ctk_widget(widget):
-                widget.configure(text="Validation en cours", fg_color=pending_bg, text_color=pending_fg)
+                widget.configure(text=label_text, fg_color=pending_bg, text_color=pending_fg)
             else:
-                widget.config(text="Validation en cours", bg=pending_bg, fg=pending_fg)
+                widget.config(text=label_text, bg=pending_bg, fg=pending_fg)
         elif normalized in ("valid", "ok", "true", "1"):
+            label_text = text_override or ("Valide" if self._is_ctk_widget(widget) else "Validé")
             if self._is_ctk_widget(widget):
-                widget.configure(text="Valide", fg_color=valid_bg, text_color=valid_fg)
+                widget.configure(text=label_text, fg_color=valid_bg, text_color=valid_fg)
             else:
-                widget.config(text="Validé", bg=valid_bg, fg=valid_fg)
+                widget.config(text=label_text, bg=valid_bg, fg=valid_fg)
         else:
+            label_text = text_override or ("A verifier" if self._is_ctk_widget(widget) else "A vérifier")
             if self._is_ctk_widget(widget):
-                widget.configure(text="A verifier", fg_color=invalid_bg, text_color=invalid_fg)
+                widget.configure(text=label_text, fg_color=invalid_bg, text_color=invalid_fg)
             else:
-                widget.config(text="A vérifier", bg=invalid_bg, fg=invalid_fg)
+                widget.config(text=label_text, bg=invalid_bg, fg=invalid_fg)
+
+    def _style_clear_filter_button(self, hovered=False, disabled=None):
+        if not hasattr(self, "clear_filter_button"):
+            return
+        if disabled is None:
+            disabled = str(self.clear_filter_button.cget("state")) == "disabled"
+        if self._is_ctk_widget(self.clear_filter_button):
+            if disabled:
+                self.clear_filter_button.configure(
+                    fg_color="#eef3f8",
+                    hover_color="#eef3f8",
+                    text_color="#a3adba",
+                )
+            elif hovered:
+                self.clear_filter_button.configure(
+                    fg_color="#fbe4ea",
+                    hover_color="#f7d5de",
+                    text_color="#7f1d1d",
+                )
+            else:
+                self.clear_filter_button.configure(
+                    fg_color=self.palette["card_bg"],
+                    hover_color="#fbe4ea",
+                    text_color=self.palette["muted"],
+                )
+            return
+        if disabled:
+            self.clear_filter_button.config(bg=self.palette["card_bg"], fg="#a3adba")
+        elif hovered:
+            self.clear_filter_button.config(bg="#fbe4ea", fg="#7f1d1d")
+        else:
+            self.clear_filter_button.config(bg=self.palette["card_bg"], fg=self.palette["muted"])
 
     def _apply_auth_tab_state_style(self, state):
         """Memorise l'etat visuel de l'onglet Authentification et rafraichit son rendu."""
@@ -3161,6 +3247,45 @@ class MangaApp:
 
     def _refresh_config_tab_buttons(self):
         """Rafraichit les onglets visuels Journal / Authentification / Options."""
+        if hasattr(self, "config_tab_control"):
+            active_key = getattr(self, "active_config_tab", "journal")
+            auth_state = getattr(self, "auth_tab_visual_state", "pending")
+            titles = {
+                "journal": "Journal",
+                "auth": getattr(self, "auth_tab_title", "Authentification (0/5)"),
+                "options": "Options",
+            }
+            order = getattr(self, "config_tab_order", ("journal", "auth", "options"))
+            values = [titles.get(key, key) for key in order]
+            self.config_tab_value_to_key = {titles.get(key, key): key for key in order}
+            selected_map = {
+                "valid": ("#d9efe3", "#cfe7d9"),
+                "pending": ("#ffe5b6", "#ffdca0"),
+                "invalid": ("#f4d8dc", "#efcbd1"),
+            }
+            selected_color, selected_hover = (
+                selected_map.get(auth_state, selected_map["pending"])
+                if active_key == "auth"
+                else ("#d9eafc", "#cfe3fb")
+            )
+            self.config_tab_control.configure(
+                values=values,
+                fg_color=self.palette["border"],
+                selected_color=selected_color,
+                selected_hover_color=selected_hover,
+                unselected_color=self.palette["panel_bg"],
+                unselected_hover_color=self.palette["card_alt"],
+                text_color=self.palette["text"],
+            )
+            active_title = titles.get(active_key, values[0] if values else None)
+            self._set_segmented_control_value(self.config_tab_control, active_title)
+            if hasattr(self, "config_auth_status_badge"):
+                self._set_auth_badge(
+                    self.config_auth_status_badge,
+                    auth_state,
+                    text_override=f"Auth {getattr(self, 'auth_tab_progress_text', '0/5')}",
+                )
+            return
         if not hasattr(self, "config_tab_buttons"):
             return
         palette = getattr(self, "palette", {}) or {}
@@ -3225,6 +3350,8 @@ class MangaApp:
 
     def _update_config_top_border_mask(self, selected_widget, mask_bg):
         """Masque la ligne haute de l'encart + le bas de l'onglet actif (effet attache)."""
+        if hasattr(self, "config_tab_control"):
+            return
         if not hasattr(self, "config_content_border"):
             return
         if not hasattr(self, "config_top_border_mask"):
@@ -3309,6 +3436,7 @@ class MangaApp:
             auth_state = "invalid"
         else:
             auth_state = "pending"
+        self.auth_tab_progress_text = f"{valid_count}/{total}"
         self.auth_tab_title = f"Authentification ({valid_count}/{total})"
         self._apply_auth_tab_state_style(auth_state)
         self._refresh_config_tab_buttons()
@@ -4328,102 +4456,66 @@ class MangaApp:
         self.progress = tk.DoubleVar(value=0)
 
         def create_titled_section(parent, title, bottom_margin):
-            section_wrap = ttk.Frame(parent, style="App.TFrame")
+            section_wrap = ctk.CTkFrame(parent, fg_color="transparent")
             section_wrap.pack(fill="x", expand=False, pady=(0, bottom_margin))
-            section_tabs_header = tk.Frame(
+            section_tabs_header = ctk.CTkFrame(
                 section_wrap,
-                bg=self.palette["app_bg"],
-                bd=0,
-                highlightthickness=0,
+                fg_color="transparent",
             )
             section_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
-            section_tab_label = tk.Label(
+            section_tab_label = ctk.CTkLabel(
                 section_tabs_header,
                 text=title,
-                font=("Segoe UI Semibold", 9),
-                padx=11,
-                pady=4,
-                bd=0,
-                relief="flat",
-                bg="#ffffff",
-                fg=self.palette["text"],
-                highlightthickness=1,
-                highlightbackground=self.palette["border"],
-                highlightcolor=self.palette["border"],
+                font=("Segoe UI Semibold", 10),
+                height=30,
+                corner_radius=999,
+                fg_color="#ffffff",
+                text_color=self.palette["text"],
             )
             section_tab_label.pack(side="left", padx=(0, 0), pady=(0, 0))
 
-            section_border = tk.Frame(
+            section_border = ctk.CTkFrame(
                 section_wrap,
-                bg=self.palette["card_bg"],
-                highlightbackground=self.palette["border"],
-                highlightcolor=self.palette["border"],
-                highlightthickness=1,
-                bd=0,
+                fg_color=self.palette["card_bg"],
+                corner_radius=18,
+                border_width=1,
+                border_color=self.palette["border"],
             )
             section_border.pack(fill="x", expand=False)
 
-            section_top_mask = tk.Frame(
+            section_content_panel = ctk.CTkFrame(
                 section_border,
-                bg="#ffffff",
-                bd=0,
-                highlightthickness=0,
-            )
-            section_top_mask.place(x=1, y=0, width=2, height=1)
-
-            section_content_panel = tk.Frame(
-                section_border,
-                bg=self.palette["card_bg"],
-                bd=0,
-                highlightthickness=0,
+                fg_color="transparent",
+                corner_radius=0,
             )
             section_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
 
-            section_content = ttk.Frame(section_content_panel, style="Card.TFrame")
+            section_content = ctk.CTkFrame(section_content_panel, fg_color="transparent")
             section_content.pack(fill="both", expand=True, padx=12, pady=9)
-
-            def update_section_mask(_event=None):
-                try:
-                    section_wrap.update_idletasks()
-                    x = section_tabs_header.winfo_x() + section_tab_label.winfo_x() - section_border.winfo_x() + 1
-                    w = max(1, section_tab_label.winfo_width() - 2)
-                    section_top_mask.place_configure(x=x, width=w)
-                except Exception:
-                    pass
-
-            section_tab_label.bind("<Configure>", update_section_mask)
-            section_tabs_header.bind("<Configure>", update_section_mask)
-            self.root.after_idle(update_section_mask)
             return section_content, section_wrap
 
-        main_frame = ttk.Frame(self.root, style="App.TFrame", padding=(18, 8))
-        main_frame.pack(fill="both", expand=True)
+        main_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+        main_frame.pack(fill="both", expand=True, padx=18, pady=8)
 
-        top_tabs_wrap = ttk.Frame(main_frame, style="App.TFrame")
+        top_tabs_wrap = ctk.CTkFrame(main_frame, fg_color="transparent")
         top_tabs_wrap.pack(fill="x", expand=False, pady=(0, 6))
 
-        self.config_tabs_header = tk.Frame(
-            top_tabs_wrap,
-            bg=self.palette["app_bg"],
-            bd=0,
-            highlightthickness=0,
-        )
+        self.config_tabs_header = ctk.CTkFrame(top_tabs_wrap, fg_color="transparent")
         self.config_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
+        self.config_tabs_header.grid_columnconfigure(0, weight=1)
 
-        self.config_content_border = tk.Frame(
+        self.config_content_border = ctk.CTkFrame(
             top_tabs_wrap,
-            bg=self.palette["card_bg"],
-            highlightbackground=self.palette["border"],
-            highlightcolor=self.palette["border"],
-            highlightthickness=1,
-            bd=0,
+            fg_color=self.palette["card_bg"],
+            corner_radius=20,
+            border_width=1,
+            border_color=self.palette["border"],
         )
         self.config_content_border.pack(fill="x", expand=False, pady=(0, 0))
-        self.config_content_panel = tk.Frame(
+        self.config_content_panel = ctk.CTkFrame(
             self.config_content_border,
-            bg=self.palette["card_bg"],
-            bd=0,
-            highlightthickness=0,
+            fg_color="transparent",
+            corner_radius=0,
         )
         self.config_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
 
@@ -4441,25 +4533,27 @@ class MangaApp:
         self.active_config_tab = "journal"
         self.auth_tab_title = "Authentification (0/5)"
         self.auth_tab_visual_state = "pending"
-
-        for idx, (key, title) in enumerate((("journal", "Journal"), ("auth", self.auth_tab_title), ("options", "Options"))):
-            button = tk.Label(
-                self.config_tabs_header,
-                text=title,
-                font=("Segoe UI Semibold", 9),
-                cursor="hand2",
-                padx=11,
-                pady=4,
-                bd=0,
-                relief="flat",
-                highlightthickness=1,
-            )
-            button.bind("<Button-1>", lambda _event, tab_key=key: self._select_config_tab(tab_key))
-            self.config_tab_buttons[key] = button
-        self.config_tabs_header.bind(
-            "<Configure>",
-            lambda _e: self._layout_tab_row(self.config_tabs_header, self.config_tab_buttons, self.config_tab_order),
+        self.auth_tab_progress_text = "0/5"
+        self.config_tab_control = ctk.CTkSegmentedButton(
+            self.config_tabs_header,
+            values=["Journal", self.auth_tab_title, "Options"],
+            command=self._on_config_segment_change,
+            height=34,
+            corner_radius=12,
+            font=("Segoe UI Semibold", 10),
         )
+        self.config_tab_control.grid(row=0, column=0, sticky="ew")
+        self.config_auth_status_badge = ctk.CTkLabel(
+            self.config_tabs_header,
+            text="Auth 0/5",
+            width=102,
+            height=30,
+            corner_radius=999,
+            fg_color="#FFC067",
+            text_color="#6a4b00",
+            font=("Segoe UI Semibold", 10),
+        )
+        self.config_auth_status_badge.grid(row=0, column=1, padx=(12, 0))
 
         def create_config_tab_content(parent):
             content = ttk.Frame(parent, style="Card.TFrame", padding=(12, 12, 12, 12))
@@ -4558,6 +4652,15 @@ class MangaApp:
         auth_surface.grid_columnconfigure(2, weight=0)
 
         row = 0
+
+        ctk.CTkLabel(
+            auth_surface,
+            text="Renseigne les cookies par domaine et le User-Agent. Les controles se font en arriere-plan.",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+            anchor="w",
+        ).grid(row=row, column=0, columnspan=3, sticky="ew", padx=(14, 14), pady=(14, 4))
+        row += 1
 
         ctk.CTkLabel(
             auth_surface,
@@ -4890,6 +4993,12 @@ class MangaApp:
             text_color=self.palette["text"],
             font=("Segoe UI Semibold", 12),
         ).pack(anchor="w")
+        ctk.CTkLabel(
+            url_frame,
+            text="Analyse le lien, valide la source et prepare la selection de tomes.",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(2, 0))
         self.url_entry = ctk.CTkEntry(
             url_frame,
             textvariable=self.url,
@@ -4900,7 +5009,7 @@ class MangaApp:
             fg_color=self.palette["input_bg"],
             text_color=self.palette["text"],
         )
-        self.url_entry.pack(fill="x", pady=(6, 0))
+        self.url_entry.pack(fill="x", pady=(8, 0))
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
@@ -4930,29 +5039,23 @@ class MangaApp:
         )
         self.status_label.pack(side="left", padx=(12, 0))
 
-        selection_wrap = ttk.Frame(main_frame, style="App.TFrame")
+        selection_wrap = ctk.CTkFrame(main_frame, fg_color="transparent")
         selection_wrap.pack(fill="both", expand=True, pady=(0, 4))
-        self.selection_tabs_header = tk.Frame(
-            selection_wrap,
-            bg=self.palette["app_bg"],
-            bd=0,
-            highlightthickness=0,
-        )
+        self.selection_tabs_header = ctk.CTkFrame(selection_wrap, fg_color="transparent")
         self.selection_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
-        self.selection_content_border = tk.Frame(
+        self.selection_tabs_header.grid_columnconfigure(0, weight=1)
+        self.selection_content_border = ctk.CTkFrame(
             selection_wrap,
-            bg=self.palette["card_bg"],
-            highlightbackground=self.palette["border"],
-            highlightcolor=self.palette["border"],
-            highlightthickness=1,
-            bd=0,
+            fg_color=self.palette["card_bg"],
+            corner_radius=20,
+            border_width=1,
+            border_color=self.palette["border"],
         )
         self.selection_content_border.pack(fill="both", expand=True, pady=(0, 0))
-        self.selection_content_panel = tk.Frame(
+        self.selection_content_panel = ctk.CTkFrame(
             self.selection_content_border,
-            bg=self.palette["card_bg"],
-            bd=0,
-            highlightthickness=0,
+            fg_color="transparent",
+            corner_radius=0,
         )
         self.selection_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
 
@@ -4966,146 +5069,153 @@ class MangaApp:
         self.selection_tab_order = ("selection", "error")
         self.active_selection_tab = "selection"
         self.error_tab_title = "Erreurs (0)"
-
-        for idx, (key, title) in enumerate((("selection", "Tomes / Chapitres"), ("error", self.error_tab_title))):
-            button = tk.Label(
-                self.selection_tabs_header,
-                text=title,
-                font=("Segoe UI Semibold", 9),
-                cursor="hand2",
-                padx=11,
-                pady=4,
-                bd=0,
-                relief="flat",
-                highlightthickness=1,
-            )
-            button.bind("<Button-1>", lambda _event, tab_key=key: self._select_selection_tab(tab_key))
-            self.selection_tab_buttons[key] = button
-        self.selection_tabs_header.bind(
-            "<Configure>",
-            lambda _e: self._layout_tab_row(
-                self.selection_tabs_header, self.selection_tab_buttons, self.selection_tab_order
-            ),
+        self.selection_tab_control = ctk.CTkSegmentedButton(
+            self.selection_tabs_header,
+            values=["Tomes / Chapitres", self.error_tab_title],
+            command=self._on_selection_segment_change,
+            height=34,
+            corner_radius=12,
+            font=("Segoe UI Semibold", 10),
         )
+        self.selection_tab_control.grid(row=0, column=0, sticky="ew")
         self._refresh_selection_tab_buttons()
         self._select_selection_tab("selection")
 
-        selection_panel = tk.Frame(
+        selection_panel = ctk.CTkFrame(
             selection_tab,
-            bg=self.palette["card_bg"],
-            highlightbackground=self.palette["border"],
-            highlightthickness=0,
-            bd=0,
+            fg_color="transparent",
         )
         selection_panel.pack(fill="both", expand=True)
-        center_card = ttk.Frame(selection_panel, style="Card.TFrame")
+        center_card = ctk.CTkFrame(
+            selection_panel,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=18,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
         center_card.pack(fill="both", expand=True, padx=12, pady=9)
 
-        vol_header = ttk.Frame(center_card, style="Card.TFrame")
+        vol_header = ctk.CTkFrame(center_card, fg_color="transparent")
         vol_header.pack(fill="x", pady=(0, 4))
 
-        left_group = ttk.Frame(vol_header, style="Card.TFrame")
+        left_group = ctk.CTkFrame(vol_header, fg_color="transparent")
         left_group.pack(side="left")
 
-        filter_group = ttk.Frame(left_group, style="Card.TFrame")
+        filter_group = ctk.CTkFrame(left_group, fg_color="transparent")
         filter_group.pack(side="left")
         self.filter_text = tk.StringVar()
 
-        filter_box = tk.Frame(
+        filter_box = ctk.CTkFrame(
             filter_group,
-            bg=self.palette["card_alt"],
-            highlightbackground=self.palette["border"],
-            highlightthickness=1,
-            bd=0,
+            fg_color=self.palette["input_bg"],
+            corner_radius=14,
+            border_width=1,
+            border_color=self.palette["border"],
         )
         filter_box.pack(side="left", padx=(0, 10))
 
-        self.filter_entry = tk.Entry(
+        self.filter_entry = ctk.CTkEntry(
             filter_box,
             textvariable=self.filter_text,
-            width=28,
-            relief="flat",
-            bd=0,
-            bg=self.palette["card_alt"],
-            fg=self.palette["muted"],
-            disabledbackground=self.palette["card_alt"],
-            disabledforeground="#8b95a5",
-            insertbackground=self.palette["text"],
+            width=260,
             font=font_entry,
+            height=36,
+            corner_radius=12,
+            border_width=0,
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["muted"],
         )
         self.filter_entry.pack(side="left", padx=(8, 0), pady=4)
         self.filter_entry.bind("<FocusIn>", self.on_filter_focus_in)
         self.filter_entry.bind("<FocusOut>", self.on_filter_focus_out)
         self.filter_entry.bind("<KeyRelease>", lambda e: self.apply_filter())
-        self.clear_filter_button = tk.Button(
+        self.clear_filter_button = ctk.CTkButton(
             filter_box,
             text="×",
             command=self.clear_filter,
-            relief="solid",
-            bd=1,
-            width=2,
-            padx=0,
-            pady=0,
-            bg=self.palette["card_bg"],
-            fg=self.palette["muted"],
-            activebackground="#fbe4ea",
-            activeforeground="#7f1d1d",
-            cursor="hand2",
+            width=28,
+            height=28,
+            corner_radius=10,
+            fg_color=self.palette["card_bg"],
+            hover_color="#fbe4ea",
+            text_color=self.palette["muted"],
             font=("Segoe UI Semibold", 10),
         )
         self.clear_filter_button.pack(side="left", padx=(4, 6), pady=2)
         self.clear_filter_button.bind("<Enter>", self.on_clear_filter_enter)
         self.clear_filter_button.bind("<Leave>", self.on_clear_filter_leave)
 
-        self.master_toggle_button = ttk.Button(
+        self.master_toggle_button = ctk.CTkButton(
             left_group,
             text="Tout cocher",
             command=self.toggle_all_button_action,
-            style="Secondary.TButton",
+            height=34,
+            corner_radius=12,
+            fg_color=self.palette["card_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
             state="disabled",
         )
         self.master_toggle_button.pack(side="left", padx=(0, 8))
 
-        self.invert_button = ttk.Button(
+        self.invert_button = ctk.CTkButton(
             left_group,
             text="Inverser",
             command=self.invert_selection,
-            style="Secondary.TButton",
+            height=34,
+            corner_radius=12,
+            fg_color=self.palette["card_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
             state="disabled",
         )
         self.invert_button.pack(side="left")
-        self.selection_status_label = ttk.Label(
+        self.selection_status_label = ctk.CTkLabel(
             left_group,
             text="Sélection: 0/0",
-            style="Muted.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
             font=("Segoe UI", 9),
         )
         self.selection_status_label.pack(side="left", padx=(12, 0))
 
-        download_group = ttk.Frame(vol_header, style="Card.TFrame")
+        download_group = ctk.CTkFrame(vol_header, fg_color="transparent")
         download_group.pack(side="right")
 
-        self.dl_button = ttk.Button(
+        self.dl_button = ctk.CTkButton(
             download_group,
             text="Télécharger la sélection",
             command=self.download_selected,
-            style="Download.TButton",
+            height=36,
+            corner_radius=12,
+            fg_color="#bfe8c7",
+            hover_color="#a9dbb4",
+            text_color="#1f2937",
             state="disabled",
         )
         self.dl_button.pack(side="left", padx=(0, 8))
 
-        self.cancel_button = ttk.Button(
+        self.cancel_button = ctk.CTkButton(
             download_group,
             text="Annuler",
             command=self.cancel_download,
-            style="Cancel.TButton",
+            height=36,
+            corner_radius=12,
+            fg_color="#d45757",
+            hover_color="#bf4949",
+            text_color="#ffffff",
             state="disabled",
         )
         self.cancel_button.pack(side="left")
-        self.download_hint_label = ttk.Label(
+        self.download_hint_label = ctk.CTkLabel(
             download_group,
             text="Sélectionne au moins 1 tome.",
-            style="Muted.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
             font=("Segoe UI", 8),
         )
         self.download_hint_label.pack(side="left", padx=(10, 0))
@@ -5113,17 +5223,18 @@ class MangaApp:
         self.set_filter_placeholder()
         self.filter_entry.config(state="disabled")
         self.clear_filter_button.config(state="disabled")
+        self._style_clear_filter_button(disabled=True)
 
-        vol_frame_container = tk.Frame(
+        vol_frame_container = ctk.CTkFrame(
             center_card,
-            bg=self.palette["canvas_bg"],
-            highlightbackground=self.palette["border"],
-            highlightthickness=1,
-            bd=0,
+            fg_color=self.palette["canvas_bg"],
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
         )
         vol_frame_container.pack(fill="both", expand=True)
 
-        canvas_frame = ttk.Frame(vol_frame_container, style="Card.TFrame")
+        canvas_frame = ctk.CTkFrame(vol_frame_container, fg_color="transparent")
         canvas_frame.pack(fill="both", expand=True, padx=1, pady=1)
 
         self.canvas = tk.Canvas(
@@ -5157,48 +5268,60 @@ class MangaApp:
         self.canvas.bind("<Configure>", center_volumes)
         self.vol_frame.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
-        progress_frame = ttk.Frame(center_card, style="Card.TFrame")
+        progress_frame = ctk.CTkFrame(
+            center_card,
+            fg_color=self.palette["card_bg"],
+            corner_radius=14,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
         progress_frame.pack(fill="x", pady=(4, 0))
-        self.current_volume_status_label = ttk.Label(
+        self.current_volume_status_label = ctk.CTkLabel(
             progress_frame,
             text="Tome/Chapitre en cours: --",
-            style="Muted.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
             font=("Segoe UI", 9),
             anchor="w",
         )
-        self.current_volume_status_label.pack(side="left")
-        self.progress_detail_label = ttk.Label(
+        self.current_volume_status_label.pack(side="left", padx=(12, 0), pady=10)
+        self.progress_detail_label = ctk.CTkLabel(
             progress_frame,
             text="Images: --/--",
-            style="Muted.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
             font=("Segoe UI", 9),
             anchor="w",
         )
-        self.progress_detail_label.pack(side="left", padx=(12, 0))
-        self.eta_label = ttk.Label(
+        self.progress_detail_label.pack(side="left", padx=(12, 0), pady=10)
+        self.eta_label = ctk.CTkLabel(
             progress_frame,
             text="ETA Tome: --:-- | ETA Global: --:--",
-            style="Muted.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
             font=("Segoe UI", 9),
             anchor="w",
         )
-        self.eta_label.pack(side="left", padx=(12, 0))
-        self.progress_bar = ttk.Progressbar(
+        self.eta_label.pack(side="left", padx=(12, 0), pady=10)
+        self.progress_bar = ctk.CTkProgressBar(
             progress_frame,
-            variable=self.progress,
-            maximum=100,
-            style="Accent.Horizontal.TProgressbar",
+            height=16,
+            corner_radius=999,
+            fg_color=self.palette["progress_trough"],
+            progress_color=self.palette["accent"],
         )
         self.progress_bar.pack(side="left", fill="x", expand=True, padx=(12, 0))
-        self.progress_label = ttk.Label(
+        self.progress_bar.set(0)
+        self.progress_label = ctk.CTkLabel(
             progress_frame,
             text="0%",
-            style="Muted.TLabel",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
             font=("Segoe UI Semibold", 9),
-            width=5,
+            width=40,
             anchor="e",
         )
-        self.progress_label.pack(side="left", padx=(8, 0))
+        self.progress_label.pack(side="left", padx=(8, 12), pady=10)
 
         error_panel = tk.Frame(
             self.error_tab,
@@ -5971,6 +6094,7 @@ class MangaApp:
             has_pairs = bool(self.pairs)
             self.filter_entry.config(state="normal" if has_pairs else "disabled")
             self.clear_filter_button.config(state="normal" if has_pairs else "disabled")
+            self._style_clear_filter_button(disabled=not has_pairs)
             if has_pairs and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
             self.master_toggle_button.config(state="normal" if has_pairs else "disabled")
@@ -6152,7 +6276,10 @@ class MangaApp:
             return
         self.filter_placeholder_active = True
         self.filter_text.set(self.filter_placeholder_text)
-        self.filter_entry.config(fg=self.palette["muted"])
+        if self._is_ctk_widget(self.filter_entry):
+            self.filter_entry.configure(text_color=self.palette["muted"])
+        else:
+            self.filter_entry.config(fg=self.palette["muted"])
 
     def clear_filter_placeholder(self):
         """Retire le placeholder du champ filtre."""
@@ -6160,7 +6287,10 @@ class MangaApp:
             return
         self.filter_placeholder_active = False
         self.filter_text.set("")
-        self.filter_entry.config(fg=self.palette["text"])
+        if self._is_ctk_widget(self.filter_entry):
+            self.filter_entry.configure(text_color=self.palette["text"])
+        else:
+            self.filter_entry.config(fg=self.palette["text"])
 
     def on_filter_focus_in(self, _event=None):
         """Nettoie le placeholder quand le champ prend le focus."""
@@ -6176,13 +6306,13 @@ class MangaApp:
         """Survol du bouton de remise à zéro du filtre."""
         if str(self.clear_filter_button.cget("state")) == "disabled":
             return
-        self.clear_filter_button.config(bg="#fbe4ea", fg="#7f1d1d")
+        self._style_clear_filter_button(hovered=True)
 
     def on_clear_filter_leave(self, _event=None):
         """Fin de survol du bouton de remise à zéro du filtre."""
         if str(self.clear_filter_button.cget("state")) == "disabled":
             return
-        self.clear_filter_button.config(bg=self.palette["card_bg"], fg=self.palette["muted"])
+        self._style_clear_filter_button(hovered=False)
 
     def download_selected(self):
         """Lance le téléchargement des tomes sélectionnés."""
