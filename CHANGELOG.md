@@ -7,6 +7,26 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.8] - 2026-02-27
+
+### Ameliorations
+- Performance telechargement:
+  - suppression des attentes artificielles dans les boucles workers,
+  - annulation plus reactive pendant les retries d'extraction d'images.
+- Logging optimise:
+  - suppression du log par image telechargee,
+  - reduction des blocages inter-threads sur le thread UI.
+
+### Corrections
+- Stabilite thread UI:
+  - ajout d'un timeout de securite sur `run_on_ui(wait=True)` pour eviter les blocages indefinis.
+- Securite cookies:
+  - sanitation stricte des valeurs de cookies,
+  - sanitation du header `Cookie` complet avant envoi HTTP.
+- Validation cookies:
+  - le probe cookie utilise des URLs fixes de demarrage (par domaine),
+  - il ne depend plus de l'URL saisie dans le champ d'analyse.
+
 ## [11.2.7] - 2026-02-25
 
 ### Ameliorations

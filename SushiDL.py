@@ -446,10 +446,11 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.7"
+APP_VERSION = "11.2.8"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
+UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
 COOKIE_DOMAINS = ("fr", "net", "origines", "hentai")
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
@@ -474,6 +475,12 @@ DEFAULT_APP_CONFIG = {
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
         "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
     },
+}
+STARTUP_COOKIE_LISTING_PROBE_URLS = {
+    "fr": "https://sushiscan.fr/catalogue/one-piece/",
+    "net": "https://sushiscan.net/catalogue/one-piece/",
+    "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
+    "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
@@ -694,6 +701,64 @@ def sanitize_folder_name(name):
     return re.sub(r'[<>:"/\\|?*\n\r]', "_", name).strip()
 
 
+def sanitize_cookie_value(value):
+    """Nettoie une valeur de cookie pour éviter l'injection d'en-têtes HTTP."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    cleaned_chars = []
+    for ch in raw:
+        code = ord(ch)
+        if ch in "\r\n;":
+            continue
+        if code < 32 or code == 127:
+            continue
+        cleaned_chars.append(ch)
+    cleaned = "".join(cleaned_chars).strip()
+    if len(cleaned) > 4096:
+        cleaned = cleaned[:4096]
+    return cleaned
+
+
+def sanitize_cookie_header(header_value):
+    """Nettoie un header Cookie complet (name=value; name2=value2)."""
+    raw = str(header_value or "").strip()
+    if not raw:
+        return ""
+    raw = raw.replace("\r", "").replace("\n", "")
+    safe_parts = []
+    for part in raw.split(";"):
+        token = part.strip()
+        if not token or "=" not in token:
+            continue
+        name, value = token.split("=", 1)
+        safe_name = re.sub(r"[^A-Za-z0-9!#$%&'*+.^_`|~-]", "", (name or "").strip())
+        if not safe_name:
+            continue
+        safe_value_chars = []
+        for ch in (value or "").strip():
+            code = ord(ch)
+            if ch == ";":
+                continue
+            if code < 32 or code == 127:
+                continue
+            safe_value_chars.append(ch)
+        safe_value = "".join(safe_value_chars).strip()
+        safe_parts.append(f"{safe_name}={safe_value}")
+    cleaned = "; ".join(safe_parts).strip()
+    if len(cleaned) > 4096:
+        cleaned = cleaned[:4096]
+    return cleaned
+
+
+def build_cf_clearance_cookie_header(cookie_value):
+    """Construit un header Cookie minimal à partir de cf_clearance."""
+    safe_cookie = sanitize_cookie_value(cookie_value)
+    if not safe_cookie:
+        return ""
+    return f"cf_clearance={safe_cookie}"
+
+
 def make_request(url, cookie, ua):
     """Effectue une requête HTTP avec les cookies et l'user-agent appropriés"""
     headers = {
@@ -719,8 +784,9 @@ def make_request(url, cookie, ua):
             )
             cookie_header = ""
 
+    cookie_header = sanitize_cookie_header(cookie_header)
     if not cookie_header and cookie:
-        cookie_header = f"cf_clearance={cookie}"
+        cookie_header = build_cf_clearance_cookie_header(cookie)
     if cookie_header:
         headers["Cookie"] = cookie_header
     return _http_get(url, headers=headers, timeout=10)
@@ -990,8 +1056,9 @@ def download_image(
                 context={"action": "download_image"},
             )
             cookie_header = ""
+    cookie_header = sanitize_cookie_header(cookie_header)
     if not cookie_header and cookie:
-        cookie_header = f"cf_clearance={cookie}"
+        cookie_header = build_cf_clearance_cookie_header(cookie)
 
     headers = {
         "Accept": "image/webp,image/jpeg,image/png,*/*;q=0.8",
@@ -1029,11 +1096,6 @@ def download_image(
         # Mise à jour de la progression
         if progress_callback:
             progress_callback(i + 1)
-        if hasattr(MangaApp, "current_instance") and hasattr(MangaApp.current_instance, "log"):
-            MangaApp.current_instance.log(
-                f"Image {i + 1} téléchargée : {os.path.basename(filename)}",
-                level="info",
-            )
         return
 
     except DownloadCancelled:
@@ -1239,8 +1301,9 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
             cookie_header = app.get_cookie_header_for_url(url, fallback_cookie=cookie)
         except Exception:
             cookie_header = ""
+    cookie_header = sanitize_cookie_header(cookie_header)
     if not cookie_header and cookie:
-        cookie_header = f"cf_clearance={cookie}"
+        cookie_header = build_cf_clearance_cookie_header(cookie)
 
     headers = {
         "Accept": "*/*",
@@ -1409,7 +1472,7 @@ def build_mangas_origines_list_url(url):
     return urlunparse((scheme, host, path, "", query, ""))
 
 
-def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
+def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_event=None):
     """
     Récupère la liste des URLs d'images pour un volume/chapitre
     
@@ -1420,6 +1483,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
         retries (int): Tentatives de récupération
         delay (int): Délai entre les tentatives
         debug_mode (bool): Activer le mode debug
+        cancel_event (threading.Event|None): Annulation du worker si demandée
     
     Returns:
         list: Liste des URLs d'images
@@ -1701,6 +1765,13 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
 
     for link_idx, candidate_link in enumerate(candidate_links, start=1):
         for attempt in range(1, attempt_count + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                runtime_log(
+                    "Extraction images annulée.",
+                    level="warning",
+                    context={"action": "get_images"},
+                )
+                return []
             try:
                 r = make_request(candidate_link, cookie, ua)
                 body = r.text or ""
@@ -1753,7 +1824,13 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False):
                     level="debug",
                     context={"action": "get_images"},
                 )
-                time.sleep(sleep_time)
+                if interruptible_sleep(cancel_event, sleep_time):
+                    runtime_log(
+                        "Extraction images annulée pendant l'attente de retry.",
+                        level="warning",
+                        context={"action": "get_images"},
+                    )
+                    return []
 
     runtime_log(
         f"Impossible d'extraire des images depuis: {link}",
@@ -1868,7 +1945,7 @@ def download_volume(
             for i, url in enumerate(images):
                 if i in existing_indexes:
                     continue
-                if cancel_event.wait(0.1):
+                if cancel_event.is_set():
                     break
 
                 def progress_callback(_idx):
@@ -2310,7 +2387,7 @@ def load_cookie_cache():
             cookie_headers = {}
         rebuilt_cookie_headers = {
             domain: (
-                f"cf_clearance={cookies.get(domain, '').strip()}"
+                build_cf_clearance_cookie_header(cookies.get(domain, ""))
                 if (cookies.get(domain) or "").strip()
                 else ""
             )
@@ -2318,7 +2395,7 @@ def load_cookie_cache():
         }
         for domain in COOKIE_DOMAINS:
             if not rebuilt_cookie_headers[domain]:
-                rebuilt_cookie_headers[domain] = (cookie_headers.get(domain) or "").strip()
+                rebuilt_cookie_headers[domain] = sanitize_cookie_header(cookie_headers.get(domain))
         cookie_updated_at = data.get("cookie_updated_at", {})
         if not isinstance(cookie_updated_at, dict):
             cookie_updated_at = {}
@@ -2558,7 +2635,10 @@ class MangaApp:
                     done.set()
 
             self.ui_queue.put(wrapped)
-            done.wait()
+            if not done.wait(UI_CALL_TIMEOUT_SECONDS):
+                raise TimeoutError(
+                    f"run_on_ui(wait=True) timeout après {UI_CALL_TIMEOUT_SECONDS}s."
+                )
             if holder["error"] is not None:
                 raise holder["error"]
             return holder["result"]
@@ -3527,7 +3607,7 @@ class MangaApp:
             if not ua_value:
                 return
 
-            probe_urls = getattr(self, "cookie_listing_probe_urls", {}) or {}
+            probe_urls = getattr(self, "startup_cookie_listing_probe_urls", {}) or {}
             for domain in valid_domains:
                 cookie_var = self._get_cookie_var_for_domain(domain)
                 if cookie_var is None:
@@ -3542,13 +3622,7 @@ class MangaApp:
                         self.run_on_ui(self.update_runtime_status)
                     continue
 
-                fallback_probe_urls = {
-                    "fr": "https://sushiscan.fr/catalogue/one-piece/",
-                    "net": "https://sushiscan.net/catalogue/one-piece/",
-                    "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
-                    "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
-                }
-                probe_url = (probe_urls.get(domain) or "").strip() or fallback_probe_urls.get(domain, "")
+                probe_url = (probe_urls.get(domain) or "").strip() or STARTUP_COOKIE_LISTING_PROBE_URLS.get(domain, "")
                 if not probe_url:
                     continue
                 probe_ok = False
@@ -3587,6 +3661,17 @@ class MangaApp:
                         )
         except Exception as exc:
             self.log(f"Probe cookie non concluant: {exc}", level="debug")
+
+    def _refresh_log_option_cache(self, *_args):
+        """Met en cache les options de logs pour éviter les waits UI en workers."""
+        try:
+            self.verbose_logs_cached = bool(self.verbose_logs.get())
+        except Exception:
+            self.verbose_logs_cached = True
+        try:
+            self.console_logs_enabled_cached = bool(self.console_logs_enabled.get())
+        except Exception:
+            self.console_logs_enabled_cached = True
 
     def __init__(self):
         """Initialise l'interface graphique et charge les paramètres"""
@@ -3629,6 +3714,8 @@ class MangaApp:
         self.log_autoscroll = tk.BooleanVar(value=True)
         self.console_logs_enabled = tk.BooleanVar(value=True)
         self.show_cookies = tk.BooleanVar(value=False)
+        self.verbose_logs_cached = True
+        self.console_logs_enabled_cached = True
         self.filter_placeholder_text = "Filtre"
         self.filter_placeholder_active = False
         self.cover_target_height = COVER_TARGET_HEIGHT
@@ -3638,12 +3725,9 @@ class MangaApp:
         self.analysis_auth_state = {**{domain: None for domain in COOKIE_DOMAINS}, "ua": None}
         self.cookie_probe_state = {domain: None for domain in COOKIE_DOMAINS}
         self.cookie_probe_after_ids = {domain: None for domain in COOKIE_DOMAINS}
-        self.cookie_listing_probe_urls = {
-            "fr": "https://sushiscan.fr/catalogue/one-piece/",
-            "net": "https://sushiscan.net/catalogue/one-piece/",
-            "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
-            "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
-        }
+        self.startup_cookie_listing_probe_urls = dict(STARTUP_COOKIE_LISTING_PROBE_URLS)
+        # Compatibilité: conservé pour l'existant, mais la sonde utilise la version startup figée.
+        self.cookie_listing_probe_urls = dict(self.startup_cookie_listing_probe_urls)
         self.analysis_auth_last_domain = None
         self.analysis_auth_last_message = ""
         self.analysis_in_progress = False
@@ -3658,6 +3742,9 @@ class MangaApp:
         self.cookie_hentai.trace_add("write", self._schedule_auth_status_update_cookie_hentai)
         self.ua.trace_add("write", self._schedule_auth_status_update)
         self.url.trace_add("write", self._schedule_auth_status_update_url)
+        self.verbose_logs.trace_add("write", self._refresh_log_option_cache)
+        self.console_logs_enabled.trace_add("write", self._refresh_log_option_cache)
+        self._refresh_log_option_cache()
 
         # Chargement du cache
         (
@@ -3703,7 +3790,7 @@ class MangaApp:
                 self.cookie_user_agents[domain] = ""
 
             if not self.cookie_headers.get(domain):
-                self.cookie_headers[domain] = f"cf_clearance={cookie_value}" if cookie_value else ""
+                self.cookie_headers[domain] = build_cf_clearance_cookie_header(cookie_value)
 
         self.last_known_cookies = {domain: (cookies.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
         self.cbz_enabled.set(str(cbz).lower() in ("1", "true", "yes"))
@@ -3762,6 +3849,7 @@ class MangaApp:
             return
 
         normalized_level = normalize_log_level(level)
+        verbose_enabled = bool(getattr(self, "verbose_logs_cached", True))
         timestamp = time.strftime("%H:%M:%S")
         context_suffix = format_log_context(context)
         full_message = f"{text}{context_suffix}"
@@ -3775,22 +3863,14 @@ class MangaApp:
             if len(self.log_entries) > self.max_log_entries:
                 self.log_entries = self.log_entries[-self.max_log_entries:]
 
-        if getattr(self, "log_ready", False) and hasattr(self, "log_text"):
+        should_emit_debug = not (normalized_level == "debug" and not verbose_enabled)
+        if should_emit_debug and getattr(self, "log_ready", False) and hasattr(self, "log_text"):
             self.run_on_ui(self._append_log_entry, entry)
 
-        verbose_enabled = self.run_on_ui(
-            self.verbose_logs.get,
-            wait=True,
-            default=True,
-        )
         if normalized_level == "debug" and not verbose_enabled:
             return
 
-        console_enabled = self.run_on_ui(
-            self.console_logs_enabled.get,
-            wait=True,
-            default=True,
-        )
+        console_enabled = bool(getattr(self, "console_logs_enabled_cached", True))
         if console_enabled:
             emit_console_log(
                 message=text,
@@ -5547,7 +5627,7 @@ class MangaApp:
         if current_cookie and current_cookie != previous_cookie:
             self.cookie_sources[domain] = "manual"
             self.cookie_user_agents[domain] = self.get_direct_user_agent()
-            self.cookie_headers[domain] = f"cf_clearance={current_cookie}"
+            self.cookie_headers[domain] = build_cf_clearance_cookie_header(current_cookie)
             self.last_known_cookies[domain] = current_cookie
             self._mark_cookie_updated(domain, current_cookie)
         elif not current_cookie:
@@ -5570,16 +5650,14 @@ class MangaApp:
         """Retourne l'en-tête Cookie effectif (complet si disponible)."""
         if domain not in COOKIE_DOMAINS:
             return ""
-        header = (self.cookie_headers.get(domain) or "").strip()
+        header = sanitize_cookie_header(self.cookie_headers.get(domain))
         if header:
             return header
         cookie_var = self._get_cookie_var_for_domain(domain)
         if cookie_var is None:
             return ""
         cookie_value = (fallback_cookie or self.run_on_ui(cookie_var.get, wait=True, default="")).strip()
-        if cookie_value:
-            return f"cf_clearance={cookie_value}"
-        return ""
+        return build_cf_clearance_cookie_header(cookie_value)
 
     def get_cookie_header_for_url(self, url, fallback_cookie=None):
         domain = self.get_domain_from_url(url)
@@ -5600,13 +5678,13 @@ class MangaApp:
             if current_cookie and current_cookie != previous_cookie:
                 self.cookie_sources[domain] = "manual"
                 self.cookie_user_agents[domain] = direct_ua
-                self.cookie_headers[domain] = f"cf_clearance={current_cookie}"
+                self.cookie_headers[domain] = build_cf_clearance_cookie_header(current_cookie)
                 self.last_known_cookies[domain] = current_cookie
                 self._mark_cookie_updated(domain, current_cookie)
             elif current_cookie:
                 self.cookie_sources[domain] = "manual"
                 self.cookie_user_agents[domain] = direct_ua
-                self.cookie_headers[domain] = f"cf_clearance={current_cookie}"
+                self.cookie_headers[domain] = build_cf_clearance_cookie_header(current_cookie)
             elif not current_cookie:
                 self.cookie_sources[domain] = ""
                 self.cookie_user_agents[domain] = ""
@@ -5650,7 +5728,7 @@ class MangaApp:
         if cookie:
             self.cookie_sources[domain] = "manual"
             self.cookie_user_agents[domain] = direct_ua
-            self.cookie_headers[domain] = f"cf_clearance={cookie}"
+            self.cookie_headers[domain] = build_cf_clearance_cookie_header(cookie)
             self.last_known_cookies[domain] = cookie
             self._mark_cookie_updated(domain, cookie)
             return cookie
@@ -6086,7 +6164,7 @@ class MangaApp:
                 self.run_on_ui(self._set_eta_ui, None, global_eta)
 
             for vol, link in selected:
-                if self.cancel_event.wait(0.2):
+                if self.cancel_event.is_set():
                     break
 
                 volume_start = time.time()
@@ -6125,7 +6203,7 @@ class MangaApp:
                 self.run_on_ui(self._set_progress_ui, 0)
 
                 ua = self.get_request_user_agent_for_url(link)
-                images = get_images(link, cookie, ua)
+                images = get_images(link, cookie, ua, cancel_event=self.cancel_event)
                 self.log(
                     f"{len(images)} image(s) trouvée(s)",
                     level="info",
@@ -6283,7 +6361,7 @@ class MangaApp:
                     self.run_on_ui(self._set_current_volume_ui, vol)
                     cookie = self.get_cookie(link)
                     ua = self.get_request_user_agent_for_url(link)
-                    images = get_images(link, cookie, ua)
+                    images = get_images(link, cookie, ua, cancel_event=self.cancel_event)
                     if images:
                         self.log(f"Retry réussi: {vol}", level="info")
                         retry_error_state = {"reported": False}
@@ -6383,3 +6461,4 @@ class MangaApp:
 if __name__ == "__main__":
     runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
     MangaApp()
+
