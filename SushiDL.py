@@ -30,6 +30,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+import customtkinter as ctk
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from io import BytesIO
@@ -3034,7 +3035,13 @@ class MangaApp:
         self.analysis_auth_last_domain = None
         self.analysis_auth_last_message = ""
         if clear_label and hasattr(self, "status_label"):
-            self.run_on_ui(lambda: self.status_label.config(text="", foreground="#5f6f88"))
+            def clear_status():
+                if self._is_ctk_widget(self.status_label):
+                    self.status_label.configure(text="", text_color="#5f6f88")
+                else:
+                    self.status_label.config(text="", foreground="#5f6f88")
+
+            self.run_on_ui(clear_status)
 
     def _schedule_auth_status_update(self, *_args):
         """Rafraîchit les badges auth sans invalider l'état d'analyse en mémoire."""
@@ -3110,6 +3117,12 @@ class MangaApp:
         _ = source
         return ""
 
+    def _is_ctk_widget(self, widget):
+        """Retourne True si le widget provient de CustomTkinter."""
+        if widget is None:
+            return False
+        return widget.__class__.__module__.startswith("customtkinter")
+
     def _set_auth_badge(self, widget, state):
         """Applique un badge visuel pour statut auth: pending / valid / invalid."""
         pending_bg = "#FFC067"
@@ -3123,11 +3136,20 @@ class MangaApp:
         else:
             normalized = str(state or "").strip().lower()
         if normalized in ("pending", "en_attente", "waiting"):
-            widget.config(text="Validation en cours", bg=pending_bg, fg=pending_fg)
+            if self._is_ctk_widget(widget):
+                widget.configure(text="Validation en cours", fg_color=pending_bg, text_color=pending_fg)
+            else:
+                widget.config(text="Validation en cours", bg=pending_bg, fg=pending_fg)
         elif normalized in ("valid", "ok", "true", "1"):
-            widget.config(text="Validé", bg=valid_bg, fg=valid_fg)
+            if self._is_ctk_widget(widget):
+                widget.configure(text="Valide", fg_color=valid_bg, text_color=valid_fg)
+            else:
+                widget.config(text="Validé", bg=valid_bg, fg=valid_fg)
         else:
-            widget.config(text="A vérifier", bg=invalid_bg, fg=invalid_fg)
+            if self._is_ctk_widget(widget):
+                widget.configure(text="A verifier", fg_color=invalid_bg, text_color=invalid_fg)
+            else:
+                widget.config(text="A vérifier", bg=invalid_bg, fg=invalid_fg)
 
     def _apply_auth_tab_state_style(self, state):
         """Memorise l'etat visuel de l'onglet Authentification et rafraichit son rendu."""
@@ -3347,7 +3369,11 @@ class MangaApp:
         else:
             color = "#2f73d9"
             self._set_workflow_step("source", "Analyse en cours...")
-        self.status_label.config(text=repair_mojibake_text(text or ""), foreground=color)
+        safe_text = repair_mojibake_text(text or "")
+        if self._is_ctk_widget(self.status_label):
+            self.status_label.configure(text=safe_text, text_color=color)
+        else:
+            self.status_label.config(text=safe_text, foreground=color)
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
         """Mémorise un résultat auth basé sur une analyse réelle."""
@@ -3679,7 +3705,9 @@ class MangaApp:
         self.total_chapters_to_process = 0
         self.chapters_done = 0
         self.ui_queue = queue.Queue()
-        self.root = tk.Tk()
+        ctk.set_appearance_mode("light")
+        ctk.set_default_color_theme("blue")
+        self.root = ctk.CTk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
 
         # Fenêtre modernisée: redimensionnable avec taille minimale confortable.
@@ -4105,21 +4133,26 @@ class MangaApp:
             pass
 
         self.palette = {
-            "app_bg": "#f5f7fa",
-            "card_bg": "#f7f9fc",
-            "card_alt": "#f3f6fa",
+            "app_bg": "#eef4fb",
+            "card_bg": "#f9fbff",
+            "card_alt": "#f1f6fd",
+            "panel_bg": "#f5f9ff",
             "text": "#1f2937",
             "muted": "#5f6b7a",
-            "accent": "#1f7ae0",
-            "accent_hover": "#1866bf",
+            "accent": "#1d6fd6",
+            "accent_hover": "#175db5",
             "danger": "#d14343",
-            "border": "#dce3ec",
-            "canvas_bg": "#f3f6fa",
-            "log_bg": "#f7f9fc",
-            "progress_trough": "#dfe6ee",
+            "border": "#d6e0ec",
+            "input_bg": "#ffffff",
+            "canvas_bg": "#f1f6fd",
+            "log_bg": "#f9fbff",
+            "progress_trough": "#d8e3ef",
         }
 
-        self.root.configure(bg=self.palette["app_bg"])
+        try:
+            self.root.configure(fg_color=self.palette["app_bg"])
+        except Exception:
+            self.root.configure(bg=self.palette["app_bg"])
 
         style.configure(
             ".",
@@ -4438,7 +4471,9 @@ class MangaApp:
         self.config_options_tab = create_config_tab_content(self.config_options_page)
         self._refresh_config_tab_buttons()
         self._select_config_tab("journal")
-        self.config_auth_tab.grid_columnconfigure(1, weight=1)
+        self.config_auth_tab.grid_columnconfigure(0, weight=1)
+        self.config_auth_tab.grid_columnconfigure(1, weight=0)
+        self.config_auth_tab.grid_columnconfigure(2, weight=0)
 
         log_frame = ttk.Frame(self.config_journal_tab, style="Card.TFrame")
         log_frame.pack(fill="both", expand=True)
@@ -4496,151 +4531,169 @@ class MangaApp:
 
         font_label = ("Segoe UI", 10)
         font_entry = ("Segoe UI", 10)
+        badge_font = ("Segoe UI Semibold", 11)
+
+        def create_ctk_badge(parent):
+            return ctk.CTkLabel(
+                parent,
+                text="Validation en cours",
+                width=132,
+                height=30,
+                corner_radius=999,
+                fg_color="#FFC067",
+                text_color="#6a4b00",
+                font=badge_font,
+            )
+
+        auth_surface = ctk.CTkFrame(
+            self.config_auth_tab,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        auth_surface.grid(row=0, column=0, columnspan=3, sticky="ew", padx=(4, 4), pady=(4, 2))
+        auth_surface.grid_columnconfigure(0, weight=0)
+        auth_surface.grid_columnconfigure(1, weight=1)
+        auth_surface.grid_columnconfigure(2, weight=0)
+
         row = 0
 
-        ttk.Label(
-            self.config_auth_tab,
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.cookie_fr_label_var,
-            style="Card.TLabel",
+            text_color=self.palette["text"],
             font=font_label,
         ).grid(
-            row=row, column=0, sticky="w", pady=4, padx=(4, 8)
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
         )
-        self.cookie_fr_entry = ttk.Entry(
-            self.config_auth_tab, textvariable=self.cookie_fr, width=64, font=font_entry, style="Card.TEntry", show="*"
+        self.cookie_fr_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_fr,
+            font=font_entry,
+            height=36,
+            corner_radius=12,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
         )
-        self.cookie_fr_entry.grid(row=row, column=1, pady=4, sticky="ew")
-        self.cookie_fr_status = tk.Label(
-            self.config_auth_tab,
-            text="Validation en cours",
-            font=("Segoe UI Semibold", 9),
-            fg="#1f2937",
-            bg="#FFC067",
-            padx=10,
-            pady=3,
-            relief="solid",
-            borderwidth=1,
-            width=16,
-        )
-        self.cookie_fr_status.grid(row=row, column=2, sticky="w", padx=10)
+        self.cookie_fr_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_fr_status = create_ctk_badge(auth_surface)
+        self.cookie_fr_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
         row += 1
 
-        ttk.Label(
-            self.config_auth_tab,
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.cookie_net_label_var,
-            style="Card.TLabel",
+            text_color=self.palette["text"],
             font=font_label,
         ).grid(
-            row=row, column=0, sticky="w", pady=4, padx=(4, 8)
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
         )
-        self.cookie_net_entry = ttk.Entry(
-            self.config_auth_tab, textvariable=self.cookie_net, width=64, font=font_entry, style="Card.TEntry", show="*"
+        self.cookie_net_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_net,
+            font=font_entry,
+            height=36,
+            corner_radius=12,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
         )
-        self.cookie_net_entry.grid(row=row, column=1, pady=4, sticky="ew")
-        self.cookie_net_status = tk.Label(
-            self.config_auth_tab,
-            text="Validation en cours",
-            font=("Segoe UI Semibold", 9),
-            fg="#1f2937",
-            bg="#FFC067",
-            padx=10,
-            pady=3,
-            relief="solid",
-            borderwidth=1,
-            width=16,
-        )
-        self.cookie_net_status.grid(row=row, column=2, sticky="w", padx=10)
+        self.cookie_net_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_net_status = create_ctk_badge(auth_surface)
+        self.cookie_net_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
         row += 1
 
-        ttk.Label(
-            self.config_auth_tab,
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.cookie_origines_label_var,
-            style="Card.TLabel",
+            text_color=self.palette["text"],
             font=font_label,
         ).grid(
-            row=row, column=0, sticky="w", pady=4, padx=(4, 8)
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
         )
-        self.cookie_origines_entry = ttk.Entry(
-            self.config_auth_tab, textvariable=self.cookie_origines, width=64, font=font_entry, style="Card.TEntry", show="*"
+        self.cookie_origines_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_origines,
+            font=font_entry,
+            height=36,
+            corner_radius=12,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
         )
-        self.cookie_origines_entry.grid(row=row, column=1, pady=4, sticky="ew")
-        self.cookie_origines_status = tk.Label(
-            self.config_auth_tab,
-            text="Validation en cours",
-            font=("Segoe UI Semibold", 9),
-            fg="#1f2937",
-            bg="#FFC067",
-            padx=10,
-            pady=3,
-            relief="solid",
-            borderwidth=1,
-            width=16,
-        )
-        self.cookie_origines_status.grid(row=row, column=2, sticky="w", padx=10)
+        self.cookie_origines_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_origines_status = create_ctk_badge(auth_surface)
+        self.cookie_origines_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
         row += 1
 
-        ttk.Label(
-            self.config_auth_tab,
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.cookie_hentai_label_var,
-            style="Card.TLabel",
+            text_color=self.palette["text"],
             font=font_label,
         ).grid(
-            row=row, column=0, sticky="w", pady=4, padx=(4, 8)
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
         )
-        self.cookie_hentai_entry = ttk.Entry(
-            self.config_auth_tab, textvariable=self.cookie_hentai, width=64, font=font_entry, style="Card.TEntry", show="*"
+        self.cookie_hentai_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_hentai,
+            font=font_entry,
+            height=36,
+            corner_radius=12,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
         )
-        self.cookie_hentai_entry.grid(row=row, column=1, pady=4, sticky="ew")
-        self.cookie_hentai_status = tk.Label(
-            self.config_auth_tab,
-            text="Validation en cours",
-            font=("Segoe UI Semibold", 9),
-            fg="#1f2937",
-            bg="#FFC067",
-            padx=10,
-            pady=3,
-            relief="solid",
-            borderwidth=1,
-            width=16,
-        )
-        self.cookie_hentai_status.grid(row=row, column=2, sticky="w", padx=10)
+        self.cookie_hentai_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_hentai_status = create_ctk_badge(auth_surface)
+        self.cookie_hentai_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
         row += 1
 
-        ttk.Label(
-            self.config_auth_tab,
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.ua_label_var,
-            style="Card.TLabel",
+            text_color=self.palette["text"],
             font=font_label,
         ).grid(
-            row=row, column=0, sticky="w", pady=4, padx=(4, 8)
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
         )
-        self.ua_entry = ttk.Entry(self.config_auth_tab, textvariable=self.ua, font=font_entry, style="Card.TEntry")
-        self.ua_entry.grid(row=row, column=1, pady=4, sticky="ew")
-        self.ua_status = tk.Label(
-            self.config_auth_tab,
-            text="Validation en cours",
-            font=("Segoe UI Semibold", 9),
-            fg="#1f2937",
-            bg="#FFC067",
-            padx=10,
-            pady=3,
-            relief="solid",
-            borderwidth=1,
-            width=16,
+        self.ua_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.ua,
+            font=font_entry,
+            height=36,
+            corner_radius=12,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
         )
-        self.ua_status.grid(row=row, column=2, sticky="w", padx=10)
+        self.ua_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.ua_status = create_ctk_badge(auth_surface)
+        self.ua_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
         row += 1
 
-        auth_actions_row = ttk.Frame(self.config_auth_tab, style="Card.TFrame")
-        auth_actions_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(8, 2), padx=(4, 4))
+        auth_actions_row = ctk.CTkFrame(auth_surface, fg_color="transparent")
+        auth_actions_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(12, 12), padx=(14, 14))
         auth_actions_row.columnconfigure(0, weight=1)
-        ttk.Button(
+        ctk.CTkButton(
             auth_actions_row,
             text="Tester tout",
             command=self.run_auth_diagnostics,
-            style="Secondary.TButton",
+            height=34,
+            corner_radius=12,
+            fg_color=self.palette["card_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
         ).grid(row=0, column=0, sticky="w")
-        ttk.Button(
+        ctk.CTkButton(
             auth_actions_row,
             text="Aide Cookie",
             command=lambda: self._open_external_link(
@@ -4652,7 +4705,13 @@ class MangaApp:
                     ),
                 )
             ),
-            style="Secondary.TButton",
+            height=34,
+            corner_radius=12,
+            fg_color=self.palette["card_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
         ).grid(row=0, column=1, sticky="e")
         row += 1
 
@@ -4788,22 +4847,27 @@ class MangaApp:
 
         source_card, self.source_section_tabs = create_titled_section(main_frame, "Sources", 6)
 
-        url_cover_frame = ttk.Frame(source_card, style="Card.TFrame")
+        url_cover_frame = ctk.CTkFrame(
+            source_card,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=18,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
         url_cover_frame.pack(fill="x")
         cover_w, cover_h = self.get_cover_target_size()
 
-        self.cover_frame = tk.Frame(
+        self.cover_frame = ctk.CTkFrame(
             url_cover_frame,
             width=cover_w,
             height=cover_h,
-            bg=self.palette["card_alt"],
-            highlightbackground=self.palette["border"],
-            highlightthickness=1,
-            bd=2,
-            relief="sunken",
+            fg_color="#ffffff",
+            corner_radius=14,
+            border_width=1,
+            border_color=self.palette["border"],
         )
         self.cover_frame.pack_propagate(False)
-        self.cover_frame.pack(side="left", padx=(4, 14), pady=2)
+        self.cover_frame.pack(side="left", padx=(14, 16), pady=14)
         self.cover_label = tk.Label(
             self.cover_frame,
             bg="#ffffff",
@@ -4817,12 +4881,26 @@ class MangaApp:
         self.cover_label.pack(fill="both", expand=True)
         self._show_default_cover_placeholder()
 
-        url_frame = ttk.Frame(url_cover_frame, style="Card.TFrame")
-        url_frame.pack(side="left", fill="x", expand=True)
+        url_frame = ctk.CTkFrame(url_cover_frame, fg_color="transparent")
+        url_frame.pack(side="left", fill="x", expand=True, padx=(0, 14), pady=14)
 
-        ttk.Label(url_frame, text="URL du Manga/Manhwa/BD :", style="Card.TLabel", font=font_label).pack(anchor="w")
-        self.url_entry = ttk.Entry(url_frame, textvariable=self.url, font=font_entry, style="Card.TEntry")
-        self.url_entry.pack(fill="x", pady=(2, 0))
+        ctk.CTkLabel(
+            url_frame,
+            text="URL du Manga/Manhwa/BD",
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 12),
+        ).pack(anchor="w")
+        self.url_entry = ctk.CTkEntry(
+            url_frame,
+            textvariable=self.url,
+            font=font_entry,
+            height=38,
+            corner_radius=12,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+        )
+        self.url_entry.pack(fill="x", pady=(6, 0))
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
@@ -4830,16 +4908,26 @@ class MangaApp:
             None,
         )
 
-        analyze_frame = ttk.Frame(url_frame, style="Card.TFrame")
-        analyze_frame.pack(pady=(6, 0), anchor="w")
-        self.analyze_button = ttk.Button(
+        analyze_frame = ctk.CTkFrame(url_frame, fg_color="transparent")
+        analyze_frame.pack(pady=(10, 0), anchor="w")
+        self.analyze_button = ctk.CTkButton(
             analyze_frame,
             text="Analyser le lien",
             command=self.load_volumes,
-            style="Primary.TButton",
+            height=36,
+            corner_radius=12,
+            fg_color=self.palette["accent"],
+            hover_color=self.palette["accent_hover"],
+            text_color="#ffffff",
         )
         self.analyze_button.pack(side="left")
-        self.status_label = ttk.Label(analyze_frame, text="", style="Card.TLabel", font=("Segoe UI", 9))
+        self.status_label = ctk.CTkLabel(
+            analyze_frame,
+            text="",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+        )
         self.status_label.pack(side="left", padx=(12, 0))
 
         selection_wrap = ttk.Frame(main_frame, style="App.TFrame")
