@@ -1,51 +1,76 @@
 <p align="center">
-  <img alt="SushiDL banner" src="assets/banner.png" />
+  <img alt="Banniere SushiDL" src="assets/banner.png" />
 </p>
 
-# SushiDL - Manga Downloader with GUI
+# SushiDL
 
-SushiDL is a Python application with a Tkinter interface to download manga chapters/volumes from:
-- https://sushiscan.fr
-- https://sushiscan.net
-- https://mangas-origines.fr
-- https://hentai-origines.fr (adult content)
+SushiDL est une application Python avec interface graphique Tkinter pour analyser et telecharger des chapitres ou tomes de mangas depuis plusieurs domaines compatibles, avec gestion manuelle de l'authentification Cloudflare, telechargement multi-thread, conversion d'images et creation d'archives CBZ.
 
-Current version: `11.2.8`
+## Resume
 
-## What is new (11.2.8)
+SushiDL cible un usage simple :
+- renseigner les cookies et le `User-Agent`
+- analyser une URL catalogue compatible
+- selectionner les tomes ou chapitres
+- telecharger les pages dans un dossier local
+- generer des archives `.cbz` si souhaite
 
-- Faster worker loops (removed artificial waits in download flow).
-- Better cancellation during image extraction retries.
-- Safety timeout added on synchronous UI calls (`run_on_ui(wait=True)`).
-- Lower thread contention in logs (removed per-image success log spam).
-- Stronger cookie/header sanitization before HTTP requests.
-- Cookie validity probe now always uses fixed startup URLs per domain.
+Version actuelle : `11.2.8`
 
-## Main features
+## Nouveautes recentes
 
-- Manual authentication only (`cf_clearance` + `User-Agent`).
-- Separate cookie fields for `.fr`, `.net`, `.origines`, `.hentai-origines`.
-- Automatic domain mapping for requests, image downloads, and cover fetch.
-- Multi-thread image download with retries and failure classification.
-- Optional WebP to JPG conversion.
-- Optional CBZ archive generation.
-- Smart resume for already downloaded pages.
-- Download cancel support at runtime.
-- Unified logs in GUI and terminal (with filters).
-- Error table per volume (stage, HTTP code, reason, suggested action).
+### 11.2.8
+- Acceleration du flux de telechargement par suppression des attentes artificielles dans les boucles workers.
+- Annulation plus reactive pendant les retries d'extraction des images.
+- Timeout de securite ajoute sur les appels UI synchrones (`run_on_ui(wait=True)`).
+- Reduction de la contention entre threads dans les logs.
+- Sanitation stricte des valeurs de cookies et du header `Cookie` avant les requetes HTTP.
+- Probe de validation cookie force sur des URLs fixes de demarrage par domaine.
 
-## Requirements
+Pour le detail complet des versions : voir `CHANGELOG.md`.
 
-- Python 3.10+
-- Dependencies from `requirements.txt`
+## Sites supportes
 
-Windows:
+- `https://sushiscan.fr`
+- `https://sushiscan.net`
+- `https://mangas-origines.fr`
+- `https://hentai-origines.fr`
+
+Formats d'URL catalogue attendus :
+- `https://sushiscan.fr/catalogue/<slug>/`
+- `https://sushiscan.net/catalogue/<slug>/`
+- `https://mangas-origines.fr/oeuvre/<slug>/`
+- `https://hentai-origines.fr/manga/<slug>/`
+
+## Fonctionnalites principales
+
+- Authentification manuelle par cookies `cf_clearance` et `User-Agent`.
+- Champs separes par domaine pour `.fr`, `.net`, `.origines` et `.hentai-origines`.
+- Detection automatique du domaine a utiliser pour les pages, images et couvertures.
+- Telechargement multi-thread des images avec retries et classification des erreurs.
+- Annulation possible pendant l'execution.
+- Reprise intelligente sur les pages deja presentes.
+- Conversion optionnelle WebP vers JPG.
+- Creation optionnelle d'archives CBZ.
+- Journal unifie GUI + terminal avec filtres.
+- Tableau d'erreurs par tome avec raison technique et action recommande.
+- Sauvegarde persistante des parametres dans `cookie_cache.json`.
+
+## Prerequis
+
+- Python 3.10 ou plus
+- Dependances Python de `requirements.txt`
+- Tkinter disponible dans l'installation Python
+
+Verification rapide :
+
+Sous Windows :
 
 ```bash
 python --version
 ```
 
-Linux (Debian/Ubuntu):
+Sous Linux (Debian/Ubuntu) :
 
 ```bash
 sudo apt update
@@ -61,39 +86,49 @@ cd SushiDL
 pip install -r requirements.txt
 ```
 
-## Run
+Si `pip` ne pointe pas vers la bonne version de Python, utilise `python -m pip install -r requirements.txt` ou `python3 -m pip install -r requirements.txt`.
 
-Windows:
+## Lancement
+
+Sous Windows :
 
 ```bash
 python SushiDL.py
 ```
 
-Linux:
+Sous Linux :
 
 ```bash
 python3 SushiDL.py
 ```
 
-## Authentication setup (manual mode)
+## Authentification manuelle
 
-SushiDL does not use FlareSolverr/Playwright/browser import in the main flow.
-You must provide:
-- one `cf_clearance` cookie per domain you use
-- one valid `User-Agent`
+SushiDL fonctionne en mode manuel pour l'authentification.
+Le flux principal n'utilise pas FlareSolverr, Playwright, ni import automatique des cookies depuis le navigateur.
 
-Quick setup:
-1. Open the target site in your browser and pass Cloudflare challenge if needed.
-2. Copy `cf_clearance` for the matching domain.
-3. Get your user-agent (for example from `https://httpbin.org/user-agent`).
-4. Paste values into SushiDL fields and save settings.
+Tu dois fournir :
+- un cookie `cf_clearance` pour chaque domaine que tu veux utiliser
+- un `User-Agent` valide
 
-## Configuration files
+Procedure conseillee :
+1. Ouvre le site cible dans ton navigateur habituel.
+2. Passe le challenge Cloudflare si necessaire.
+3. Recupere la valeur du cookie `cf_clearance` sur le domaine concerne.
+4. Recupere le `User-Agent` du navigateur.
+5. Colle les valeurs dans l'onglet d'authentification de SushiDL.
+6. Sauvegarde les parametres.
 
-- `config.json`: global app settings and helper links.
-- `cookie_cache.json`: persisted runtime preferences and auth values.
+Lien pratique pour recuperer le `User-Agent` :
+- `https://httpbin.org/user-agent`
 
-Default `config.json` schema:
+## Configuration
+
+Fichiers utilises par l'application :
+- `config.json` : configuration globale et liens d'aide
+- `cookie_cache.json` : preferences utilisateur, cookies, user-agent, options runtime
+
+Exemple de structure `config.json` :
 
 ```json
 {
@@ -109,52 +144,73 @@ Default `config.json` schema:
 }
 ```
 
-## Typical workflow
+## Utilisation
 
-1. Launch `SushiDL.py`.
-2. Fill cookies and user-agent in the Authentication tab.
-3. Paste a supported catalog URL.
-4. Click Analyze.
-5. Select chapters/volumes.
-6. Click Download and choose output folder.
+Workflow standard :
+1. Lance `SushiDL.py`.
+2. Renseigne les cookies et le `User-Agent`.
+3. Colle une URL catalogue supportee.
+4. Clique sur `Analyser`.
+5. Controle la liste detectee.
+6. Selectionne les tomes ou chapitres souhaites.
+7. Clique sur `Telecharger`.
+8. Choisis le dossier de destination.
 
-## Output
+## Sortie des fichiers
 
-By default, downloads are created under `DL SushiScan/` (or your selected output directory).
+Par defaut, les telechargements sont ranges dans `DL SushiScan/`, sauf si tu choisis un autre dossier de sortie pendant le telechargement.
 
-Typical structure:
+Structure typique :
 
 ```text
-<output_root>/
-  <manga_title>/
-    <manga_title> - <tome_or_chapter>.cbz
+<dossier_sortie>/
+  <titre_manga>/
+    <titre_manga> - <tome_ou_chapitre>.cbz
 ```
 
-If CBZ is disabled, images are kept in per-volume folders.
+Si le mode CBZ est desactive, les images sont conservees dans des dossiers par tome ou chapitre.
 
-## Troubleshooting
+## Gestion des erreurs
 
-- HTTP 403 / challenge page: refresh `cf_clearance` and check `User-Agent`.
-- Empty chapter list: verify source URL format and domain cookie.
-- Download errors: retry later for 429/5xx, or update auth data.
+SushiDL distingue plusieurs familles d'erreurs :
+- `404` / `410` : page absente cote serveur
+- `403`, `429`, `5xx` : blocage, rate limit, erreur serveur ou probleme reseau
+- page HTML a la place d'une image : challenge ou protection cote site
 
-## Optional helper tool
+L'interface remonte aussi un tableau d'erreurs par tome avec :
+- etape concernee
+- code HTTP
+- raison technique
+- action conseillee
 
-`tools/remove_last_images_cbz.py` can remove trailing ad/parasite pages from CBZ files in batch mode.
+## Conseils de depannage
 
-## Project layout
+- `HTTP 403` : verifie le cookie `cf_clearance` du bon domaine et le `User-Agent`.
+- Liste vide : controle le format de l'URL source et le domaine actif.
+- Retry frequent sur images : renouvelle les donnees d'authentification ou attends avant de relancer.
+- Couverture ou pages non chargees : controle que le cookie correspond bien au domaine de l'URL analysee.
 
-- `SushiDL.py`: main app
-- `legacy_scripts/SushiDL_V9.py`: legacy version
-- `tools/remove_last_images_cbz.py`: CBZ cleanup tool
-- `cut_sushiscan_fr/`: image split/rebuild scripts
-- `CHANGELOG.md`: release history
+## Outils complementaires
+
+Le depot contient aussi :
+- `tools/remove_last_images_cbz.py` : nettoyage automatique des dernieres pages parasites d'un CBZ
+- `cut_sushiscan_fr/` : scripts annexes de coupe / reconstruction d'images
+- `legacy_scripts/SushiDL_V9.py` : ancienne version conservee pour reference
+
+## Structure du projet
+
+- `SushiDL.py` : application principale
+- `README.md` : documentation generale
+- `CHANGELOG.md` : historique des versions
+- `requirements.txt` : dependances Python
+- `assets/` : visuels et captures
+- `tools/` : scripts utilitaires
 
 ## Changelog
 
-See `CHANGELOG.md` for release-by-release history.
+Historique complet des versions : `CHANGELOG.md`
 
 ## Support
 
-If this project is useful to you, you can support the maintainer on Ko-fi:
+Si le projet t'est utile, tu peux soutenir le mainteneur sur Ko-fi :
 - https://ko-fi.com/itanivalkyrie
