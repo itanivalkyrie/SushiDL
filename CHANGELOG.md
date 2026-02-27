@@ -27,6 +27,9 @@ Le format de version suit la regle `X.Y.Z` :
   - le probe cookie utilise des URLs fixes de demarrage (par domaine),
   - il ne depend plus de l'URL saisie dans le champ d'analyse.
 
+### Documentation
+- README complet reecrit en format propre (UTF-8 stable) pour supprimer les problemes d'encodage.
+
 ## [11.2.7] - 2026-02-25
 
 ### Ameliorations
