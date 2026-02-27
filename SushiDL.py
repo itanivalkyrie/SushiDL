@@ -2771,30 +2771,129 @@ class MangaApp:
             "warning": "#a16207",
             "error": self.palette["danger"],
         }
-        self.vol_empty_label.config(
-            text=repair_mojibake_text(text or ""),
-            fg=fg_map.get(tone, self.palette["muted"]),
-            bg=self.palette["canvas_bg"],
-        )
-        if hasattr(self, "canvas"):
-            self.vol_empty_label.place(in_=self.canvas, relx=0.5, rely=0.5, anchor="center")
+        safe_text = repair_mojibake_text(text or "")
+        tone_color = fg_map.get(tone, self.palette["muted"])
+        if self._is_ctk_widget(self.vol_empty_label):
+            self.vol_empty_label.configure(text=safe_text, text_color=tone_color)
+        else:
+            self.vol_empty_label.config(text=safe_text, fg=tone_color, bg=self.palette["canvas_bg"])
+        host = getattr(self, "volume_list_container", None)
+        if host is not None:
+            self.vol_empty_label.place(in_=host, relx=0.5, rely=0.5, anchor="center")
             self.vol_empty_label.lift()
         else:
             self.vol_empty_label.place(relx=0.5, rely=0.5, anchor="center")
-        if hasattr(self, "canvas"):
-            self.canvas.after_idle(lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
     def _hide_volume_empty_state(self):
         if hasattr(self, "vol_empty_label"):
             self.vol_empty_label.place_forget()
-        if hasattr(self, "canvas"):
-            self.canvas.after_idle(lambda: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
 
     def _is_volume_visible(self, chk):
         try:
             return str(chk.winfo_manager()) == "grid"
         except Exception:
             return False
+
+    def _scroll_volumes_to_top(self):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.yview_moveto(0)
+        except Exception:
+            pass
+
+    def _toggle_volume_card(self, var):
+        var.set(not bool(var.get()))
+        self.update_master_toggle_button()
+
+    def _sync_volume_card_style(self, card):
+        if card is None or not self._is_ctk_widget(card):
+            return
+        selected = bool(getattr(card, "volume_var", None).get()) if hasattr(card, "volume_var") else False
+        title = getattr(card, "volume_title_label", None)
+        index = getattr(card, "volume_index_label", None)
+        if selected:
+            card.configure(fg_color="#edf5ff", border_color=self.palette["accent"])
+            if title is not None:
+                title.configure(text_color=self.palette["text"])
+            if index is not None:
+                index.configure(fg_color=self.palette["accent"], text_color="#ffffff")
+        else:
+            card.configure(fg_color="#ffffff", border_color=self.palette["border"])
+            if title is not None:
+                title.configure(text_color=self.palette["text"])
+            if index is not None:
+                index.configure(fg_color=self.palette["card_alt"], text_color=self.palette["muted"])
+
+    def _refresh_volume_card_styles(self):
+        for card, _label in getattr(self, "check_items", []) or []:
+            self._sync_volume_card_style(card)
+
+    def _create_volume_card(self, parent, volume_label, var, index):
+        card = ctk.CTkFrame(
+            parent,
+            fg_color="#ffffff",
+            corner_radius=14,
+            border_width=1,
+            border_color=self.palette["border"],
+            height=64,
+        )
+        card.grid_propagate(False)
+        card.grid_columnconfigure(0, weight=0)
+        card.grid_columnconfigure(1, weight=1)
+        card.grid_columnconfigure(2, weight=0)
+
+        index_label = ctk.CTkLabel(
+            card,
+            text=str(index + 1),
+            width=28,
+            height=28,
+            corner_radius=999,
+            fg_color=self.palette["card_alt"],
+            text_color=self.palette["muted"],
+            font=("Segoe UI Semibold", 10),
+        )
+        index_label.grid(row=0, column=0, padx=(12, 10), pady=12)
+
+        title_label = ctk.CTkLabel(
+            card,
+            text=volume_label,
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 11),
+            anchor="w",
+        )
+        title_label.grid(row=0, column=1, sticky="ew", pady=12)
+
+        checkbox = ctk.CTkCheckBox(
+            card,
+            text="",
+            variable=var,
+            width=24,
+            height=24,
+            checkbox_width=22,
+            checkbox_height=22,
+            corner_radius=6,
+            fg_color=self.palette["accent"],
+            hover_color=self.palette["accent_hover"],
+            border_color=self.palette["border"],
+            checkmark_color="#ffffff",
+            command=self.update_master_toggle_button,
+        )
+        checkbox.grid(row=0, column=2, padx=(10, 12), pady=12)
+
+        toggle = lambda _event=None, _var=var: self._toggle_volume_card(_var)
+        card.bind("<Button-1>", toggle)
+        index_label.bind("<Button-1>", toggle)
+        title_label.bind("<Button-1>", toggle)
+
+        card.volume_var = var
+        card.volume_title_label = title_label
+        card.volume_index_label = index_label
+        card.volume_checkbox = checkbox
+        self._sync_volume_card_style(card)
+        return card
 
     def _refresh_volume_empty_state(self):
         if not hasattr(self, "check_items"):
@@ -4319,8 +4418,6 @@ class MangaApp:
 
         style.configure("Card.TCheckbutton", background=self.palette["card_bg"], foreground=self.palette["text"], padding=(2, 1))
         style.map("Card.TCheckbutton", background=[("active", self.palette["card_bg"])])
-        style.configure("Tome.TCheckbutton", background=self.palette["canvas_bg"], foreground=self.palette["text"], padding=(2, 1))
-        style.map("Tome.TCheckbutton", background=[("active", self.palette["canvas_bg"])])
 
         style.configure(
             "Card.TEntry",
@@ -5233,40 +5330,27 @@ class MangaApp:
             border_color=self.palette["border"],
         )
         vol_frame_container.pack(fill="both", expand=True)
+        self.volume_list_container = vol_frame_container
 
-        canvas_frame = ctk.CTkFrame(vol_frame_container, fg_color="transparent")
-        canvas_frame.pack(fill="both", expand=True, padx=1, pady=1)
-
-        self.canvas = tk.Canvas(
-            canvas_frame,
-            bg=self.palette["canvas_bg"],
-            highlightthickness=0,
-            height=220,  # Zone volontairement plus haute pour afficher davantage de tomes.
+        self.vol_frame = ctk.CTkScrollableFrame(
+            vol_frame_container,
+            height=260,
+            corner_radius=14,
+            fg_color="transparent",
+            border_width=0,
+            scrollbar_fg_color=self.palette["card_bg"],
+            scrollbar_button_color="#c5d3e2",
+            scrollbar_button_hover_color="#aebfd1",
         )
-        self.scrollbar = ttk.Scrollbar(canvas_frame, orient="vertical", command=self.canvas.yview)
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        self.vol_frame = tk.Frame(self.canvas, bg=self.palette["canvas_bg"])
-        self.canvas_window = self.canvas.create_window((0, 0), window=self.vol_frame, anchor="nw")
-        self.vol_empty_label = tk.Label(
-            self.canvas,
+        self.vol_frame.pack(fill="both", expand=True, padx=6, pady=6)
+        self.vol_empty_label = ctk.CTkLabel(
+            vol_frame_container,
             text="Aucun Tome/Chapitre chargé.",
-            bg=self.palette["canvas_bg"],
-            fg=self.palette["muted"],
+            fg_color="transparent",
+            text_color=self.palette["muted"],
             font=("Segoe UI", 10),
-            bd=0,
-            highlightthickness=0,
         )
-        self.vol_empty_label.place(in_=self.canvas, relx=0.5, rely=0.5, anchor="center")
-
-        def center_volumes(event):
-            canvas_width = event.width
-            self.canvas.coords(self.canvas_window, 0, 0)
-            self.canvas.itemconfig(self.canvas_window, width=canvas_width)
-
-        self.canvas.bind("<Configure>", center_volumes)
-        self.vol_frame.bind("<Configure>", lambda _e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+        self.vol_empty_label.place(in_=vol_frame_container, relx=0.5, rely=0.5, anchor="center")
 
         progress_frame = ctk.CTkFrame(
             center_card,
@@ -6059,9 +6143,6 @@ class MangaApp:
 
         def apply_pairs_ui():
             for widget in self.vol_frame.winfo_children():
-                if widget is getattr(self, "vol_empty_label", None):
-                    widget.place_forget()
-                    continue
                 widget.destroy()
 
             self.check_vars = []
@@ -6073,15 +6154,8 @@ class MangaApp:
             for i, (vol, _link) in enumerate(self.pairs):
                 var = tk.BooleanVar(value=True)
                 self.check_vars.append(var)
-                chk = ttk.Checkbutton(
-                    self.vol_frame,
-                    text=vol,
-                    variable=var,
-                    style="Tome.TCheckbutton",
-                    takefocus=False,
-                    command=self.update_master_toggle_button,
-                )
-                chk.grid(row=(i // columns) + 2, column=i % columns, padx=15, pady=5, sticky="n")
+                chk = self._create_volume_card(self.vol_frame, vol, var, i)
+                chk.grid(row=(i // columns), column=i % columns, padx=10, pady=8, sticky="ew")
                 self.check_items.append((chk, vol))
 
             if not self.pairs:
@@ -6089,7 +6163,7 @@ class MangaApp:
                 self.log("Aucun tome detecte.", level="warning")
             else:
                 self._hide_volume_empty_state()
-            self.canvas.yview_moveto(0)
+            self._scroll_volumes_to_top()
             self.log("Liste chargée avec succès.", level="success")
             has_pairs = bool(self.pairs)
             self.filter_entry.config(state="normal" if has_pairs else "disabled")
@@ -6180,6 +6254,7 @@ class MangaApp:
             return
         text = "Tout décocher" if self.are_all_volumes_selected() else "Tout cocher"
         self.master_toggle_button.config(text=text)
+        self._refresh_volume_card_styles()
         self._update_selection_status()
 
     def _update_selection_status(self):
@@ -6253,7 +6328,7 @@ class MangaApp:
             # Filtre optimisé avec recherche de sous-chaîne
             if not raw or raw in label_lower or \
             (raw.endswith('*') and raw[:-1].isdigit() and label_lower.startswith(raw[:-1])):
-                chk.grid(row=row, column=col, padx=15, pady=5, sticky="n")
+                chk.grid(row=row, column=col, padx=10, pady=8, sticky="ew")
                 col += 1
                 if col == 4:
                     col = 0
