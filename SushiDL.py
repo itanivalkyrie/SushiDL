@@ -2665,7 +2665,7 @@ class MangaApp:
         self.progress.set(percent)
         if hasattr(self, "progress_bar") and self._is_ctk_widget(self.progress_bar):
             self.progress_bar.set(max(0.0, min(1.0, float(percent) / 100.0)))
-        self.progress_label.config(text=f"{int(percent)}%")
+        self.progress_label.configure(text=f"{int(percent)}%")
 
     def _set_current_volume_ui(self, volume_label=None):
         if not hasattr(self, "current_volume_status_label"):
@@ -2677,47 +2677,47 @@ class MangaApp:
             text = f"{label} en cours"
         else:
             text = f"Tome/Chapitre {label} en cours"
-        self.current_volume_status_label.config(text=text)
+        self.current_volume_status_label.configure(text=text)
 
     def _set_eta_ui(self, tome_eta=None, global_eta=None):
         if not hasattr(self, "eta_label"):
             return
         tome_text = format_duration_short(tome_eta)
         global_text = format_duration_short(global_eta)
-        self.eta_label.config(text=f"ETA Tome: {tome_text} | ETA Global: {global_text}")
+        self.eta_label.configure(text=f"ETA Tome: {tome_text} | ETA Global: {global_text}")
 
     def _set_download_controls(self, is_running):
         self.download_in_progress = bool(is_running)
         if is_running:
-            self.dl_button.config(text="Téléchargement...", state="disabled")
-            self.cancel_button.config(state="normal")
-            self.filter_entry.config(state="disabled")
-            self.clear_filter_button.config(state="disabled")
+            self.dl_button.configure(text="Téléchargement...", state="disabled")
+            self.cancel_button.configure(state="normal")
+            self.filter_entry.configure(state="disabled")
+            self.clear_filter_button.configure(state="disabled")
             if hasattr(self, "url_entry"):
-                self.url_entry.config(state="disabled")
+                self.url_entry.configure(state="disabled")
             if hasattr(self, "analyze_button"):
-                self.analyze_button.config(state="disabled")
+                self.analyze_button.configure(state="disabled")
             if hasattr(self, "invert_button"):
-                self.invert_button.config(state="disabled")
+                self.invert_button.configure(state="disabled")
             if hasattr(self, "master_toggle_button"):
-                self.master_toggle_button.config(state="disabled")
+                self.master_toggle_button.configure(state="disabled")
             self._style_clear_filter_button(disabled=True)
             self._set_workflow_step("download", "Téléchargement en cours...")
         else:
-            self.dl_button.config(text="Télécharger la sélection")
-            self.cancel_button.config(state="disabled")
-            self.filter_entry.config(state="normal")
-            self.clear_filter_button.config(state="normal")
+            self.dl_button.configure(text="Télécharger la sélection")
+            self.cancel_button.configure(state="disabled")
+            self.filter_entry.configure(state="normal")
+            self.clear_filter_button.configure(state="normal")
             if hasattr(self, "url_entry"):
-                self.url_entry.config(state="normal")
+                self.url_entry.configure(state="normal")
             if hasattr(self, "analyze_button"):
-                self.analyze_button.config(
+                self.analyze_button.configure(
                     state="disabled" if getattr(self, "analysis_in_progress", False) else "normal"
                 )
             if hasattr(self, "invert_button"):
-                self.invert_button.config(state="normal")
+                self.invert_button.configure(state="normal")
             if hasattr(self, "master_toggle_button"):
-                self.master_toggle_button.config(state="normal")
+                self.master_toggle_button.configure(state="normal")
             self._style_clear_filter_button(disabled=False)
             if hasattr(self, "set_filter_placeholder") and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
@@ -2735,9 +2735,9 @@ class MangaApp:
         if not hasattr(self, "progress_detail_label"):
             return
         if done is None or total is None:
-            self.progress_detail_label.config(text="Images: --/--")
+            self.progress_detail_label.configure(text="Images: --/--")
             return
-        self.progress_detail_label.config(text=f"Images: {int(done)}/{int(total)}")
+        self.progress_detail_label.configure(text=f"Images: {int(done)}/{int(total)}")
 
     def _set_workflow_step(self, step, hint_text=None):
         order = ("auth", "source", "select", "download", "logs")
@@ -2753,14 +2753,14 @@ class MangaApp:
             if label is None:
                 continue
             if idx < active_index:
-                label.config(bg="#d8ebf8", fg=self.palette["text"])
+                label.configure(bg="#d8ebf8", fg=self.palette["text"])
             elif idx == active_index:
-                label.config(bg=self.palette["accent"], fg="#ffffff")
+                label.configure(bg=self.palette["accent"], fg="#ffffff")
             else:
-                label.config(bg=self.palette["card_alt"], fg=self.palette["muted"])
+                label.configure(bg=self.palette["card_alt"], fg=self.palette["muted"])
 
         if hint_text and hasattr(self, "workflow_hint_label"):
-            self.workflow_hint_label.config(text=hint_text)
+            self.workflow_hint_label.configure(text=hint_text)
 
     def _show_volume_empty_state(self, text, tone="muted"):
         if not hasattr(self, "vol_empty_label"):
@@ -2776,7 +2776,7 @@ class MangaApp:
         if self._is_ctk_widget(self.vol_empty_label):
             self.vol_empty_label.configure(text=safe_text, text_color=tone_color)
         else:
-            self.vol_empty_label.config(text=safe_text, fg=tone_color, bg=self.palette["canvas_bg"])
+            self.vol_empty_label.configure(text=safe_text, fg=tone_color, bg=self.palette["canvas_bg"])
         host = getattr(self, "volume_list_container", None)
         if host is not None:
             self.vol_empty_label.place(in_=host, relx=0.5, rely=0.5, anchor="center")
@@ -3189,7 +3189,7 @@ class MangaApp:
                 if self._is_ctk_widget(self.status_label):
                     self.status_label.configure(text="", text_color="#5f6f88")
                 else:
-                    self.status_label.config(text="", foreground="#5f6f88")
+                    self.status_label.configure(text="", foreground="#5f6f88")
 
             self.run_on_ui(clear_status)
 
@@ -3290,19 +3290,19 @@ class MangaApp:
             if self._is_ctk_widget(widget):
                 widget.configure(text=label_text, fg_color=pending_bg, text_color=pending_fg)
             else:
-                widget.config(text=label_text, bg=pending_bg, fg=pending_fg)
+                widget.configure(text=label_text, bg=pending_bg, fg=pending_fg)
         elif normalized in ("valid", "ok", "true", "1"):
             label_text = text_override or ("Valide" if self._is_ctk_widget(widget) else "Validé")
             if self._is_ctk_widget(widget):
                 widget.configure(text=label_text, fg_color=valid_bg, text_color=valid_fg)
             else:
-                widget.config(text=label_text, bg=valid_bg, fg=valid_fg)
+                widget.configure(text=label_text, bg=valid_bg, fg=valid_fg)
         else:
             label_text = text_override or ("A verifier" if self._is_ctk_widget(widget) else "A vérifier")
             if self._is_ctk_widget(widget):
                 widget.configure(text=label_text, fg_color=invalid_bg, text_color=invalid_fg)
             else:
-                widget.config(text=label_text, bg=invalid_bg, fg=invalid_fg)
+                widget.configure(text=label_text, bg=invalid_bg, fg=invalid_fg)
 
     def _style_clear_filter_button(self, hovered=False, disabled=None):
         if not hasattr(self, "clear_filter_button"):
@@ -3330,11 +3330,11 @@ class MangaApp:
                 )
             return
         if disabled:
-            self.clear_filter_button.config(bg=self.palette["card_bg"], fg="#a3adba")
+            self.clear_filter_button.configure(bg=self.palette["card_bg"], fg="#a3adba")
         elif hovered:
-            self.clear_filter_button.config(bg="#fbe4ea", fg="#7f1d1d")
+            self.clear_filter_button.configure(bg="#fbe4ea", fg="#7f1d1d")
         else:
-            self.clear_filter_button.config(bg=self.palette["card_bg"], fg=self.palette["muted"])
+            self.clear_filter_button.configure(bg=self.palette["card_bg"], fg=self.palette["muted"])
 
     def _apply_auth_tab_state_style(self, state):
         """Memorise l'etat visuel de l'onglet Authentification et rafraichit son rendu."""
@@ -3600,7 +3600,7 @@ class MangaApp:
         if self._is_ctk_widget(self.status_label):
             self.status_label.configure(text=safe_text, text_color=color)
         else:
-            self.status_label.config(text=safe_text, foreground=color)
+            self.status_label.configure(text=safe_text, foreground=color)
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
         """Mémorise un résultat auth basé sur une analyse réelle."""
@@ -4666,52 +4666,101 @@ class MangaApp:
         self.config_auth_tab.grid_columnconfigure(1, weight=0)
         self.config_auth_tab.grid_columnconfigure(2, weight=0)
 
-        log_frame = ttk.Frame(self.config_journal_tab, style="Card.TFrame")
-        log_frame.pack(fill="both", expand=True)
-        log_toolbar = ttk.Frame(log_frame, style="Card.TFrame")
-        log_toolbar.pack(fill="x", pady=(0, 4))
-        ttk.Label(log_toolbar, text="Niveau:", style="Card.TLabel", font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
-        self.log_filter_combo = ttk.Combobox(
-            log_toolbar,
-            width=9,
+        log_frame = ctk.CTkFrame(
+            self.config_journal_tab,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=18,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        log_frame.pack(fill="both", expand=True, padx=(4, 4), pady=(4, 2))
+        log_frame.grid_columnconfigure(0, weight=1)
+        log_frame.grid_rowconfigure(1, weight=1)
+
+        log_toolbar = ctk.CTkFrame(log_frame, fg_color="transparent")
+        log_toolbar.grid(row=0, column=0, sticky="ew", padx=14, pady=(14, 8))
+        log_toolbar.grid_columnconfigure(1, weight=0)
+        log_toolbar.grid_columnconfigure(2, weight=1)
+
+        left_toolbar = ctk.CTkFrame(log_toolbar, fg_color="transparent")
+        left_toolbar.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(
+            left_toolbar,
+            text="Niveau",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+        ).pack(side="left", padx=(0, 8))
+        self.log_filter_combo = ctk.CTkComboBox(
+            left_toolbar,
+            width=132,
+            height=34,
+            corner_radius=12,
             state="readonly",
             values=["all", "info", "success", "warning", "error", "debug", "cbz"],
-            textvariable=self.log_filter_level,
-            style="Card.TCombobox",
+            variable=self.log_filter_level,
+            command=self.refresh_log_view,
+            fg_color=self.palette["input_bg"],
+            border_color=self.palette["border"],
+            button_color=self.palette["accent"],
+            button_hover_color=self.palette["accent_hover"],
+            dropdown_fg_color="#ffffff",
+            dropdown_hover_color=self.palette["card_alt"],
+            dropdown_text_color=self.palette["text"],
+            text_color=self.palette["text"],
+            font=("Segoe UI", 10),
+            dropdown_font=("Segoe UI", 10),
         )
         self.log_filter_combo.pack(side="left")
-        self.log_filter_combo.bind("<<ComboboxSelected>>", self.refresh_log_view)
         self.log_filter_combo.set("all")
-        ttk.Checkbutton(
+
+        self.log_autoscroll_checkbox = ctk.CTkCheckBox(
             log_toolbar,
             text="Auto-scroll",
             variable=self.log_autoscroll,
-            style="Card.TCheckbutton",
-        ).pack(side="left", padx=(10, 0))
-        ttk.Button(log_toolbar, text="Effacer", command=self.clear_log_entries, style="Secondary.TButton").pack(side="right", padx=(4, 0))
-        ttk.Button(log_toolbar, text="Copier", command=self.copy_visible_logs, style="Secondary.TButton").pack(side="right", padx=(4, 0))
-        ttk.Button(log_toolbar, text="Exporter", command=self.export_visible_logs, style="Secondary.TButton").pack(side="right")
-
-        log_text_container = ttk.Frame(log_frame, style="Card.TFrame")
-        log_text_container.pack(fill="both", expand=True)
-        self.log_text = tk.Text(
-            log_text_container,
-            height=6,
-            state="disabled",
-            wrap="word",
-            bg=self.palette["log_bg"],
-            fg=self.palette["text"],
-            font=("Consolas", 9),
-            relief="flat",
-            bd=0,
-            padx=8,
-            pady=4,
+            fg_color=self.palette["accent"],
+            hover_color=self.palette["accent_hover"],
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+            font=("Segoe UI", 10),
         )
-        self.log_text.pack(side="left", fill="both", expand=True)
+        self.log_autoscroll_checkbox.grid(row=0, column=1, sticky="w", padx=(14, 0))
 
-        log_scroll = ttk.Scrollbar(log_text_container, orient="vertical", command=self.log_text.yview)
-        log_scroll.pack(side="right", fill="y")
-        self.log_text.configure(yscrollcommand=log_scroll.set)
+        actions_toolbar = ctk.CTkFrame(log_toolbar, fg_color="transparent")
+        actions_toolbar.grid(row=0, column=2, sticky="e")
+        for label, command in (
+            ("Exporter", self.export_visible_logs),
+            ("Copier", self.copy_visible_logs),
+            ("Effacer", self.clear_log_entries),
+        ):
+            ctk.CTkButton(
+                actions_toolbar,
+                text=label,
+                command=command,
+                height=34,
+                corner_radius=12,
+                fg_color=self.palette["card_bg"],
+                hover_color=self.palette["card_alt"],
+                border_width=1,
+                border_color=self.palette["border"],
+                text_color=self.palette["text"],
+            ).pack(side="right", padx=(6, 0))
+
+        self.log_text = ctk.CTkTextbox(
+            log_frame,
+            height=220,
+            corner_radius=16,
+            border_width=1,
+            border_color=self.palette["border"],
+            fg_color=self.palette["log_bg"],
+            text_color=self.palette["text"],
+            scrollbar_button_color="#c5d3e2",
+            scrollbar_button_hover_color="#aebfd1",
+            font=("Consolas", 9),
+            wrap="word",
+        )
+        self.log_text.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
+        self.log_text.configure(state="disabled")
 
         self.log_text.tag_config("debug", foreground="#64748b")
         self.log_text.tag_config("success", foreground="#27ae60")
@@ -5318,8 +5367,8 @@ class MangaApp:
         self.download_hint_label.pack(side="left", padx=(10, 0))
 
         self.set_filter_placeholder()
-        self.filter_entry.config(state="disabled")
-        self.clear_filter_button.config(state="disabled")
+        self.filter_entry.configure(state="disabled")
+        self.clear_filter_button.configure(state="disabled")
         self._style_clear_filter_button(disabled=True)
 
         vol_frame_container = ctk.CTkFrame(
@@ -5854,13 +5903,13 @@ class MangaApp:
     def _toggle_cookie_visibility(self):
         show_char = "" if bool(self.show_cookies.get()) else "*"
         if hasattr(self, "cookie_fr_entry"):
-            self.cookie_fr_entry.config(show=show_char)
+            self.cookie_fr_entry.configure(show=show_char)
         if hasattr(self, "cookie_net_entry"):
-            self.cookie_net_entry.config(show=show_char)
+            self.cookie_net_entry.configure(show=show_char)
         if hasattr(self, "cookie_origines_entry"):
-            self.cookie_origines_entry.config(show=show_char)
+            self.cookie_origines_entry.configure(show=show_char)
         if hasattr(self, "cookie_hentai_entry"):
-            self.cookie_hentai_entry.config(show=show_char)
+            self.cookie_hentai_entry.configure(show=show_char)
 
 
     def get_domain_from_url(self, url):
@@ -6087,14 +6136,14 @@ class MangaApp:
 
         self.analysis_in_progress = True
         if hasattr(self, "analyze_button"):
-            self.analyze_button.config(state="disabled")
+            self.analyze_button.configure(state="disabled")
         self.update_master_toggle_button()
         self._hide_volume_empty_state()
 
         def finish_analysis():
             self.analysis_in_progress = False
             if hasattr(self, "analyze_button"):
-                self.analyze_button.config(state="normal")
+                self.analyze_button.configure(state="normal")
             self.update_master_toggle_button()
 
         def handle_error(error_text):
@@ -6166,13 +6215,13 @@ class MangaApp:
             self._scroll_volumes_to_top()
             self.log("Liste chargée avec succès.", level="success")
             has_pairs = bool(self.pairs)
-            self.filter_entry.config(state="normal" if has_pairs else "disabled")
-            self.clear_filter_button.config(state="normal" if has_pairs else "disabled")
+            self.filter_entry.configure(state="normal" if has_pairs else "disabled")
+            self.clear_filter_button.configure(state="normal" if has_pairs else "disabled")
             self._style_clear_filter_button(disabled=not has_pairs)
             if has_pairs and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
-            self.master_toggle_button.config(state="normal" if has_pairs else "disabled")
-            self.invert_button.config(state="normal" if has_pairs else "disabled")
+            self.master_toggle_button.configure(state="normal" if has_pairs else "disabled")
+            self.invert_button.configure(state="normal" if has_pairs else "disabled")
             self.update_master_toggle_button()
             self._refresh_volume_empty_state()
             if has_pairs:
@@ -6253,7 +6302,7 @@ class MangaApp:
         if not hasattr(self, "master_toggle_button"):
             return
         text = "Tout décocher" if self.are_all_volumes_selected() else "Tout cocher"
-        self.master_toggle_button.config(text=text)
+        self.master_toggle_button.configure(text=text)
         self._refresh_volume_card_styles()
         self._update_selection_status()
 
@@ -6276,7 +6325,7 @@ class MangaApp:
             label_text = f"Sélection: {selected_total}/{total}"
             if visible_total and visible_total != total:
                 label_text = f"{label_text} (affichés: {selected_visible}/{visible_total})"
-            self.selection_status_label.config(text=label_text)
+            self.selection_status_label.configure(text=label_text)
         if hasattr(self, "download_hint_label"):
             if total == 0:
                 hint = "Charge d'abord une source."
@@ -6286,7 +6335,7 @@ class MangaApp:
                 hint = f"{selected_visible} tome(s) visible(s) prêt(s)."
             else:
                 hint = f"{selected_visible} tome(s) prêt(s) au téléchargement."
-            self.download_hint_label.config(text=hint)
+            self.download_hint_label.configure(text=hint)
 
         can_download = (
             total > 0
@@ -6295,7 +6344,7 @@ class MangaApp:
             and not getattr(self, "analysis_in_progress", False)
         )
         if hasattr(self, "dl_button"):
-            self.dl_button.config(state="normal" if can_download else "disabled")
+            self.dl_button.configure(state="normal" if can_download else "disabled")
 
     def toggle_all_button_action(self):
         """Bascule globalement entre tout cocher et tout décocher."""
@@ -6354,7 +6403,7 @@ class MangaApp:
         if self._is_ctk_widget(self.filter_entry):
             self.filter_entry.configure(text_color=self.palette["muted"])
         else:
-            self.filter_entry.config(fg=self.palette["muted"])
+            self.filter_entry.configure(fg=self.palette["muted"])
 
     def clear_filter_placeholder(self):
         """Retire le placeholder du champ filtre."""
@@ -6365,7 +6414,7 @@ class MangaApp:
         if self._is_ctk_widget(self.filter_entry):
             self.filter_entry.configure(text_color=self.palette["text"])
         else:
-            self.filter_entry.config(fg=self.palette["text"])
+            self.filter_entry.configure(fg=self.palette["text"])
 
     def on_filter_focus_in(self, _event=None):
         """Nettoie le placeholder quand le champ prend le focus."""
@@ -6736,7 +6785,7 @@ class MangaApp:
         """Annule le téléchargement en cours"""
         self.cancel_event.set()
         self.log("Annulation demandée...", level="warning")
-        self.cancel_button.config(state="disabled")
+        self.cancel_button.configure(state="disabled")
         self._set_workflow_step("logs", "Annulation demandée. Attente de fin des threads...")
 
     def save_current_cookie(self):
@@ -6754,4 +6803,5 @@ class MangaApp:
 if __name__ == "__main__":
     runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
     MangaApp()
+
 
