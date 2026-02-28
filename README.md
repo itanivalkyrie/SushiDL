@@ -29,7 +29,6 @@ Captures d'ecran :
   <img alt="Capture 2" src="assets/screenshot2.png" width="48%" />
 </p>
 <p align="center">
-  <img alt="Capture 3" src="assets/screenshot3.png" width="48%" />
   <img alt="Capture 4" src="assets/screenshot4.png" width="48%" />
 </p>
 
