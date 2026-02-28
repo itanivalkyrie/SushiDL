@@ -8,8 +8,9 @@ Script Python pour reconstruire des pages manga depuis des images decoupees (JPG
 - haut de la 1re image (`786px` par defaut)
 - bas de la derniere image (`786px` par defaut)
 - Concatenation verticale de toutes les images source.
+- Nettoyage auto des chevauchements entre images source (OpenCV), avant concatenation.
 - Decoupage en pages de hauteur fixe (`2132px` par defaut).
-- Nettoyage auto des micro "pixels parasites" en bas de page (1 a 6 px, configurable).
+- Nettoyage auto des chevauchements a la frontiere des pages de sortie.
 - Modes de sortie:
 - `images` (JPG uniquement)
 - `cbz` (CBZ, avec option suppression des JPG apres creation)
@@ -20,6 +21,7 @@ Script Python pour reconstruire des pages manga depuis des images decoupees (JPG
 
 - Python 3.10+
 - Dependances du `requirements.txt`
+- OpenCV est utilise par defaut pour une detection plus robuste (fallback PIL si indisponible).
 
 ## Installation
 
@@ -91,14 +93,23 @@ Exemple:
 - `--output-folder`
 - dossier destination (sinon dossier `<source>_cut` dans la source)
 
+- `--width-mode {auto,max,min,mode}` (defaut `auto`)
+- strategie largeur: auto prend la largeur dominante et compresse automatiquement les images x2 (ex: `3248 -> 1624`) si ce ne sont pas de vraies doubles pages
+
 - `--trim-first-top` (defaut `786`)
 - `--trim-last-bottom` (defaut `786`)
+
+- `--auto-banner-detect` / `--no-auto-banner-detect`
+- ajuste automatiquement les trims de la 1re/derniere image en detectant le bandeau pub orange SushiScan
 
 - `--page-height` (defaut `2132`)
 - `0` active l'auto-detection
 
+- `--carry-next-top-px` (defaut `0`)
+- applique un decalage fixe des frontieres: les `N` px du haut de la page suivante sont rattaches a la precedente (`105` pour ton cas)
+
 - `--page-bottom-trim`
-- retire N px en bas de chaque page generee (defaut `6`)
+- retire N px en bas de chaque page generee (defaut `0`)
 
 - `--mode {images,cbz,both}`
 - mode de sortie
@@ -121,17 +132,44 @@ Exemple:
 - `--fix-bottom-overlap` / `--no-fix-bottom-overlap`
 - active/desactive le nettoyage auto des micro chevauchements aux frontieres
 
-- `--max-overlap-fix-px` (defaut `6`)
+- `--max-overlap-fix-px` (defaut `24`)
 - max de pixels retire par frontiere
 
-- `--overlap-fix-threshold` (defaut `0.8`)
-- seuil de similarite pour detecter un parasite
+- `--overlap-fix-threshold` (defaut `4.0`)
+- seuil de similarite (MAD grayscale) pour detecter un chevauchement
 
-- `--overlap-fix-min-std` (defaut `0.0`)
+- `--overlap-fix-min-std` (defaut `2.5`)
 - filtre texture minimal (0 desactive)
 
+- `--fix-source-overlap` / `--no-fix-source-overlap`
+- active/desactive la correction de chevauchement entre images source (avant concat)
+
+- `--max-source-overlap-px` (defaut `300`)
+- limite max retiree a chaque jonction source
+
+- `--max-source-overlap-ratio` (defaut `0.4`)
+- garde-fou proportionnel a la hauteur de l'image source
+
+- `--source-overlap-threshold` (defaut `5.0`)
+- seuil de similarite (MAD grayscale) cote source
+
+- `--source-overlap-min-std` (defaut `1.5`)
+- filtre texture minimal cote source
+
+- `--source-overlap-skip-uniform` / `--no-source-overlap-skip-uniform`
+- ignore les jonctions source majoritairement blanches/noires ou tres peu texturees (evite les faux positifs)
+
+- `--overlap-fix-skip-white` / `--no-overlap-fix-skip-white`
+- ignore les jonctions de sortie majoritairement blanches/noires ou tres peu texturees (evite des trims faux positifs)
+
+- `--overlap-detector {cv,pil}`
+- moteur de detection de chevauchement (defaut `cv` si OpenCV present)
+
+- `--overlap-scan-width`, `--overlap-scan-step`
+- reglages OpenCV pour la recherche coarse-to-fine
+
 - `--save-strip`
-- sauve la grande image concatenee en `_strip.jpg`
+- sauve la grande image concatenee en `_strip.jpg` (ou `_strip.png` si trop grande pour JPEG)
 
 - `--skip-mostly-white-pages`
 - ignore les pages majoritairement blanches
@@ -162,7 +200,25 @@ python cut.py "C:\images" --mode both --keep-pages-after-cbz
 Diminuer legerement les micro parasites:
 
 ```bash
-python cut.py "C:\images" --max-overlap-fix-px 6 --overlap-fix-threshold 1.2
+python cut.py "C:\images" --max-overlap-fix-px 12 --overlap-fix-threshold 4.5
+```
+
+Preset conseille pour cas "Chiruran" (images morcelees avec derive cumulative):
+
+```bash
+python cut.py "C:\images" ^
+  --trim-first-top 786 ^
+  --trim-last-bottom 786 ^
+  --page-height 2132 ^
+  --width-mode auto ^
+  --page-bottom-trim 0 ^
+  --fix-source-overlap ^
+  --source-overlap-threshold 5.0 ^
+  --source-overlap-min-std 1.5 ^
+  --max-source-overlap-px 300 ^
+  --no-fix-bottom-overlap ^
+  --mode both ^
+  --verbose
 ```
 
 ## Sorties
