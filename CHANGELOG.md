@@ -26,6 +26,8 @@ Le format de version suit la regle `X.Y.Z` :
 - Couverture des deux chemins de rendu du listing:
   - rendu canvas virtualise pour gros catalogues,
   - rendu widgets pour petites listes.
+- `main` embarque maintenant la variante `CustomTkinter` comme interface principale.
+- `requirements.txt` inclut desormais `customtkinter>=5.2.2`.
 
 ## [11.2.10] - 2026-02-28
 
@@ -693,5 +695,4 @@ Le format de version suit la regle `X.Y.Z` :
 ### Corrections
 - Correction du crash Tkinter lors de lâ€™analyse (`ttk.Checkbutton` avec option `anchor` invalide).
 - Restauration de la visibilitÃ© des zones basses (`Actions`, `Journal`) sans redimensionnement manuel excessif.
-
 

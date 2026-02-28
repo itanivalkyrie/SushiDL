@@ -17,6 +17,27 @@ SushiDL cible un usage simple :
 
 Version actuelle : `11.2.11`
 
+## Ce qui change sur `main`
+
+La branche `main` embarque maintenant la refonte `CustomTkinter` par defaut.
+
+Concretement :
+- nouvelle interface avec barre d'onglets unique :
+  - `Telechargement`
+  - `Journal`
+  - `Erreurs`
+  - `Authentification`
+  - `Options`
+- onglet `Telechargement` unifie :
+  - source,
+  - liste des tomes / chapitres,
+  - barre d'actions,
+  - progression runtime
+- rendu dense optimise et virtualise pour les gros catalogues
+- popup de preview rapide `3 a 5` pages depuis le listing
+- indicateurs de chargement pendant l'analyse, le rendu de liste et la preview
+- `requirements.txt` inclut maintenant `customtkinter>=5.2.2`
+
 ## Apercu visuel
 
 Captures d'ecran :
@@ -150,6 +171,13 @@ pip install -r requirements.txt
 ```
 
 Si `pip` ne pointe pas vers la bonne version de Python, utilise `python -m pip install -r requirements.txt` ou `python3 -m pip install -r requirements.txt`.
+
+Dependances Python actuelles :
+- `beautifulsoup4>=4.13.4`
+- `customtkinter>=5.2.2`
+- `curl_cffi>=0.10.0`
+- `Pillow>=11.3.0`
+- `requests>=2.32.3`
 
 ## Lancement
 
