@@ -7,6 +7,19 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.12] - 2026-02-28
+
+### Ameliorations
+- Ajout d'une icone de fenetre native `assets/sushidl.ico` en multi-tailles (`16`, `24`, `32`, `48`, `64`, `128`, `256`).
+- Chargement d'icone durci selon l'OS:
+  - Windows: utilisation prioritaire de `iconbitmap(.ico)`,
+  - Linux / macOS: fallback `iconphoto(...)` sans appel natif Windows inutile.
+
+### Maintenance
+- Les fichiers de travail de creation d'icone ne sont pas versionnes:
+  - `assets/sushi_icon_source.png`
+  - `assets/sushidl_icon_preview.png`
+
 ## [11.2.11] - 2026-02-28
 
 ### Ameliorations
@@ -695,4 +708,3 @@ Le format de version suit la regle `X.Y.Z` :
 ### Corrections
 - Correction du crash Tkinter lors de lâ€™analyse (`ttk.Checkbutton` avec option `anchor` invalide).
 - Restauration de la visibilitÃ© des zones basses (`Actions`, `Journal`) sans redimensionnement manuel excessif.
-

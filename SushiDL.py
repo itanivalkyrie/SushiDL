@@ -448,7 +448,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.11"
+APP_VERSION = "11.2.12"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -475,6 +475,7 @@ COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
 COVER_TARGET_HEIGHT = 150
 BASE_DIR = Path(__file__).resolve().parent
+APP_ICON_PATH = BASE_DIR / "assets" / "sushidl.ico"
 COOKIE_CACHE_PATH = BASE_DIR / "cookie_cache.json"  # Fichier de cache pour les cookies
 CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 DEFAULT_USER_AGENT = (
@@ -5735,6 +5736,26 @@ class MangaApp:
         except Exception:
             self.console_logs_enabled_cached = True
 
+    def _apply_window_icon(self):
+        """Applique l'icône de fenêtre native à partir du fichier .ico multi-tailles."""
+        if not APP_ICON_PATH.exists():
+            return
+
+        if os.name == "nt":
+            try:
+                self.root.iconbitmap(str(APP_ICON_PATH))
+            except Exception:
+                pass
+
+        try:
+            icon_image = Image.open(APP_ICON_PATH).convert("RGBA")
+            icon_size = 64 if os.name == "nt" else 32
+            icon_image = icon_image.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
+            self._window_icon_image = ImageTk.PhotoImage(icon_image)
+            self.root.iconphoto(True, self._window_icon_image)
+        except Exception:
+            self._window_icon_image = None
+
     def __init__(self):
         """Initialise l'interface graphique et charge les paramètres"""
         MangaApp.current_instance = self
@@ -5745,6 +5766,8 @@ class MangaApp:
         ctk.set_default_color_theme("blue")
         self.root = ctk.CTk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
+        self._window_icon_image = None
+        self._apply_window_icon()
 
         # Fenêtre modernisée: redimensionnable avec taille minimale confortable.
         self.root.geometry("1140x1040")
@@ -9100,5 +9123,3 @@ class MangaApp:
 if __name__ == "__main__":
     runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
     MangaApp()
-
-

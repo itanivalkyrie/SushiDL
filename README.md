@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.2.11`
+Version actuelle : `11.2.12`
 
 ## Ce qui change sur `main`
 
@@ -51,6 +51,15 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.2.12
+- Ajout d'une icone de fenetre native `assets/sushidl.ico` multi-tailles.
+- Chargement durci selon l'OS:
+  - Windows: chemin principal via `iconbitmap(.ico)`,
+  - Linux / macOS: fallback via `iconphoto(...)`.
+- Fichiers de travail de creation d'icone gardes hors Git:
+  - `assets/sushi_icon_source.png`
+  - `assets/sushidl_icon_preview.png`
 
 ### 11.2.11
 - Ajout d'une previsualisation integree des chapitres/tomes:
