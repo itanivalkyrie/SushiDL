@@ -1,10 +1,10 @@
-<p align="center">
+﻿<p align="center">
   <img alt="Banniere SushiDL" src="assets/banner.png" />
 </p>
 
 # SushiDL
 
-SushiDL est une application Python avec interface graphique Tkinter pour analyser et telecharger des chapitres ou tomes de mangas depuis plusieurs domaines compatibles, avec gestion manuelle de l'authentification Cloudflare, telechargement multi-thread, conversion d'images et creation d'archives CBZ.
+SushiDL est une application Python avec interface graphique Tkinter / CustomTkinter pour analyser et telecharger des chapitres ou tomes de mangas depuis plusieurs domaines compatibles, avec gestion manuelle de l'authentification Cloudflare, telechargement multi-thread, conversion d'images et creation d'archives CBZ.
 
 ## Resume
 
@@ -15,9 +15,69 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.2.8`
+Version actuelle : `11.2.11`
+
+## Apercu visuel
+
+Captures d'ecran :
+
+<p align="center">
+  <img alt="Capture 1" src="assets/screenshot1.png" width="48%" />
+  <img alt="Capture 2" src="assets/screenshot2_v2.png" width="48%" />
+</p>
+<p align="center">
+  <img alt="Capture 4" src="assets/screenshot4.png" width="48%" />
+</p>
 
 ## Nouveautes recentes
+
+### 11.2.11
+- Ajout d'une previsualisation integree des chapitres/tomes:
+  - bouton loupe verte dans la liste dense,
+  - ouverture d'une popup dediee,
+  - chargement de `3 a 5` premieres pages,
+  - navigation `Precedent / Suivant`,
+  - cache memoire leger pour reouvrir rapidement une preview deja chargee.
+- Ajout d'indicateurs de chargement legers:
+  - spinner dans le statut d'analyse,
+  - overlay de chargement au centre de la liste pendant la recuperation / le rendu,
+  - spinner dans la popup de preview pendant le chargement des pages.
+
+### 11.2.10
+- Reorganisation complete de l'interface `CustomTkinter` autour d'une seule barre d'onglets en haut :
+  - `Telechargement`
+  - `Journal`
+  - `Erreurs`
+  - `Authentification`
+  - `Options`
+- Fusion du flux principal dans l'onglet `Telechargement` :
+  - bloc source,
+  - liste tomes / chapitres,
+  - barre d'actions,
+  - progression runtime.
+- Le rendu principal conserve uniquement le mode dense optimise, plus stable et plus rapide sur les gros catalogues.
+- Gros catalogues:
+  - rendu canvas mutualise,
+  - scroll et filtre stabilises,
+  - disparition des sauts visuels et des elements qui disparaissent au scroll.
+- Onglet `Telechargement` retravaille visuellement:
+  - toolbar plus compacte,
+  - progression plus lisible,
+  - bloc source mieux integre.
+
+### 11.2.9
+- Refonte visuelle `CustomTkinter` vers un rendu plus sobre, plus lisible et plus homogene.
+- Onglets `Journal / Authentification / Options` et `Tomes / Chapitres / Erreurs` harmonises avec un vrai comportement de notebook.
+- Toolbar de selection compactee:
+  - compteur fusionne (`1/1000 elements`),
+  - controle `Auto / Dense / Confort` plus lisible,
+  - meilleure integration du filtre, des actions et du bloc telechargement.
+- Support optimise des gros catalogues:
+  - mode liste legere automatique sur tres grandes listes,
+  - virtualisation des widgets visibles,
+  - filtres quasi instantanes,
+  - switches de vue plus fluides.
+- Analyse decouplee du rendu UI pour eviter les timeouts quand la liste contient un tres grand nombre d'elements.
 
 ### 11.2.8
 - Acceleration du flux de telechargement par suppression des attentes artificielles dans les boucles workers.
@@ -54,6 +114,9 @@ Formats d'URL catalogue attendus :
 - Creation optionnelle d'archives CBZ.
 - Journal unifie GUI + terminal avec filtres.
 - Tableau d'erreurs par tome avec raison technique et action recommande.
+- Branche `CustomTkinter` avec interface plus sobre, onglet `Telechargement` unifie et rendu dense optimise.
+- Affichage optimise des tres grands catalogues avec filtre rapide, rendu mutualise sur canvas et scroll stabilise.
+- Preview rapide integree par chapitre/tome via popup dediee et loupe dans le listing.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
 
 ## Prerequis
@@ -150,10 +213,10 @@ Workflow standard :
 1. Lance `SushiDL.py`.
 2. Renseigne les cookies et le `User-Agent`.
 3. Colle une URL catalogue supportee.
-4. Clique sur `Analyser`.
+4. Clique sur `Analyser le lien`.
 5. Controle la liste detectee.
 6. Selectionne les tomes ou chapitres souhaites.
-7. Clique sur `Telecharger`.
+7. Clique sur `Telecharger la selection`.
 8. Choisis le dossier de destination.
 
 ## Sortie des fichiers
