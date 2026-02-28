@@ -9130,7 +9130,98 @@ class MangaApp:
             self.log(f"Erreur sauvegarde: {e}", level="error")
 
 
+class SushiCliBackend:
+    """Pont minimal entre le backend SushiDL et la future interface terminale."""
+
+    def load_settings(self):
+        from cli.state import CliState
+
+        (
+            cookies,
+            ua,
+            cbz_enabled,
+            last_url,
+            webp2jpg_enabled,
+            smart_resume_enabled,
+            verbose_logs,
+            _cookie_sources,
+            _cookie_user_agents,
+            _cookie_headers,
+            _cookie_updated_at,
+        ) = load_cookie_cache()
+
+        cookie_status = {
+            domain: ("PRESENT" if (cookies.get(domain) or "").strip() else "VIDE")
+            for domain in COOKIE_DOMAINS
+        }
+        return CliState(
+            cookies=dict(cookies),
+            user_agent=(ua or DEFAULT_USER_AGENT).strip(),
+            cbz_enabled=bool(cbz_enabled),
+            webp2jpg_enabled=bool(webp2jpg_enabled),
+            smart_resume_enabled=bool(smart_resume_enabled),
+            verbose_logs=bool(verbose_logs),
+            current_url=(last_url or "").strip(),
+            cookie_status=cookie_status,
+        )
+
+    def save_settings(self, state):
+        MangaApp.last_url_used = (state.current_url or "").strip()
+        save_cookie_cache(
+            cookies_dict=dict(state.cookies),
+            ua=(state.user_agent or DEFAULT_USER_AGENT).strip(),
+            cbz=bool(state.cbz_enabled),
+            webp2jpg_enabled=bool(state.webp2jpg_enabled),
+            smart_resume_enabled=bool(state.smart_resume_enabled),
+            verbose_logs=bool(state.verbose_logs),
+        )
+
+    def test_cookie(self, domain, cookie, ua):
+        safe_domain = (domain or "").strip().lower()
+        safe_cookie = (cookie or "").strip()
+        safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+        if not safe_cookie:
+            return False
+
+        if safe_domain in ("fr", "net"):
+            return test_cookie_validity(
+                safe_domain,
+                safe_cookie,
+                safe_ua,
+                probe_url=STARTUP_COOKIE_LISTING_PROBE_URLS.get(safe_domain),
+            )
+
+        if safe_domain in ("origines", "hentai"):
+            try:
+                probe_url = STARTUP_COOKIE_LISTING_PROBE_URLS.get(safe_domain)
+                response = make_request(probe_url, safe_cookie, safe_ua)
+                return int(getattr(response, "status_code", 0) or 0) == 200
+            except Exception:
+                return False
+        return None
+
+    def analyze_url(self, url, cookies, ua):
+        safe_url = (url or "").strip()
+        domain = get_cookie_domain_from_url(safe_url)
+        if domain not in COOKIE_DOMAINS:
+            raise ValueError("URL non supportee.")
+        cookie = (cookies.get(domain) or "").strip()
+        safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+        title, pairs = fetch_manga_data(
+            safe_url,
+            cookie,
+            safe_ua,
+            emit_logs=False,
+        )
+        return title, domain, pairs
+
+
 # Point d'entrée de l'application
 if __name__ == "__main__":
-    runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
-    MangaApp()
+    if "--cli" in sys.argv[1:]:
+        from cli.app import run_cli_app
+
+        run_cli_app(SushiCliBackend())
+    else:
+        runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
+        MangaApp()
