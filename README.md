@@ -19,9 +19,6 @@ Version actuelle : `11.2.10`
 
 ## Apercu visuel
 
-Video de demonstration :
-- [Voir la video](assets/video.mp4)
-
 Captures d'ecran :
 
 <p align="center">
