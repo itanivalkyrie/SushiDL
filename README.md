@@ -286,7 +286,6 @@ L'interface remonte aussi un tableau d'erreurs par tome avec :
 Le depot contient aussi :
 - `tools/remove_last_images_cbz.py` : nettoyage automatique des dernieres pages parasites d'un CBZ
 - `cut_sushiscan_fr/` : scripts annexes de coupe / reconstruction d'images
-- `legacy_scripts/SushiDL_V9.py` : ancienne version conservee pour reference
 
 ## Structure du projet
 

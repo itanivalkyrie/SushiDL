@@ -1,4 +1,5 @@
 __pycache__/
+.ruff_cache/
 *.py[cod]
 cookie_cache.json
 DL SushiScan/
