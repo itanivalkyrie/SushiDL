@@ -448,20 +448,24 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.9"
+APP_VERSION = "11.2.10"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
 VOLUME_RENDER_BATCH_SIZE = 36  # Rendu progressif des gros listings pour eviter les timeouts UI
 VOLUME_COMPACT_MODE_THRESHOLD = 180  # Au-dela, bascule vers un rendu compact plus rapide
-VOLUME_FAST_WIDGET_THRESHOLD = 240  # Au-dela, prefere une liste ttk legere plutot que des widgets CTk couteux
+VOLUME_FAST_WIDGET_THRESHOLD = 2400  # Fallback ultime pour des catalogues exceptionnellement grands
 VOLUME_VIRTUALIZATION_THRESHOLD = 280  # En auto dense, n'instancie que la fenetre visible
 VOLUME_VIRTUALIZATION_THRESHOLD_DENSE = 60  # En mode Dense explicite, virtualise plus tot pour fluidifier le switch
 VOLUME_VIRTUALIZATION_THRESHOLD_COMFORT = 60  # En mode Confort explicite, virtualise aussi pour limiter le cout du switch
 VOLUME_VIRTUALIZATION_BUFFER_ROWS = 4
-VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT = 40
+VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT = 36
 VOLUME_VIRTUAL_ROW_HEIGHT_CARD = 62
+VOLUME_MAX_GRID_COLUMNS = 4
+VOLUME_CARD_COLUMN_WIDTH = 300
+VOLUME_COMPACT_COLUMN_WIDTH = 236
+VOLUME_FAST_COLUMN_WIDTH = 236
 MAX_VISIBLE_ERROR_ROWS = 500
 COOKIE_DOMAINS = ("fr", "net", "origines", "hentai")
 COVER_RATIO_WIDTH = 2
@@ -2908,8 +2912,53 @@ class MangaApp:
         return total_items >= threshold
 
     def _get_volume_layout_mode_name(self):
-        mode = (getattr(self, "volume_layout_mode", None).get() if hasattr(self, "volume_layout_mode") else "Auto") or "Auto"
-        return str(mode).strip().title() or "Auto"
+        mode = (getattr(self, "volume_layout_mode", None).get() if hasattr(self, "volume_layout_mode") else "Dense") or "Dense"
+        return str(mode).strip().title() or "Dense"
+
+    def _get_volume_grid_column_width(self, columns, kind=None):
+        kind = kind or self._get_virtual_volume_pool_kind()
+        viewport_width = max(320, int(self._get_volume_viewport_width() or 960))
+        if kind == "card":
+            target = VOLUME_CARD_COLUMN_WIDTH
+            minimum = 250
+        elif kind == "compact":
+            target = VOLUME_COMPACT_COLUMN_WIDTH
+            minimum = 210
+        else:
+            target = VOLUME_FAST_COLUMN_WIDTH
+            minimum = 210
+        usable_width = max(minimum, viewport_width - 28)
+        adaptive_width = max(minimum, int((usable_width / max(1, columns)) - 18))
+        return min(target, adaptive_width)
+
+    def _configure_volume_grid_columns(self, columns, kind=None):
+        if not hasattr(self, "vol_frame"):
+            return
+        kind = kind or self._get_virtual_volume_pool_kind()
+        column_width = self._get_volume_grid_column_width(columns, kind=kind)
+        try:
+            self.vol_frame.grid_anchor("n")
+        except Exception:
+            pass
+        for col in range(VOLUME_MAX_GRID_COLUMNS):
+            self.vol_frame.grid_columnconfigure(col, weight=0, minsize=0, uniform="")
+        for col in range(columns):
+            self.vol_frame.grid_columnconfigure(col, weight=0, minsize=column_width, uniform="volume_grid")
+
+    def _get_centered_volume_grid_position(self, visible_index, total_visible, columns, row_offset=0, absolute_visible_index=None):
+        if columns <= 1:
+            return row_offset + visible_index, 0
+        if absolute_visible_index is None:
+            absolute_visible_index = visible_index
+        row = visible_index // columns
+        col = visible_index % columns
+        remainder = total_visible % columns
+        full_rows = total_visible // columns
+        absolute_row = absolute_visible_index // columns
+        if remainder and absolute_row == full_rows:
+            start_col = max(0, (columns - remainder) // 2)
+            col = start_col + (absolute_visible_index % columns)
+        return row_offset + row, col
 
     def _cancel_virtual_volume_refresh(self):
         after_id = getattr(self, "volume_virtual_refresh_after_id", None)
@@ -2919,6 +2968,433 @@ class MangaApp:
             except Exception:
                 pass
         self.volume_virtual_refresh_after_id = None
+        self.volume_last_canvas_yview = None
+
+    def _on_volume_canvas_scroll_activity(self, _event=None):
+        if not getattr(self, "volume_virtualized", False):
+            return
+        self._schedule_virtual_volume_refresh(delay_ms=1)
+
+    def _on_volume_canvas_yview(self, first, last):
+        callback = getattr(self, "volume_canvas_scrollbar_set", None)
+        if callable(callback):
+            try:
+                callback(first, last)
+            except Exception:
+                pass
+        if not getattr(self, "volume_virtualized", False):
+            return
+        try:
+            current_yview = (round(float(first), 6), round(float(last), 6))
+        except Exception:
+            current_yview = None
+        if current_yview != getattr(self, "volume_last_canvas_yview", None):
+            self._schedule_virtual_volume_refresh(delay_ms=1)
+
+    def _on_volume_scrollbar_command(self, *args):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas.yview(*args)
+        except Exception:
+            return
+        self._schedule_virtual_volume_refresh(delay_ms=1)
+
+    def _on_volume_mousewheel(self, event):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        container = getattr(self, "volume_list_container", None)
+        if canvas is None or container is None:
+            return
+        try:
+            root_x = int(self.root.winfo_pointerx())
+            root_y = int(self.root.winfo_pointery())
+            left = int(container.winfo_rootx())
+            top = int(container.winfo_rooty())
+            right = left + int(container.winfo_width() or 0)
+            bottom = top + int(container.winfo_height() or 0)
+        except Exception:
+            return
+        if not (left <= root_x <= right and top <= root_y <= bottom):
+            return
+        delta = 0
+        if hasattr(event, "delta") and int(event.delta or 0):
+            delta = -1 * int(event.delta / 120) if int(event.delta) % 120 == 0 else (-1 if event.delta > 0 else 1)
+        elif getattr(event, "num", None) == 4:
+            delta = -1
+        elif getattr(event, "num", None) == 5:
+            delta = 1
+        if delta == 0:
+            return "break"
+        try:
+            canvas.yview_scroll(delta, "units")
+        except Exception:
+            return "break"
+        self._schedule_virtual_volume_refresh(delay_ms=1)
+        return "break"
+
+    def _on_volume_canvas_configure(self, _event=None):
+        self._update_volume_canvas_window()
+        if getattr(self, "volume_virtualized", False):
+            self._schedule_virtual_volume_refresh(delay_ms=1)
+        else:
+            self._update_volume_canvas_scrollregion()
+
+    def _on_volume_frame_configure(self, _event=None):
+        if getattr(self, "volume_virtualized", False):
+            return
+        self._update_volume_canvas_scrollregion()
+
+    def _update_volume_canvas_window(self, top_offset=None):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        window_id = getattr(self, "volume_canvas_window_id", None)
+        if canvas is None or window_id is None:
+            return
+        try:
+            width = max(1, int(canvas.winfo_width() or 1))
+            canvas.itemconfigure(window_id, width=width)
+            current_coords = canvas.coords(window_id) or [0, 0]
+            y_value = float(current_coords[1]) if len(current_coords) > 1 else 0.0
+            if top_offset is not None:
+                y_value = max(0.0, float(top_offset))
+            canvas.coords(window_id, 0.0, y_value)
+        except Exception:
+            pass
+
+    def _update_volume_canvas_scrollregion(self, total_height=None):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return
+        try:
+            canvas_width = max(1, int(canvas.winfo_width() or 1))
+            canvas_height = max(1, int(canvas.winfo_height() or 1))
+            content_height = int(total_height or 0)
+            if content_height <= 0 and hasattr(self, "vol_frame"):
+                try:
+                    self.root.update_idletasks()
+                except Exception:
+                    pass
+                content_height = max(canvas_height, int(self.vol_frame.winfo_reqheight() or 0))
+            content_height = max(canvas_height, content_height)
+            canvas.configure(scrollregion=(0, 0, canvas_width, content_height))
+        except Exception:
+            pass
+
+    def _use_canvas_volume_pool(self, kind=None):
+        kind = kind or self._get_virtual_volume_pool_kind()
+        return kind in {"fast", "compact"}
+
+    def _set_volume_canvas_render_mode(self, enabled):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        window_id = getattr(self, "volume_canvas_window_id", None)
+        if canvas is not None and window_id is not None:
+            try:
+                canvas.itemconfigure(window_id, state=("hidden" if enabled else "normal"))
+            except Exception:
+                pass
+        self.volume_canvas_render_active = bool(enabled)
+        if not enabled:
+            self._hide_canvas_volume_pool()
+
+    def _hide_canvas_volume_pool(self):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return
+        for entry in getattr(self, "volume_canvas_item_pool", []) or []:
+            entry["absolute_index"] = None
+            entry["visible_position"] = None
+            for item_id in entry.get("item_ids", ()):
+                try:
+                    canvas.itemconfigure(item_id, state="hidden")
+                except Exception:
+                    pass
+
+    def _create_canvas_volume_pool_entry(self, slot_index):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return None
+        slot_tag = f"volume_canvas_slot_{slot_index}"
+        bg_id = canvas.create_rectangle(0, 0, 0, 0, width=1, outline=self.palette["panel_shell"], fill=self.palette["card_bg"], state="hidden", tags=(slot_tag, "volume_canvas_card"))
+        index_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=0, outline="", fill=self.palette["card_alt"], state="hidden", tags=(slot_tag, "volume_canvas_index_bg"))
+        index_text_id = canvas.create_text(0, 0, text="", anchor="center", fill=self.palette["muted"], font=("Segoe UI Semibold", 9), state="hidden", tags=(slot_tag, "volume_canvas_index_text"))
+        title_id = canvas.create_text(0, 0, text="", anchor="w", fill=self.palette["text"], font=("Segoe UI", 10), state="hidden", tags=(slot_tag, "volume_canvas_title"))
+        checkbox_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=1, outline=self.palette["border"], fill=self.palette["canvas_bg"], state="hidden", tags=(slot_tag, "volume_canvas_checkbox_bg"))
+        checkbox_check_id = canvas.create_text(0, 0, text="✓", anchor="center", fill="#ffffff", font=("Segoe UI Semibold", 11), state="hidden", tags=(slot_tag, "volume_canvas_checkbox_check"))
+        entry = {
+            "slot_index": slot_index,
+            "slot_tag": slot_tag,
+            "absolute_index": None,
+            "item_ids": (bg_id, index_bg_id, index_text_id, title_id, checkbox_bg_id, checkbox_check_id),
+            "bg_id": bg_id,
+            "index_bg_id": index_bg_id,
+            "index_text_id": index_text_id,
+            "title_id": title_id,
+            "checkbox_bg_id": checkbox_bg_id,
+            "checkbox_check_id": checkbox_check_id,
+        }
+        canvas.tag_bind(slot_tag, "<Button-1>", lambda _event, slot=slot_index: self._on_canvas_volume_slot_click(slot))
+        return entry
+
+    def _ensure_canvas_volume_pool(self, capacity):
+        pool = getattr(self, "volume_canvas_item_pool", None)
+        if pool is None:
+            pool = []
+            self.volume_canvas_item_pool = pool
+        while len(pool) < capacity:
+            entry = self._create_canvas_volume_pool_entry(len(pool))
+            if entry is None:
+                break
+            pool.append(entry)
+        return pool
+
+    def _get_canvas_volume_item_metrics(self, columns, kind):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        try:
+            canvas_width = int(canvas.winfo_width() or 0) if canvas is not None else 0
+        except Exception:
+            canvas_width = 0
+        viewport_width = max(320, canvas_width or int(self._get_volume_viewport_width() or 960))
+        gap_x = 18
+        top_padding = 6
+        if kind == "fast":
+            row_height = 36
+            card_height = 26
+            usable_width = max(210, viewport_width - 32)
+            card_width = min(250, max(210, int((usable_width - ((columns - 1) * gap_x)) / max(1, columns))))
+        else:
+            row_height = VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT
+            card_height = 28
+            usable_width = max(220, viewport_width - 32)
+            adaptive_width = max(220, int((usable_width - ((columns - 1) * gap_x)) / max(1, columns)))
+            card_width = min(VOLUME_COMPACT_COLUMN_WIDTH, adaptive_width)
+        used_width = (columns * card_width) + max(0, columns - 1) * gap_x
+        left_margin = max(12, int((viewport_width - used_width) / 2))
+        return {
+            "card_width": card_width,
+            "card_height": card_height,
+            "row_height": row_height,
+            "gap_x": gap_x,
+            "top_padding": top_padding,
+            "left_margin": left_margin,
+        }
+
+    def _render_canvas_volume_entry(self, entry, absolute_index, visible_position, total_visible, columns, metrics, kind):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return
+        vol, _link = self.pairs[absolute_index]
+        var = self.check_vars[absolute_index]
+        row, col = self._get_centered_volume_grid_position(
+            visible_position,
+            total_visible,
+            columns,
+            absolute_visible_index=visible_position,
+        )
+        card_x = metrics["left_margin"] + (col * (metrics["card_width"] + metrics["gap_x"]))
+        card_y = (row * metrics["row_height"]) + metrics["top_padding"]
+        card_x2 = card_x + metrics["card_width"]
+        card_y2 = card_y + metrics["card_height"]
+        selected = bool(var.get())
+        bg_fill = "#f8fbff" if selected else self.palette["card_bg"]
+        bg_outline = "#a9bfd9" if selected else self.palette["panel_shell"]
+        badge_fill = self.palette["accent_soft"] if selected else self.palette["card_alt"]
+        badge_text = self.palette["accent_hover"] if selected else self.palette["muted"]
+        checkbox_fill = self.palette["accent"] if selected else self.palette["canvas_bg"]
+        checkbox_outline = self.palette["accent"] if selected else self.palette["border"]
+        title_text = f"{absolute_index + 1}. {vol}" if kind == "fast" else str(vol)
+        index_text = "" if kind == "fast" else str(absolute_index + 1)
+        title_x = card_x + 14
+        if kind != "fast":
+            index_x1 = card_x + 10
+            index_x2 = index_x1 + 26
+            index_y1 = card_y + 3
+            index_y2 = index_y1 + 20
+            title_x = index_x2 + 10
+            canvas.coords(entry["index_bg_id"], index_x1, index_y1, index_x2, index_y2)
+            canvas.itemconfigure(entry["index_bg_id"], fill=badge_fill, state="normal")
+            canvas.coords(entry["index_text_id"], (index_x1 + index_x2) / 2.0, (index_y1 + index_y2) / 2.0)
+            canvas.itemconfigure(entry["index_text_id"], text=index_text, fill=badge_text, state="normal")
+        else:
+            canvas.itemconfigure(entry["index_bg_id"], state="hidden")
+            canvas.itemconfigure(entry["index_text_id"], state="hidden")
+        checkbox_size = 18 if kind == "fast" else 20
+        checkbox_x2 = card_x2 - 12
+        checkbox_x1 = checkbox_x2 - checkbox_size
+        checkbox_y1 = card_y + int((metrics["card_height"] - checkbox_size) / 2)
+        checkbox_y2 = checkbox_y1 + checkbox_size
+        canvas.coords(entry["bg_id"], card_x, card_y, card_x2, card_y2)
+        canvas.itemconfigure(entry["bg_id"], fill=bg_fill, outline=bg_outline, state="normal")
+        canvas.coords(entry["title_id"], title_x, (card_y + card_y2) / 2.0)
+        canvas.itemconfigure(entry["title_id"], text=title_text, fill=self.palette["text"], width=max(80, checkbox_x1 - title_x - 8), state="normal")
+        canvas.coords(entry["checkbox_bg_id"], checkbox_x1, checkbox_y1, checkbox_x2, checkbox_y2)
+        canvas.itemconfigure(entry["checkbox_bg_id"], fill=checkbox_fill, outline=checkbox_outline, state="normal")
+        canvas.coords(entry["checkbox_check_id"], (checkbox_x1 + checkbox_x2) / 2.0, (checkbox_y1 + checkbox_y2) / 2.0)
+        canvas.itemconfigure(entry["checkbox_check_id"], state=("normal" if selected else "hidden"))
+        entry["absolute_index"] = absolute_index
+        entry["visible_position"] = visible_position
+
+    def _refresh_canvas_volume_entry_style(self, entry):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None or not entry:
+            return
+        absolute_index = entry.get("absolute_index")
+        if absolute_index is None or absolute_index >= len(getattr(self, "check_vars", []) or []):
+            return
+        selected = bool(self.check_vars[absolute_index].get())
+        bg_fill = "#f8fbff" if selected else self.palette["card_bg"]
+        bg_outline = "#a9bfd9" if selected else self.palette["panel_shell"]
+        badge_fill = self.palette["accent_soft"] if selected else self.palette["card_alt"]
+        badge_text = self.palette["accent_hover"] if selected else self.palette["muted"]
+        checkbox_fill = self.palette["accent"] if selected else self.palette["canvas_bg"]
+        checkbox_outline = self.palette["accent"] if selected else self.palette["border"]
+        try:
+            canvas.itemconfigure(entry["bg_id"], fill=bg_fill, outline=bg_outline)
+            canvas.itemconfigure(entry["checkbox_bg_id"], fill=checkbox_fill, outline=checkbox_outline)
+            canvas.itemconfigure(entry["checkbox_check_id"], state=("normal" if selected else "hidden"))
+            if canvas.itemcget(entry["index_bg_id"], "state") != "hidden":
+                canvas.itemconfigure(entry["index_bg_id"], fill=badge_fill)
+                canvas.itemconfigure(entry["index_text_id"], fill=badge_text)
+        except Exception:
+            pass
+
+    def _refresh_canvas_volume_pool_entry(self, entry):
+        if not entry:
+            return
+        absolute_index = entry.get("absolute_index")
+        if absolute_index is None:
+            return
+        self._refresh_canvas_volume_entry_style(entry)
+
+    def _on_canvas_volume_slot_click(self, slot_index):
+        pool = getattr(self, "volume_canvas_item_pool", None) or []
+        if slot_index >= len(pool):
+            return
+        entry = pool[slot_index]
+        absolute_index = entry.get("absolute_index")
+        if absolute_index is None or absolute_index >= len(getattr(self, "check_vars", []) or []):
+            return
+        var = self.check_vars[absolute_index]
+        var.set(not bool(var.get()))
+        self.update_master_toggle_button()
+
+    def _refresh_canvas_volume_card_styles(self):
+        if not getattr(self, "volume_canvas_render_active", False):
+            return
+        for entry in getattr(self, "volume_canvas_item_pool", []) or []:
+            if entry.get("absolute_index") is not None:
+                self._refresh_canvas_volume_entry_style(entry)
+
+    def _cancel_volume_pool_prewarm(self):
+        after_id = getattr(self, "volume_pool_prewarm_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.volume_pool_prewarm_after_id = None
+        self.volume_pool_prewarm_kind = None
+
+    def _get_volume_pool_kind_columns(self, total_items, kind):
+        width = self._get_volume_viewport_width()
+        if kind == "card":
+            columns = max(1, int((width + 28) // 340))
+            columns = max(2, min(4, columns))
+        else:
+            columns = max(1, int((width + 24) // 250))
+            columns = max(2, min(4, columns))
+        return max(1, min(total_items or 1, columns))
+
+    def _get_virtual_pool_target_size(self, kind, total_items=None):
+        total_items = len(getattr(self, "pairs", []) or []) if total_items is None else int(total_items or 0)
+        if total_items <= 0:
+            return 0
+        columns = self._get_volume_pool_kind_columns(total_items, kind)
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        try:
+            canvas_height = max(1, int(canvas.winfo_height() or 1)) if canvas is not None else 720
+        except Exception:
+            canvas_height = 720
+        if kind == "card":
+            row_height = VOLUME_VIRTUAL_ROW_HEIGHT_CARD
+            min_visible_rows = 6
+        elif kind == "compact":
+            row_height = VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT
+            min_visible_rows = 8
+        else:
+            row_height = 36
+            min_visible_rows = 8
+        visible_rows = max(min_visible_rows, int(math.ceil(canvas_height / float(max(1, row_height)))))
+        target_rows = visible_rows + VOLUME_VIRTUALIZATION_BUFFER_ROWS
+        return min(total_items, max(columns, columns * target_rows))
+
+    def _get_volume_pool_kind_for_layout_mode(self, mode_name, total_items=None):
+        total_items = len(getattr(self, "pairs", []) or []) if total_items is None else int(total_items or 0)
+        if self._should_use_fast_volume_widgets(total_items):
+            return "fast"
+        mode_name = (mode_name or "Auto").strip().title()
+        if mode_name == "Confort":
+            return "card"
+        if mode_name == "Dense":
+            return "compact"
+        return "compact" if total_items >= VOLUME_COMPACT_MODE_THRESHOLD else "card"
+
+    def _is_volume_pool_ready_for_layout_mode(self, mode_name, total_items=None):
+        kind = self._get_volume_pool_kind_for_layout_mode(mode_name, total_items=total_items)
+        if self._use_canvas_volume_pool(kind):
+            return True
+        target_size = self._get_virtual_pool_target_size(kind, total_items=total_items)
+        pools = getattr(self, "volume_virtual_widget_pools", None) or {}
+        return len(pools.get(kind) or []) >= target_size
+
+    def _schedule_volume_pool_prewarm(self, kind):
+        self._cancel_volume_pool_prewarm()
+        if getattr(self, "analysis_in_progress", False):
+            return
+        if not getattr(self, "volume_virtualized", False):
+            return
+        if self._use_canvas_volume_pool(kind):
+            return
+        total_items = len(getattr(self, "pairs", []) or [])
+        if total_items <= 0:
+            return
+        target_size = self._get_virtual_pool_target_size(kind, total_items=total_items)
+        pools = getattr(self, "volume_virtual_widget_pools", None)
+        if pools is None:
+            pools = {}
+            self.volume_virtual_widget_pools = pools
+        pool = pools.get(kind) or []
+        pools[kind] = pool
+        if len(pool) >= target_size:
+            return
+        self.volume_pool_prewarm_kind = kind
+
+        def tick():
+            if self.volume_pool_prewarm_kind != kind:
+                return
+            current_pools = getattr(self, "volume_virtual_widget_pools", None) or {}
+            current_pool = current_pools.get(kind) or []
+            batch_size = 6 if kind == "card" else 8
+            remaining = max(0, target_size - len(current_pool))
+            for _ in range(min(batch_size, remaining)):
+                widget = self._create_virtual_volume_pool_item(kind)
+                try:
+                    widget.grid_remove()
+                except Exception:
+                    pass
+                current_pool.append(widget)
+            current_pools[kind] = current_pool
+            self.volume_virtual_widget_pools = current_pools
+            if len(current_pool) < target_size:
+                self.volume_pool_prewarm_after_id = self.root.after(1, tick)
+                return
+            self.volume_pool_prewarm_after_id = None
+            self.volume_pool_prewarm_kind = None
+            pending_mode = getattr(self, "volume_layout_pending_mode", None)
+            if pending_mode and self._get_volume_pool_kind_for_layout_mode(pending_mode, total_items=total_items) == kind:
+                self.volume_layout_pending_mode = None
+                self.root.after(1, lambda mode=pending_mode: self._on_volume_layout_mode_change(mode, allow_deferred=False))
+
+        self.volume_pool_prewarm_after_id = self.root.after(1, tick)
 
     def _schedule_volume_layout_refresh(self, _event=None):
         if getattr(self, "analysis_in_progress", False):
@@ -2978,136 +3454,164 @@ class MangaApp:
         self._pending_virtual_volume_reset_scroll = bool(reset_scroll)
         after_id = getattr(self, "volume_virtual_refresh_after_id", None)
         if after_id:
-            return
-        self.volume_virtual_refresh_after_id = self.root.after(delay_ms, self._process_virtual_volume_refresh)
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        if delay_ms <= 1:
+            self.volume_virtual_refresh_after_id = self.root.after_idle(self._process_virtual_volume_refresh)
+        else:
+            self.volume_virtual_refresh_after_id = self.root.after(delay_ms, self._process_virtual_volume_refresh)
 
     def _process_virtual_volume_refresh(self):
         self.volume_virtual_refresh_after_id = None
         if not getattr(self, "volume_virtualized", False):
             return
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return
         force = bool(getattr(self, "_pending_virtual_volume_force", False))
         reset_scroll = bool(getattr(self, "_pending_virtual_volume_reset_scroll", False))
         self._pending_virtual_volume_force = False
         self._pending_virtual_volume_reset_scroll = False
-        self._refresh_virtualized_volume_view(force=force, reset_scroll=reset_scroll)
-        self._schedule_virtual_volume_refresh(delay_ms=90)
+        try:
+            current_yview = tuple(round(float(value), 6) for value in canvas.yview())
+        except Exception:
+            current_yview = None
+        last_yview = getattr(self, "volume_last_canvas_yview", None)
+        if force or reset_scroll or current_yview != last_yview:
+            self._refresh_virtualized_volume_view(force=force, reset_scroll=reset_scroll)
+            try:
+                self.volume_last_canvas_yview = tuple(round(float(value), 6) for value in canvas.yview())
+            except Exception:
+                self.volume_last_canvas_yview = current_yview
 
-    def _create_virtual_volume_spacer(self):
-        spacer = tk.Frame(self.vol_frame, bg=self.palette["canvas_bg"], height=0, highlightthickness=0, bd=0)
-        spacer.grid_propagate(False)
-        return spacer
-
-    def _get_virtual_volume_row_window(self, total_rows, canvas_height, row_height, start_frac, end_frac, min_visible_rows=6):
+    def _get_virtual_volume_row_window(self, total_rows, canvas_height, row_height, scroll_top, min_visible_rows=6):
         visible_rows = max(min_visible_rows, int(math.ceil(canvas_height / float(max(1, row_height)))))
-        first_row = max(0, int(start_frac * total_rows) - VOLUME_VIRTUALIZATION_BUFFER_ROWS)
-        last_row_from_scroll = int(math.ceil(end_frac * total_rows))
-        if end_frac >= 0.999 and total_rows > (visible_rows + VOLUME_VIRTUALIZATION_BUFFER_ROWS):
-            last_row_from_scroll = first_row + visible_rows
+        clamped_top = max(0.0, float(scroll_top or 0.0))
+        first_visible_row = int(clamped_top // float(max(1, row_height)))
+        first_row = max(0, first_visible_row - VOLUME_VIRTUALIZATION_BUFFER_ROWS)
+        bottom_visible_row = int(math.ceil((clamped_top + canvas_height) / float(max(1, row_height))))
         last_row = min(
             total_rows,
-            max(first_row + visible_rows, last_row_from_scroll) + VOLUME_VIRTUALIZATION_BUFFER_ROWS,
+            max(first_visible_row + visible_rows, bottom_visible_row) + VOLUME_VIRTUALIZATION_BUFFER_ROWS,
         )
         return first_row, last_row, visible_rows
 
-    def _refresh_fast_virtualized_volume_view(self, filtered_indices, total_visible, columns, canvas, force=False, reset_scroll=False):
+    def _refresh_pooled_virtualized_volume_view(self, filtered_indices, total_visible, columns, canvas, force=False, reset_scroll=False):
         if reset_scroll:
             try:
                 canvas.yview_moveto(0)
             except Exception:
                 pass
 
-        for col in range(columns):
-            self.vol_frame.grid_columnconfigure(col, weight=1)
+        kind = self._get_virtual_volume_pool_kind()
+        use_canvas_pool = self._use_canvas_volume_pool(kind)
+        self._set_volume_canvas_render_mode(use_canvas_pool)
 
         if total_visible <= 0:
-            for widget in getattr(self, "volume_virtual_widget_pool", []) or []:
-                try:
-                    widget.grid_remove()
-                except Exception:
-                    pass
-            for spacer_name in ("volume_virtual_top_spacer", "volume_virtual_bottom_spacer"):
-                spacer = getattr(self, spacer_name, None)
-                if spacer is not None:
+            self._hide_canvas_volume_pool()
+            for pool in (getattr(self, "volume_virtual_widget_pools", None) or {}).values():
+                for widget in pool:
                     try:
-                        spacer.grid_remove()
+                        widget.grid_remove()
                     except Exception:
                         pass
             self.check_items = []
             self.volume_index_to_widget = {}
             self.volume_virtual_window = None
+            self._update_volume_canvas_window(0)
+            self._update_volume_canvas_scrollregion(0)
             self._update_selection_status()
             self._refresh_volume_empty_state()
             return
 
-        try:
-            self.root.update_idletasks()
-        except Exception:
-            pass
-
         total_rows = max(1, (total_visible + columns - 1) // columns)
-        row_height = 36 if bool(getattr(self, "use_compact_volume_mode", False)) else 48
-        start_frac, end_frac = canvas.yview()
+        if not use_canvas_pool:
+            self._configure_volume_grid_columns(columns, kind=kind)
+        if kind == "fast":
+            row_height = 36
+        elif kind == "compact":
+            row_height = VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT
+        else:
+            row_height = VOLUME_VIRTUAL_ROW_HEIGHT_CARD
         canvas_height = max(1, int(canvas.winfo_height() or 1))
+        scroll_top = max(0.0, float(canvas.canvasy(0)))
         first_row, last_row, _visible_rows = self._get_virtual_volume_row_window(
             total_rows,
             canvas_height,
             row_height,
-            start_frac,
-            end_frac,
+            scroll_top,
             min_visible_rows=8,
         )
-        window = (first_row, last_row, total_visible, columns, "fast")
+        window = (first_row, last_row, total_visible, columns, kind)
 
         if not force and window == getattr(self, "volume_virtual_window", None):
             return
         self.volume_virtual_window = window
 
-        pool = getattr(self, "volume_virtual_widget_pool", None)
-        if pool is None:
-            pool = []
-            self.volume_virtual_widget_pool = pool
-
-        visible_capacity = max(0, (last_row - first_row) * columns)
-        while len(pool) < visible_capacity:
-            dummy_var = tk.BooleanVar(value=False)
-            pool.append(self._create_fast_volume_item(self.vol_frame, "", dummy_var, 0))
-
-        top_spacer = getattr(self, "volume_virtual_top_spacer", None)
-        if top_spacer is None:
-            top_spacer = self._create_virtual_volume_spacer()
-            self.volume_virtual_top_spacer = top_spacer
-        bottom_spacer = getattr(self, "volume_virtual_bottom_spacer", None)
-        if bottom_spacer is None:
-            bottom_spacer = self._create_virtual_volume_spacer()
-            self.volume_virtual_bottom_spacer = bottom_spacer
-
-        top_height = first_row * row_height
-        row_offset = 0
-        if top_height > 0:
-            top_spacer.configure(height=top_height)
-            top_spacer.grid(row=0, column=0, columnspan=columns, sticky="ew")
-            row_offset = 1
-        else:
-            top_spacer.grid_remove()
-
         start_index = first_row * columns
         end_index = min(total_visible, last_row * columns)
         visible_slice = filtered_indices[start_index:end_index]
-        grid_padx = 8 if bool(getattr(self, "use_compact_volume_mode", False)) else 10
-        grid_pady = 4 if bool(getattr(self, "use_compact_volume_mode", False)) else 6
         self.check_items = []
         self.volume_index_to_widget = {}
+        self._update_volume_canvas_scrollregion(total_rows * row_height)
+
+        if use_canvas_pool:
+            metrics = self._get_canvas_volume_item_metrics(columns, kind)
+            pool = self._ensure_canvas_volume_pool(max(0, len(visible_slice)))
+            for local_pos, absolute_index in enumerate(visible_slice):
+                entry = pool[local_pos]
+                self._render_canvas_volume_entry(entry, absolute_index, start_index + local_pos, total_visible, columns, metrics, kind)
+                self.volume_index_to_widget[absolute_index] = entry
+            for extra_entry in pool[len(visible_slice):]:
+                extra_entry["absolute_index"] = None
+                extra_entry["visible_position"] = None
+                for item_id in extra_entry.get("item_ids", ()):
+                    try:
+                        canvas.itemconfigure(item_id, state="hidden")
+                    except Exception:
+                        pass
+            self._update_selection_status()
+            self._refresh_volume_empty_state()
+            return
+
+        pools = getattr(self, "volume_virtual_widget_pools", None)
+        if pools is None:
+            pools = {}
+            self.volume_virtual_widget_pools = pools
+        current_pool_mode = getattr(self, "volume_virtual_widget_pool_mode", None)
+        if current_pool_mode != kind:
+            for widget in (pools.get(current_pool_mode, []) or []):
+                try:
+                    widget.grid_remove()
+                except Exception:
+                    pass
+            self.volume_virtual_widget_pool_mode = kind
+        pool = pools.get(kind)
+        if pool is None:
+            pool = []
+            pools[kind] = pool
+        self.volume_virtual_widget_pool = pool
+
+        visible_capacity = max(0, (last_row - first_row) * columns)
+        while len(pool) < visible_capacity:
+            pool.append(self._create_virtual_volume_pool_item(kind))
+
+        self._update_volume_canvas_window(first_row * row_height)
 
         for local_pos, absolute_index in enumerate(visible_slice):
             vol, _link = self.pairs[absolute_index]
             var = self.check_vars[absolute_index]
             chk = pool[local_pos]
-            chk.configure(text=f"{absolute_index + 1}. {vol}", variable=var)
-            chk.volume_var = var
-            chk.volume_index = absolute_index
-            row = row_offset + (local_pos // columns)
-            col = local_pos % columns
-            chk.grid(row=row, column=col, padx=grid_padx, pady=grid_pady, sticky="w")
+            self._assign_virtual_volume_pool_item(chk, kind, vol, var, absolute_index)
+            row, col = self._get_centered_volume_grid_position(
+                local_pos,
+                total_visible,
+                columns,
+                absolute_visible_index=start_index + local_pos,
+            )
+            self._grid_virtual_volume_pool_item(chk, kind, row, col)
             self.check_items.append((chk, vol))
             self.volume_index_to_widget[absolute_index] = chk
 
@@ -3117,14 +3621,7 @@ class MangaApp:
             except Exception:
                 pass
 
-        bottom_height = max(0, (total_rows - last_row) * row_height)
-        if bottom_height > 0:
-            bottom_row = row_offset + max(1, (len(visible_slice) + columns - 1) // columns)
-            bottom_spacer.configure(height=bottom_height)
-            bottom_spacer.grid(row=bottom_row, column=0, columnspan=columns, sticky="ew")
-        else:
-            bottom_spacer.grid_remove()
-
+        self._refresh_volume_card_styles()
         self._update_selection_status()
         self._refresh_volume_empty_state()
 
@@ -3143,16 +3640,15 @@ class MangaApp:
         total_visible = len(filtered_indices)
         columns = max(1, int(getattr(self, "volume_grid_columns", 1) or 1))
 
-        if getattr(self, "use_fast_volume_widgets", False):
-            self._refresh_fast_virtualized_volume_view(
-                filtered_indices,
-                total_visible,
-                columns,
-                canvas,
-                force=force,
-                reset_scroll=reset_scroll,
-            )
-            return
+        self._refresh_pooled_virtualized_volume_view(
+            filtered_indices,
+            total_visible,
+            columns,
+            canvas,
+            force=force,
+            reset_scroll=reset_scroll,
+        )
+        return
 
         for col in range(columns):
             self.vol_frame.grid_columnconfigure(col, weight=1)
@@ -3237,15 +3733,8 @@ class MangaApp:
         self._refresh_volume_empty_state()
 
     def _should_use_compact_volume_mode(self, total_items=None):
-        if total_items is None:
-            total_items = len(getattr(self, "pairs", []) or [])
-        mode = (getattr(self, "volume_layout_mode", None).get() if hasattr(self, "volume_layout_mode") else "Auto") or "Auto"
-        mode = str(mode).strip().lower()
-        if mode == "dense":
-            return True
-        if mode == "confort":
-            return False
-        return total_items >= VOLUME_COMPACT_MODE_THRESHOLD
+        _ = total_items
+        return True
 
     def _capture_volume_selection_state(self):
         return [bool(var.get()) for var in getattr(self, "check_vars", []) or []]
@@ -3268,6 +3757,20 @@ class MangaApp:
         current_columns = int(getattr(self, "volume_grid_columns", 0) or 0)
         if (
             len(getattr(self, "check_vars", []) or []) == total
+            and current_virtualized
+            and next_virtualized
+        ):
+            self.use_compact_volume_mode = next_compact
+            self.use_fast_volume_widgets = next_fast
+            self.volume_virtualized = next_virtualized
+            self.volume_grid_columns = next_columns
+            self._refresh_volume_layout_mode_button()
+            self.volume_virtual_window = None
+            self._refresh_virtualized_volume_view(force=True, reset_scroll=False)
+            self._update_volume_render_badges(total, total)
+            return
+        if (
+            len(getattr(self, "check_vars", []) or []) == total
             and next_compact == current_compact
             and next_fast == current_fast
             and next_virtualized == current_virtualized
@@ -3276,6 +3779,7 @@ class MangaApp:
             self.use_fast_volume_widgets = next_fast
             self.volume_virtualized = next_virtualized
             self.volume_grid_columns = next_columns
+            self._refresh_volume_layout_mode_button()
             if current_virtualized:
                 self.volume_virtual_window = None
                 self._refresh_virtualized_volume_view(force=True, reset_scroll=False)
@@ -3289,18 +3793,38 @@ class MangaApp:
         selection_state = self._capture_volume_selection_state()
         self._start_volume_render(selection_state=selection_state, feedback=False)
 
-    def _on_volume_layout_mode_change(self, selected_value):
-        if not hasattr(self, "volume_layout_mode"):
-            return
-        value = (selected_value or "Auto").strip().title()
-        if value not in {"Auto", "Dense", "Confort"}:
-            value = "Auto"
-        self.volume_layout_mode.set(value)
+    def _on_volume_layout_mode_change(self, selected_value, allow_deferred=True):
+        _ = selected_value
+        _ = allow_deferred
+        if hasattr(self, "volume_layout_mode"):
+            self.volume_layout_mode.set("Dense")
+        self.volume_layout_pending_mode = None
+        self._refresh_volume_layout_mode_button()
         self._rerender_volume_layout()
 
+    def _cycle_volume_layout_mode(self):
+        return
+
+    def _refresh_volume_layout_mode_button(self):
+        if not hasattr(self, "volume_layout_button"):
+            return
+        pending_mode = getattr(self, "volume_layout_pending_mode", None)
+        if pending_mode:
+            self.volume_layout_button.configure(
+                text=f"{pending_mode}...",
+                fg_color=self.palette["warning_soft"],
+                hover_color=self.palette["warning_soft"],
+                text_color=self.palette["warning_text"],
+            )
+            return
+        self.volume_layout_button.configure(
+            text="",
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["panel_bg"],
+            text_color=self.palette["text"],
+        )
+
     def _update_volume_render_badges(self, built_count, total_count):
-        layout_name = self._get_volume_layout_mode_name()
-        effective_mode = "Dense" if getattr(self, "use_compact_volume_mode", False) else "Confort"
         if hasattr(self, "volume_count_badge"):
             if total_count <= 0:
                 self.volume_count_badge.configure(text="0 élément")
@@ -3308,27 +3832,17 @@ class MangaApp:
                 self.volume_count_badge.configure(text=f"{built_count}/{total_count} rendus")
             else:
                 self.volume_count_badge.configure(text=f"{total_count} éléments")
-        if hasattr(self, "volume_layout_chip"):
-            chip_text = effective_mode if layout_name == "Auto" else layout_name
-            chip_color = self.palette["accent_soft"] if effective_mode == "Confort" else self.palette["accent"]
-            chip_text_color = self.palette["accent_hover"] if effective_mode == "Confort" else "#ffffff"
-            self.volume_layout_chip.configure(text=f"Vue {chip_text}", fg_color=chip_color, text_color=chip_text_color)
         if hasattr(self, "selection_hint_label"):
             if total_count <= 0:
                 hint = "Aucun tome ou chapitre détecté."
             elif built_count < total_count:
-                mode_label = "dense" if getattr(self, "use_compact_volume_mode", False) else "confort"
-                hint = f"Rendu {mode_label}: {built_count}/{total_count}"
+                hint = f"Rendu: {built_count}/{total_count}"
             elif getattr(self, "use_fast_volume_widgets", False):
                 hint = "Grand catalogue : liste légère instantanée."
             elif getattr(self, "volume_virtualized", False):
                 hint = "Grand catalogue : rendu virtualisé actif."
             else:
-                hint = (
-                    "Mode dense actif pour garder la liste fluide."
-                    if getattr(self, "use_compact_volume_mode", False)
-                    else "Sélectionne les tomes ou chapitres à télécharger."
-                )
+                hint = "Sélectionne les tomes ou chapitres à télécharger."
             self.selection_hint_label.configure(text=hint)
 
     def _sync_volume_card_style(self, card):
@@ -3355,8 +3869,27 @@ class MangaApp:
                 index.configure(fg_color=self.palette["card_alt"], text_color=self.palette["muted"])
 
     def _refresh_volume_card_styles(self):
+        self._refresh_canvas_volume_card_styles()
         for card, _label in getattr(self, "check_items", []) or []:
             self._sync_volume_card_style(card)
+
+    def _toggle_volume_widget(self, widget):
+        var = getattr(widget, "volume_var", None)
+        if var is None:
+            return
+        var.set(not bool(var.get()))
+        self.update_master_toggle_button()
+
+    def _assign_volume_card_content(self, card, volume_label, var, index):
+        card.volume_var = var
+        card.volume_index = index
+        if hasattr(card, "volume_title_label"):
+            card.volume_title_label.configure(text=volume_label)
+        if hasattr(card, "volume_index_label"):
+            card.volume_index_label.configure(text=str(index + 1))
+        if hasattr(card, "volume_checkbox"):
+            card.volume_checkbox.configure(variable=var)
+        self._sync_volume_card_style(card)
 
     def _create_volume_card(self, parent, volume_label, var, index):
         card = ctk.CTkFrame(
@@ -3411,17 +3944,22 @@ class MangaApp:
         )
         checkbox.grid(row=0, column=2, padx=(8, 10), pady=8)
 
-        toggle = lambda _event=None, _var=var: self._toggle_volume_card(_var)
+        toggle = lambda _event=None, _widget=card: self._toggle_volume_widget(_widget)
         card.bind("<Button-1>", toggle)
         index_label.bind("<Button-1>", toggle)
         title_label.bind("<Button-1>", toggle)
 
-        card.volume_var = var
         card.volume_title_label = title_label
         card.volume_index_label = index_label
         card.volume_checkbox = checkbox
-        self._sync_volume_card_style(card)
+        self._assign_volume_card_content(card, volume_label, var, index)
         return card
+
+    def _assign_compact_volume_item_content(self, item, volume_label, var, index):
+        item.volume_var = var
+        item.volume_index = index
+        item.configure(text=f"{index + 1:>3}  {volume_label}", variable=var)
+        self._sync_volume_card_style(item)
 
     def _create_compact_volume_item(self, parent, volume_label, var, index):
         item = ctk.CTkCheckBox(
@@ -3438,10 +3976,14 @@ class MangaApp:
             checkbox_height=20,
             corner_radius=4,
         )
-        item.volume_var = var
         item.is_compact_volume_item = True
-        self._sync_volume_card_style(item)
+        self._assign_compact_volume_item_content(item, volume_label, var, index)
         return item
+
+    def _assign_fast_volume_item_content(self, item, volume_label, var, index):
+        item.volume_var = var
+        item.volume_index = index
+        item.configure(text=f"{index + 1}. {volume_label}", variable=var)
 
     def _create_fast_volume_item(self, parent, volume_label, var, index):
         item = ttk.Checkbutton(
@@ -3452,9 +3994,41 @@ class MangaApp:
             takefocus=False,
             command=self.update_master_toggle_button,
         )
-        item.volume_var = var
         item.is_fast_volume_item = True
+        self._assign_fast_volume_item_content(item, volume_label, var, index)
         return item
+
+    def _get_virtual_volume_pool_kind(self):
+        if getattr(self, "use_fast_volume_widgets", False):
+            return "fast"
+        if getattr(self, "use_compact_volume_mode", False):
+            return "compact"
+        return "card"
+
+    def _create_virtual_volume_pool_item(self, kind):
+        dummy_var = tk.BooleanVar(value=False)
+        if kind == "fast":
+            return self._create_fast_volume_item(self.vol_frame, "", dummy_var, 0)
+        if kind == "compact":
+            return self._create_compact_volume_item(self.vol_frame, "", dummy_var, 0)
+        return self._create_volume_card(self.vol_frame, "", dummy_var, 0)
+
+    def _assign_virtual_volume_pool_item(self, widget, kind, volume_label, var, index):
+        if kind == "fast":
+            self._assign_fast_volume_item_content(widget, volume_label, var, index)
+            return
+        if kind == "compact":
+            self._assign_compact_volume_item_content(widget, volume_label, var, index)
+            return
+        self._assign_volume_card_content(widget, volume_label, var, index)
+
+    def _grid_virtual_volume_pool_item(self, widget, kind, row, col):
+        if kind == "fast":
+            widget.grid(row=row, column=col, padx=8, pady=4, sticky="w")
+        elif kind == "compact":
+            widget.grid(row=row, column=col, padx=12, pady=6, sticky="w")
+        else:
+            widget.grid(row=row, column=col, padx=10, pady=8, sticky="ew")
 
     def _create_volume_item(self, parent, volume_label, var, index):
         if getattr(self, "use_fast_volume_widgets", False):
@@ -3489,6 +4063,12 @@ class MangaApp:
             self._show_volume_empty_state("Aucun tome détecté pour cette URL.", tone="warning")
             self.log("Aucun tome détecté.", level="warning")
             self._set_analysis_status_label("Analyse terminée: liste vide.", success=False)
+        if has_pairs and getattr(self, "volume_virtualized", False) and not getattr(self, "use_fast_volume_widgets", False):
+            current_kind = self._get_virtual_volume_pool_kind()
+            if current_kind == "compact":
+                self._schedule_volume_pool_prewarm("card")
+            elif current_kind == "card":
+                self._schedule_volume_pool_prewarm("compact")
         callback = getattr(self, "volume_render_complete_callback", None)
         self.volume_render_complete_callback = None
         if callable(callback):
@@ -3502,6 +4082,8 @@ class MangaApp:
             self._finalize_volume_render()
             return
         columns = getattr(self, "volume_grid_columns", self._get_volume_grid_columns(total))
+        kind = "compact" if getattr(self, "use_compact_volume_mode", False) else "card"
+        self._configure_volume_grid_columns(columns, kind=kind)
         end_index = min(start_index + getattr(self, "volume_render_batch_size", VOLUME_RENDER_BATCH_SIZE), total)
         for i in range(start_index, end_index):
             vol, _link = self.pairs[i]
@@ -3511,15 +4093,16 @@ class MangaApp:
             var = tk.BooleanVar(value=selected_by_default)
             self.check_vars.append(var)
             chk = self._create_volume_item(self.vol_frame, vol, var, i)
-            if getattr(self, "use_compact_volume_mode", False):
-                chk.grid(row=(i // columns), column=i % columns, padx=12, pady=6, sticky="w")
-            else:
-                chk.grid(row=(i // columns), column=i % columns, padx=10, pady=8, sticky="ew")
+            row, col = self._get_centered_volume_grid_position(i, total, columns)
+            self._grid_virtual_volume_pool_item(chk, kind, row, col)
             self.check_items.append((chk, vol))
 
         self._update_volume_render_badges(end_index, total)
+        self._update_volume_canvas_window(0)
+        self._update_volume_canvas_scrollregion()
         if end_index < total:
-            self._set_analysis_status_label(f"Analyse terminée: rendu {end_index}/{total}...", success=None)
+            if bool(getattr(self, "volume_render_feedback_enabled", True)):
+                self._set_analysis_status_label(f"Analyse terminée: rendu {end_index}/{total}...", success=None)
             self.volume_render_after_id = self.root.after(
                 1,
                 lambda current=end_index, current_token=token: self._render_volume_cards_batch(current_token, current),
@@ -3529,6 +4112,7 @@ class MangaApp:
 
     def _start_volume_render(self, on_complete=None, selection_state=None, feedback=True):
         self._cancel_pending_volume_render()
+        self._cancel_volume_pool_prewarm()
         self.volume_render_complete_callback = on_complete
         self.volume_render_feedback_enabled = bool(feedback)
         for widget in self.vol_frame.winfo_children():
@@ -3540,20 +4124,31 @@ class MangaApp:
         self.volume_index_to_widget = {}
         self.volume_virtual_window = None
         self.volume_virtual_widget_pool = []
+        self.volume_virtual_widget_pools = {}
+        self.volume_virtual_widget_pool_mode = None
+        self.volume_canvas_render_active = False
+        self._hide_canvas_volume_pool()
+        self._set_volume_canvas_render_mode(False)
         self.volume_virtual_top_spacer = None
         self.volume_virtual_bottom_spacer = None
+        self.volume_last_canvas_yview = None
         total = len(self.pairs)
         self.use_fast_volume_widgets = self._should_use_fast_volume_widgets(total)
         self.use_compact_volume_mode = self._should_use_compact_volume_mode(total)
         self.volume_virtualized = self._should_virtualize_volume_mode(total)
+        self._refresh_volume_layout_mode_button()
         self.volume_label_cache_lower = [str(vol or "").lower() for vol, _link in self.pairs]
         self.volume_render_selection_state = list(selection_state or [])
         self.volume_grid_columns = self._get_volume_grid_columns(total)
         self.volume_render_batch_size = self._get_volume_render_batch_size(total)
         self.filtered_volume_indices = list(range(total))
-        for col in range(self.volume_grid_columns):
-            self.vol_frame.grid_columnconfigure(col, weight=1)
+        self._configure_volume_grid_columns(
+            self.volume_grid_columns,
+            kind="fast" if self.use_fast_volume_widgets else ("compact" if self.use_compact_volume_mode else "card"),
+        )
         if total <= 0:
+            self._update_volume_canvas_window(0)
+            self._update_volume_canvas_scrollregion(0)
             self._update_volume_render_badges(0, 0)
             self._finalize_volume_render()
             return
@@ -3579,7 +4174,8 @@ class MangaApp:
             return
         token = getattr(self, "volume_render_token", 0)
         self._update_volume_render_badges(0, total)
-        self._set_analysis_status_label(f"Analyse terminée: rendu 0/{total}...", success=None)
+        if self.volume_render_feedback_enabled:
+            self._set_analysis_status_label(f"Analyse terminée: rendu 0/{total}...", success=None)
         self._render_volume_cards_batch(token, 0)
 
     def _refresh_volume_empty_state(self):
@@ -3646,16 +4242,16 @@ class MangaApp:
                 host = getattr(self, "error_tree_shell", None)
                 if host is not None:
                     self.error_empty_label.place(in_=host, relx=0.5, rely=0.5, anchor="center")
-        self._refresh_selection_tab_buttons()
+        self._refresh_config_tab_buttons()
         if focus_errors and count > 0:
-            self._select_selection_tab("error")
+            self._select_config_tab("error")
             self._set_workflow_step("logs", "Des erreurs sont disponibles dans l'onglet Erreurs.")
 
     def _on_selection_tab_changed(self, _event=None):
-        selected = getattr(self, "active_selection_tab", "selection")
+        selected = getattr(self, "active_config_tab", "download")
         if selected == "error":
             self._set_workflow_step("logs", "Consulte les erreurs par tome.")
-        else:
+        elif selected == "download":
             if getattr(self, "download_in_progress", False):
                 self._set_workflow_step("download", "Téléchargement en cours...")
             else:
@@ -3768,42 +4364,8 @@ class MangaApp:
             header.configure(height=max_h)
 
     def _refresh_selection_tab_buttons(self):
-        """Rafraichit les onglets visuels Tomes / Chapitres et Erreurs."""
-        if not hasattr(self, "selection_tab_buttons"):
-            return
-        active_key = getattr(self, "active_selection_tab", "selection")
-        titles = {
-            "selection": "Tomes / Chapitres",
-            "error": getattr(self, "error_tab_title", "Erreurs (0)"),
-        }
-        error_count = len(getattr(self, "volume_error_entries", []) or [])
-        selected_widget = None
-        selected_bg = self.palette["card_bg"]
-        for key in getattr(self, "selection_tab_order", ("selection", "error")):
-            button = self.selection_tab_buttons.get(key)
-            if button is None:
-                continue
-            is_selected = key == active_key
-            if key == "error" and error_count > 0:
-                bg = self.palette["danger_soft"] if not is_selected else "#ffffff"
-                fg = self.palette["danger_text"] if not is_selected else self.palette["text"]
-                border = self.palette["danger_border"] if not is_selected else self.palette["accent"]
-                hover = "#f0d6db" if not is_selected else self.palette["accent_soft"]
-            elif is_selected:
-                bg = self.palette["card_bg"]
-                fg = self.palette["text"]
-                border = self.palette["border"]
-                hover = self.palette["card_bg"]
-            else:
-                bg = self.palette["panel_bg"]
-                fg = self.palette["muted"]
-                border = self.palette["border"]
-                hover = self.palette["card_alt"]
-            self._style_tab_button(button, titles.get(key, ""), bg, fg, border, hover)
-            if is_selected:
-                selected_widget = button
-                selected_bg = bg
-        self._update_selection_top_border_mask(selected_widget, selected_bg)
+        """Compatibilité: les onglets du bas sont fusionnés dans la barre d'onglets principale."""
+        self._refresh_config_tab_buttons()
 
     def _update_selection_top_border_mask(self, selected_widget, mask_bg):
         """Masque la ligne haute de l'encart sous l'onglet actif."""
@@ -3838,18 +4400,10 @@ class MangaApp:
             self.selection_top_border_mask.place_forget()
 
     def _select_selection_tab(self, tab_key):
-        """Affiche l'onglet selection (tomes) ou erreurs dans l'encart du bas."""
-        if not hasattr(self, "selection_tab_pages"):
-            return
-        page = self.selection_tab_pages.get(tab_key)
-        if page is None:
-            return
-        self.active_selection_tab = tab_key
-        for tab_page in self.selection_tab_pages.values():
-            tab_page.pack_forget()
-        page.pack(fill="both", expand=True)
-        self._refresh_selection_tab_buttons()
-        self._on_selection_tab_changed()
+        """Compatibilité: redirige vers l'onglet principal Téléchargement ou Erreurs."""
+        target_key = "error" if tab_key == "error" else "download"
+        self.active_selection_tab = "error" if tab_key == "error" else "selection"
+        self._select_config_tab(target_key)
 
     def _shortcut_analyze(self, _event=None):
         if getattr(self, "analysis_in_progress", False):
@@ -4074,26 +4628,34 @@ class MangaApp:
         self._refresh_config_tab_buttons()
 
     def _refresh_config_tab_buttons(self):
-        """Rafraichit les onglets visuels Journal / Authentification / Options."""
+        """Rafraichit les onglets visuels principaux."""
         if not hasattr(self, "config_tab_buttons"):
             return
-        active_key = getattr(self, "active_config_tab", "journal")
+        active_key = getattr(self, "active_config_tab", "download")
         auth_state = getattr(self, "auth_tab_visual_state", "pending")
+        error_count = len(getattr(self, "volume_error_entries", []) or [])
         titles = {
+            "download": "Téléchargement",
             "journal": "Journal",
+            "error": getattr(self, "error_tab_title", "Erreurs (0)"),
             "auth": getattr(self, "auth_tab_title", "Authentification (0/5)"),
             "options": "Options",
         }
 
         selected_widget = None
         selected_bg_for_mask = self.palette["card_bg"]
-        for key in getattr(self, "config_tab_order", ("journal", "auth", "options")):
+        for key in getattr(self, "config_tab_order", ("download", "journal", "error", "auth", "options")):
             button = self.config_tab_buttons.get(key)
             if button is None:
                 continue
             is_selected = key == active_key
             if key == "auth":
                 bg, fg, border, hover = self._get_auth_tone(auth_state, selected=is_selected)
+            elif key == "error" and error_count > 0:
+                bg = self.palette["danger_soft"]
+                fg = self.palette["danger_text"]
+                border = self.palette["danger_border"]
+                hover = "#f0d6db"
             else:
                 bg = self.palette["card_bg"] if is_selected else self.palette["panel_bg"]
                 fg = self.palette["text"] if is_selected else self.palette["muted"]
@@ -4139,17 +4701,23 @@ class MangaApp:
             self.config_top_border_mask.place_forget()
 
     def _select_config_tab(self, tab_key):
-        """Affiche la page de configuration choisie."""
+        """Affiche l'onglet principal choisi."""
         if not hasattr(self, "config_tab_pages"):
             return
         page = self.config_tab_pages.get(tab_key)
         if page is None:
             return
         self.active_config_tab = tab_key
+        if tab_key == "error":
+            self.active_selection_tab = "error"
+        elif tab_key == "download":
+            self.active_selection_tab = "selection"
         for tab_page in self.config_tab_pages.values():
             tab_page.pack_forget()
         page.pack(fill="both", expand=True)
         self._refresh_config_tab_buttons()
+        if tab_key in {"download", "error"}:
+            self._on_selection_tab_changed()
 
     def _refresh_auth_tab_badge(self):
         """Met a jour le titre et la couleur de l'onglet d'authentification."""
@@ -4236,6 +4804,16 @@ class MangaApp:
             self.status_label.configure(text=safe_text, fg_color=fg_color, text_color=text_color)
         else:
             self.status_label.configure(text=safe_text, foreground=text_color)
+
+    def _refresh_source_title_label(self, title=None):
+        """Met a jour le titre visible du bloc source."""
+        if not hasattr(self, "source_title_var"):
+            return
+        raw_title = self.title if title is None else title
+        safe_title = repair_mojibake_text(str(raw_title or "").strip())
+        if not safe_title:
+            safe_title = "URL du Manga/Manhwa/BD"
+        self.source_title_var.set(safe_title)
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
         """Mémorise un résultat auth basé sur une analyse réelle."""
@@ -4601,7 +5179,7 @@ class MangaApp:
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
-        self.volume_layout_mode = tk.StringVar(value="Auto")
+        self.volume_layout_mode = tk.StringVar(value="Dense")
         self.log_autoscroll = tk.BooleanVar(value=True)
         self.console_logs_enabled = tk.BooleanVar(value=True)
         self.show_cookies = tk.BooleanVar(value=False)
@@ -4698,6 +5276,7 @@ class MangaApp:
         self.download_in_progress = False
         self.pairs = []
         self.title = ""
+        self.source_title_var = tk.StringVar(value="URL du Manga/Manhwa/BD")
         self.cancel_event = threading.Event()
         self.cover_preview = None
         self.cover_animation_frames = []
@@ -4707,6 +5286,9 @@ class MangaApp:
         self.volume_render_after_id = None
         self.volume_virtual_refresh_after_id = None
         self.volume_layout_refresh_after_id = None
+        self.volume_pool_prewarm_after_id = None
+        self.volume_pool_prewarm_kind = None
+        self.volume_layout_pending_mode = None
         self.volume_render_token = 0
         self.volume_render_complete_callback = None
         self.volume_render_feedback_enabled = True
@@ -4716,6 +5298,10 @@ class MangaApp:
         self.volume_virtualized = False
         self.volume_virtual_window = None
         self.volume_virtual_widget_pool = []
+        self.volume_virtual_widget_pools = {}
+        self.volume_virtual_widget_pool_mode = None
+        self.volume_canvas_item_pool = []
+        self.volume_canvas_render_active = False
         self.volume_virtual_top_spacer = None
         self.volume_virtual_bottom_spacer = None
         self.filtered_volume_indices = []
@@ -5135,6 +5721,7 @@ class MangaApp:
             "panel_shell": "#e3e7ec",
             "text": "#16202a",
             "muted": "#667382",
+            "muted_strong": "#566273",
             "accent": "#24579a",
             "accent_hover": "#184679",
             "accent_soft": "#edf3fa",
@@ -5186,6 +5773,7 @@ class MangaApp:
         style.map(".", foreground=[("disabled", "#9aa8b8")])
         style.configure("App.TFrame", background=self.palette["app_bg"])
         style.configure("Card.TFrame", background=self.palette["card_bg"])
+        style.configure("OptionLine.TFrame", background=self.palette["panel_bg"])
         style.configure(
             "Card.TLabelframe",
             background=self.palette["card_bg"],
@@ -5205,12 +5793,15 @@ class MangaApp:
         style.configure("App.TLabel", background=self.palette["app_bg"], foreground=self.palette["text"])
         style.configure("Card.TLabel", background=self.palette["card_bg"], foreground=self.palette["text"])
         style.configure("CardMuted.TLabel", background=self.palette["card_bg"], foreground=self.palette["muted"])
+        style.configure("OptionLineMuted.TLabel", background=self.palette["panel_bg"], foreground=self.palette["muted_strong"])
         style.configure("Muted.TLabel", background=self.palette["app_bg"], foreground=self.palette["muted"])
         style.configure("Title.TLabel", background=self.palette["app_bg"], foreground=self.palette["text"], font=("Segoe UI Semibold", 16))
         style.configure("Subtitle.TLabel", background=self.palette["app_bg"], foreground=self.palette["muted"], font=("Segoe UI", 10))
 
         style.configure("Card.TCheckbutton", background=self.palette["card_bg"], foreground=self.palette["text"], padding=(2, 1))
         style.map("Card.TCheckbutton", background=[("active", self.palette["card_bg"])])
+        style.configure("OptionLine.TCheckbutton", background=self.palette["panel_bg"], foreground=self.palette["text"], padding=(2, 1))
+        style.map("OptionLine.TCheckbutton", background=[("active", self.palette["panel_bg"])])
         style.configure("Tome.TCheckbutton", background=self.palette["canvas_bg"], foreground=self.palette["text"], padding=(2, 1))
         style.map("Tome.TCheckbutton", background=[("active", self.palette["canvas_bg"])])
 
@@ -5389,24 +5980,25 @@ class MangaApp:
         button_font = self.ui_metrics["font_button"]
         button_font_lg = self.ui_metrics["font_button_lg"]
 
-        def create_titled_section(parent, title, bottom_margin):
+        def create_titled_section(parent, title, bottom_margin, expand=False):
             section_wrap = ctk.CTkFrame(parent, fg_color="transparent")
-            section_wrap.pack(fill="x", expand=False, pady=(0, bottom_margin))
-            section_tabs_header = ctk.CTkFrame(
-                section_wrap,
-                fg_color="transparent",
-            )
-            section_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
-            section_tab_label = ctk.CTkLabel(
-                section_tabs_header,
-                text=title,
-                font=("Segoe UI Semibold", 11),
-                height=24,
-                corner_radius=0,
-                fg_color="transparent",
-                text_color=self.palette["text"],
-            )
-            section_tab_label.pack(side="left", padx=(2, 0), pady=(0, 4))
+            section_wrap.pack(fill="both" if expand else "x", expand=expand, pady=(0, bottom_margin))
+            if title:
+                section_tabs_header = ctk.CTkFrame(
+                    section_wrap,
+                    fg_color="transparent",
+                )
+                section_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
+                section_tab_label = ctk.CTkLabel(
+                    section_tabs_header,
+                    text=title,
+                    font=("Segoe UI Semibold", 11),
+                    height=24,
+                    corner_radius=0,
+                    fg_color="transparent",
+                    text_color=self.palette["text"],
+                )
+                section_tab_label.pack(side="left", padx=(2, 0), pady=(0, 4))
 
             section_border = ctk.CTkFrame(
                 section_wrap,
@@ -5415,7 +6007,7 @@ class MangaApp:
                 border_width=1,
                 border_color=self.palette["border"],
             )
-            section_border.pack(fill="x", expand=False)
+            section_border.pack(fill="both" if expand else "x", expand=expand)
 
             section_content_panel = ctk.CTkFrame(
                 section_border,
@@ -5432,7 +6024,7 @@ class MangaApp:
         main_frame.pack(fill="both", expand=True, padx=18, pady=8)
 
         top_tabs_wrap = ctk.CTkFrame(main_frame, fg_color="transparent")
-        top_tabs_wrap.pack(fill="x", expand=False, pady=(0, 6))
+        top_tabs_wrap.pack(fill="both", expand=True, pady=(0, 6))
 
         self.config_tabs_header = ctk.CTkFrame(top_tabs_wrap, fg_color="transparent")
         self.config_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
@@ -5445,7 +6037,7 @@ class MangaApp:
             border_width=1,
             border_color=self.palette["border"],
         )
-        self.config_content_border.pack(fill="x", expand=False, pady=(0, 0))
+        self.config_content_border.pack(fill="both", expand=True, pady=(0, 0))
         self.config_content_panel = ctk.CTkFrame(
             self.config_content_border,
             fg_color=self.palette["card_bg"],
@@ -5453,18 +6045,23 @@ class MangaApp:
         )
         self.config_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
 
+        self.config_download_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
         self.config_journal_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
+        self.config_error_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
         self.config_auth_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
         self.config_options_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
 
         self.config_tab_pages = {
+            "download": self.config_download_page,
             "journal": self.config_journal_page,
+            "error": self.config_error_page,
             "auth": self.config_auth_page,
             "options": self.config_options_page,
         }
         self.config_tab_buttons = {}
-        self.config_tab_order = ("journal", "auth", "options")
-        self.active_config_tab = "journal"
+        self.config_tab_order = ("download", "journal", "error", "auth", "options")
+        self.active_config_tab = "download"
+        self.active_selection_tab = "selection"
         self.auth_tab_title = "Authentification (0/5)"
         self.auth_tab_visual_state = "pending"
         self.auth_tab_progress_text = "0/5"
@@ -5475,7 +6072,7 @@ class MangaApp:
                 self.config_tab_bar,
                 text="",
                 command=lambda current_key=key: self._select_config_tab(current_key),
-                width=190 if key == "auth" else 120,
+                width=170 if key == "download" else (190 if key == "auth" else 120),
                 height=compact_button_h,
                 corner_radius=6,
                 border_width=0,
@@ -5489,11 +6086,13 @@ class MangaApp:
             content.pack(fill="both", expand=True)
             return content
 
+        self.config_download_tab = create_config_tab_content(self.config_download_page)
         self.config_journal_tab = create_config_tab_content(self.config_journal_page)
+        self.config_error_tab = create_config_tab_content(self.config_error_page)
         self.config_auth_tab = create_config_tab_content(self.config_auth_page)
         self.config_options_tab = create_config_tab_content(self.config_options_page)
         self._refresh_config_tab_buttons()
-        self._select_config_tab("journal")
+        self._select_config_tab("download")
         self.config_auth_tab.grid_columnconfigure(0, weight=1)
         self.config_auth_tab.grid_columnconfigure(1, weight=0)
         self.config_auth_tab.grid_columnconfigure(2, weight=0)
@@ -5808,7 +6407,7 @@ class MangaApp:
             style="CardMuted.TLabel",
             font=("Segoe UI", 9),
         )
-        options_intro.pack(anchor="w", padx=(6, 6), pady=(2, 10))
+        options_intro.pack(anchor="w", padx=(6, 6), pady=(2, 6))
 
         options_groups = ttk.Frame(self.config_options_tab, style="Card.TFrame")
         options_groups.pack(fill="x", padx=(4, 4), pady=(0, 2))
@@ -5831,10 +6430,10 @@ class MangaApp:
         )
         output_box.grid(row=0, column=0, sticky="nsew")
         output_inner = ctk.CTkFrame(output_box, fg_color="transparent")
-        output_inner.pack(fill="both", expand=True, padx=10, pady=(8, 8))
+        output_inner.pack(fill="both", expand=True, padx=10, pady=(6, 6))
 
         save_row = ctk.CTkFrame(left_stack, fg_color="transparent")
-        save_row.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
+        save_row.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
 
         logs_box = ctk.CTkFrame(
             options_groups,
@@ -5845,7 +6444,7 @@ class MangaApp:
         )
         logs_box.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         logs_inner = ctk.CTkFrame(logs_box, fg_color="transparent")
-        logs_inner.pack(fill="both", expand=True, padx=10, pady=10)
+        logs_inner.pack(fill="both", expand=True, padx=10, pady=8)
 
         ctk.CTkLabel(
             output_inner,
@@ -5853,19 +6452,19 @@ class MangaApp:
             fg_color="transparent",
             text_color=self.palette["text"],
             font=("Segoe UI Semibold", 9),
-        ).pack(anchor="w", pady=(0, 8))
+        ).pack(anchor="w", pady=(0, 6))
         ctk.CTkLabel(
             logs_inner,
             text="Journal et affichage",
             fg_color="transparent",
             text_color=self.palette["text"],
             font=("Segoe UI Semibold", 9),
-        ).pack(anchor="w", pady=(0, 8))
+        ).pack(anchor="w", pady=(0, 6))
         ctk.CTkButton(
             save_row,
             text="Sauvegarder paramètres",
             command=self.save_current_cookie,
-            height=36,
+            height=34,
             corner_radius=6,
             fg_color=self.palette["accent"],
             hover_color=self.palette["accent_hover"],
@@ -5873,23 +6472,41 @@ class MangaApp:
             font=("Segoe UI Semibold", 10),
         ).pack(expand=True)
 
-        def add_option_line(parent, text, variable, description, command=None, bottom=8):
-            line = ttk.Frame(parent, style="Card.TFrame")
+        def add_option_line(parent, text, variable, description, command=None, bottom=6):
+            line = ctk.CTkFrame(
+                parent,
+                fg_color=self.palette["panel_bg"],
+                corner_radius=6,
+                border_width=1,
+                border_color=self.palette["panel_shell"],
+            )
             line.pack(fill="x", anchor="w", pady=(0, bottom))
-            check = ttk.Checkbutton(
+            check = ctk.CTkCheckBox(
                 line,
                 text=text,
                 variable=variable,
-                style="Card.TCheckbutton",
+                fg_color=self.palette["accent"],
+                hover_color=self.palette["accent_hover"],
+                border_color=self.palette["border"],
+                checkmark_color="#ffffff",
+                text_color=self.palette["text"],
+                font=("Segoe UI", 11),
+                checkbox_width=20,
+                checkbox_height=20,
+                corner_radius=4,
                 command=command,
             )
-            check.pack(anchor="w")
-            ttk.Label(
+            check.pack(anchor="w", padx=12, pady=(8, 1))
+            ctk.CTkLabel(
                 line,
                 text=description,
-                style="CardMuted.TLabel",
-                font=("Segoe UI", 8),
-            ).pack(anchor="w", padx=(24, 0), pady=(0, 1))
+                fg_color="transparent",
+                text_color=self.palette["muted_strong"],
+                font=("Segoe UI", 9),
+                justify="left",
+                anchor="w",
+                wraplength=440,
+            ).pack(anchor="w", fill="x", padx=(42, 12), pady=(0, 8))
 
         add_option_line(
             output_inner,
@@ -5935,14 +6552,14 @@ class MangaApp:
 
         self._setup_auth_link_placeholders()
 
-        source_card, self.source_section_tabs = create_titled_section(main_frame, "Sources", 6)
+        source_card, self.source_section_tabs = create_titled_section(self.config_download_tab, "", 8)
 
         url_cover_frame = ctk.CTkFrame(
             source_card,
-            fg_color=self.palette["card_bg"],
-            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=8,
             border_width=1,
-            border_color=self.palette["border"],
+            border_color=self.palette["panel_shell"],
         )
         url_cover_frame.pack(fill="x")
         cover_w, cover_h = self.get_cover_target_size()
@@ -5951,10 +6568,10 @@ class MangaApp:
             url_cover_frame,
             width=cover_w,
             height=cover_h,
-            fg_color=self.palette["canvas_bg"],
-            corner_radius=6,
+            fg_color=self.palette["card_bg"],
+            corner_radius=8,
             border_width=1,
-            border_color=self.palette["panel_shell"],
+            border_color=self.palette["border"],
         )
         self.cover_frame.pack_propagate(False)
         self.cover_frame.pack(side="left", padx=(14, 16), pady=14)
@@ -5974,12 +6591,27 @@ class MangaApp:
         url_frame = ctk.CTkFrame(url_cover_frame, fg_color="transparent")
         url_frame.pack(side="left", fill="x", expand=True, padx=(0, 14), pady=14)
 
+        source_meta_row = ctk.CTkFrame(url_frame, fg_color="transparent")
+        source_meta_row.pack(fill="x")
+
         ctk.CTkLabel(
-            url_frame,
-            text="URL du Manga/Manhwa/BD",
+            source_meta_row,
+            textvariable=self.source_title_var,
             text_color=self.palette["text"],
             font=button_font_lg,
-        ).pack(anchor="w")
+            anchor="w",
+        ).pack(side="left", anchor="w", fill="x", expand=True)
+        self.source_ready_badge = ctk.CTkLabel(
+            source_meta_row,
+            text="Source",
+            width=84,
+            height=28,
+            corner_radius=6,
+            fg_color=self.palette["card_bg"],
+            text_color=self.palette["muted_strong"],
+            font=button_font,
+        )
+        self.source_ready_badge.pack(side="right")
         ctk.CTkLabel(
             url_frame,
             text="Analyse le lien, valide la source et prépare la sélection de tomes.",
@@ -5990,8 +6622,8 @@ class MangaApp:
             url_frame,
             textvariable=self.url,
             font=font_entry,
-            height=36,
-            corner_radius=6,
+            height=40,
+            corner_radius=8,
             border_color=self.palette["border"],
             fg_color=self.palette["input_bg"],
             text_color=self.palette["text"],
@@ -6005,14 +6637,14 @@ class MangaApp:
         )
 
         analyze_frame = ctk.CTkFrame(url_frame, fg_color="transparent")
-        analyze_frame.pack(pady=(10, 0), anchor="w")
+        analyze_frame.pack(fill="x", pady=(10, 0))
         self.analyze_button = ctk.CTkButton(
             analyze_frame,
             text="Analyser le lien",
             command=self.load_volumes,
-            width=button_w_lg,
+            width=button_w_lg + 10,
             height=button_h,
-            corner_radius=6,
+            corner_radius=8,
             fg_color=self.palette["accent"],
             hover_color=self.palette["accent_hover"],
             text_color="#ffffff",
@@ -6021,8 +6653,8 @@ class MangaApp:
         self.analyze_button.pack(side="left")
         self.status_container = ctk.CTkFrame(
             analyze_frame,
-            width=280,
-            height=34,
+            width=320,
+            height=36,
             fg_color="transparent",
         )
         self.status_container.pack(side="left", padx=(12, 0))
@@ -6038,71 +6670,25 @@ class MangaApp:
         )
         self.status_label.pack(fill="both", expand=True)
 
-        selection_wrap = ctk.CTkFrame(main_frame, fg_color="transparent")
-        selection_wrap.pack(fill="both", expand=True, pady=(0, 4))
-        self.selection_tabs_header = ctk.CTkFrame(selection_wrap, fg_color="transparent")
-        self.selection_tabs_header.pack(fill="x", expand=False, pady=(0, 0))
-        self.selection_tabs_header.grid_columnconfigure(0, weight=1)
+        center_card, self.selection_section_tabs = create_titled_section(
+            self.config_download_tab,
+            "",
+            0,
+            expand=True,
+        )
+        self.error_tab = self.config_error_tab
+        self.error_tab_title = "Erreurs (0)"
 
-        self.selection_content_border = ctk.CTkFrame(
-            selection_wrap,
-            fg_color=self.palette["card_bg"],
-            corner_radius=6,
+        toolbar_shell = ctk.CTkFrame(
+            center_card,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=8,
             border_width=1,
             border_color=self.palette["border"],
         )
-        self.selection_content_border.pack(fill="both", expand=True, pady=(0, 0))
-        self.selection_content_panel = ctk.CTkFrame(
-            self.selection_content_border,
-            fg_color=self.palette["card_bg"],
-            corner_radius=0,
-        )
-        self.selection_content_panel.pack(fill="both", expand=True, padx=0, pady=0)
-
-        selection_tab = ttk.Frame(self.selection_content_panel, style="Card.TFrame")
-        self.error_tab = ttk.Frame(self.selection_content_panel, style="Card.TFrame")
-        self.selection_tab_pages = {
-            "selection": selection_tab,
-            "error": self.error_tab,
-        }
-        self.selection_tab_buttons = {}
-        self.selection_tab_order = ("selection", "error")
-        self.active_selection_tab = "selection"
-        self.error_tab_title = "Erreurs (0)"
-        self.selection_tab_bar = ctk.CTkFrame(self.selection_tabs_header, fg_color="transparent")
-        self.selection_tab_bar.grid(row=0, column=0, sticky="w")
-        for key in self.selection_tab_order:
-            button = ctk.CTkButton(
-                self.selection_tab_bar,
-                text="",
-                command=lambda current_key=key: self._select_selection_tab(current_key),
-                width=190 if key == "selection" else 130,
-                height=compact_button_h,
-                corner_radius=6,
-                border_width=0,
-                font=button_font,
-            )
-            button.pack(side="left", padx=(0, 8))
-            self.selection_tab_buttons[key] = button
-        self._refresh_selection_tab_buttons()
-        self._select_selection_tab("selection")
-
-        selection_panel = ctk.CTkFrame(
-            selection_tab,
-            fg_color=self.palette["card_bg"],
-            corner_radius=0,
-        )
-        selection_panel.pack(fill="both", expand=True)
-        center_card = ctk.CTkFrame(
-            selection_panel,
-            fg_color="transparent",
-            corner_radius=0,
-            border_width=0,
-        )
-        center_card.pack(fill="both", expand=True, padx=12, pady=10)
-
-        vol_header = ctk.CTkFrame(center_card, fg_color="transparent")
-        vol_header.pack(fill="x", pady=(0, 6))
+        toolbar_shell.pack(fill="x", pady=(0, 8))
+        vol_header = ctk.CTkFrame(toolbar_shell, fg_color="transparent")
+        vol_header.pack(fill="x", padx=12, pady=(10, 6))
         vol_header.grid_columnconfigure(0, weight=1)
         vol_header.grid_columnconfigure(1, weight=0)
 
@@ -6205,42 +6791,6 @@ class MangaApp:
         )
         self.volume_count_badge.pack(side="left")
 
-        layout_group = ctk.CTkFrame(left_group, fg_color="transparent")
-        layout_group.pack(side="left", padx=(0, 4))
-        ctk.CTkLabel(
-            layout_group,
-            text="Vue",
-            fg_color="transparent",
-            text_color=self.palette["muted"],
-            font=body_font,
-        ).pack(side="left", padx=(0, 6))
-        self.volume_layout_control_wrap = ctk.CTkFrame(
-            layout_group,
-            fg_color="transparent",
-            width=248,
-            height=32,
-        )
-        self.volume_layout_control_wrap.pack(side="left")
-        self.volume_layout_control_wrap.pack_propagate(False)
-        self.volume_layout_control = ctk.CTkSegmentedButton(
-            self.volume_layout_control_wrap,
-            values=["Auto", "Dense", "Confort"],
-            variable=self.volume_layout_mode,
-            command=self._on_volume_layout_mode_change,
-            height=32,
-            width=248,
-            corner_radius=6,
-            font=button_font,
-            fg_color=self.palette["panel_shell"],
-            selected_color=self.palette["card_bg"],
-            selected_hover_color=self.palette["card_bg"],
-            unselected_color=self.palette["panel_bg"],
-            unselected_hover_color=self.palette["card_alt"],
-            text_color=self.palette["text"],
-            dynamic_resizing=False,
-        )
-        self.volume_layout_control.pack(fill="both", expand=True)
-
         download_group = ctk.CTkFrame(vol_header, fg_color="transparent")
         download_group.grid(row=0, column=1, sticky="e", padx=(16, 0))
         download_buttons_row = ctk.CTkFrame(download_group, fg_color="transparent")
@@ -6279,8 +6829,8 @@ class MangaApp:
             state="disabled",
         )
         self.cancel_button.pack(side="left")
-        hint_row = ctk.CTkFrame(center_card, fg_color="transparent")
-        hint_row.pack(fill="x", pady=(0, 8))
+        hint_row = ctk.CTkFrame(toolbar_shell, fg_color="transparent")
+        hint_row.pack(fill="x", padx=12, pady=(0, 10))
         self.download_hint_label = ctk.CTkLabel(
             hint_row,
             text="",
@@ -6294,7 +6844,7 @@ class MangaApp:
             hint_row,
             text="La liste sera rendue progressivement sur les gros catalogues.",
             fg_color="transparent",
-            text_color=self.palette["muted"],
+            text_color=self.palette["muted_strong"],
             font=body_font,
             anchor="w",
         )
@@ -6316,20 +6866,49 @@ class MangaApp:
         self.volume_list_container = vol_frame_container
         self.volume_list_container.bind("<Configure>", self._schedule_volume_layout_refresh, add="+")
 
-        self.vol_frame = ctk.CTkScrollableFrame(
-            vol_frame_container,
+        volume_canvas_shell = ctk.CTkFrame(vol_frame_container, fg_color="transparent", corner_radius=0)
+        volume_canvas_shell.pack(fill="both", expand=True, padx=6, pady=6)
+
+        self.volume_canvas = tk.Canvas(
+            volume_canvas_shell,
             height=260,
-            corner_radius=6,
-            fg_color="transparent",
-            border_width=0,
-            scrollbar_fg_color=self.palette["card_bg"],
-            scrollbar_button_color="#c5d3e2",
-            scrollbar_button_hover_color="#aebfd1",
+            bg=self.palette["canvas_bg"],
+            highlightthickness=0,
+            bd=0,
+            relief="flat",
+            yscrollincrement=1,
         )
-        self.vol_frame.pack(fill="both", expand=True, padx=6, pady=6)
-        parent_canvas = getattr(self.vol_frame, "_parent_canvas", None)
-        if parent_canvas is not None:
-            parent_canvas.bind("<Configure>", self._schedule_volume_layout_refresh, add="+")
+        self.volume_canvas.pack(side="left", fill="both", expand=True)
+
+        self.volume_scrollbar = ctk.CTkScrollbar(
+            volume_canvas_shell,
+            orientation="vertical",
+            command=self._on_volume_scrollbar_command,
+            fg_color=self.palette["card_bg"],
+            button_color="#c5d3e2",
+            button_hover_color="#aebfd1",
+            width=14,
+        )
+        self.volume_scrollbar.pack(side="right", fill="y", padx=(6, 0))
+        self.volume_canvas_scrollbar_set = getattr(self.volume_scrollbar, "set", None)
+        self.volume_canvas.configure(yscrollcommand=self._on_volume_canvas_yview)
+
+        self.vol_frame = ctk.CTkFrame(
+            self.volume_canvas,
+            fg_color="transparent",
+            corner_radius=0,
+            border_width=0,
+        )
+        self.volume_canvas_window_id = self.volume_canvas.create_window((0, 0), window=self.vol_frame, anchor="nw")
+        self.vol_frame._parent_canvas = self.volume_canvas
+        self.volume_canvas.bind("<Configure>", self._on_volume_canvas_configure, add="+")
+        self.volume_canvas.bind("<Configure>", self._schedule_volume_layout_refresh, add="+")
+        self.vol_frame.bind("<Configure>", self._on_volume_frame_configure, add="+")
+        self.root.bind_all("<MouseWheel>", self._on_volume_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", self._on_volume_mousewheel, add="+")
+        self.root.bind_all("<Button-5>", self._on_volume_mousewheel, add="+")
+        self._update_volume_canvas_window(0)
+        self._update_volume_canvas_scrollregion(0)
         self.vol_empty_label = ctk.CTkLabel(
             vol_frame_container,
             text="Aucun Tome/Chapitre chargé.",
@@ -6341,58 +6920,89 @@ class MangaApp:
 
         progress_frame = ctk.CTkFrame(
             center_card,
-            fg_color=self.palette["card_bg"],
-            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=8,
             border_width=1,
             border_color=self.palette["border"],
         )
         progress_frame.pack(fill="x", pady=(4, 0))
+        progress_frame.grid_columnconfigure(0, weight=1)
+        progress_frame.grid_rowconfigure(1, weight=0)
+        progress_meta_row = ctk.CTkFrame(progress_frame, fg_color="transparent")
+        progress_meta_row.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 6))
+        progress_meta_row.grid_columnconfigure(0, weight=1)
+        progress_meta_row.grid_columnconfigure(1, weight=0)
+
+        progress_status_group = ctk.CTkFrame(progress_meta_row, fg_color="transparent")
+        progress_status_group.grid(row=0, column=0, sticky="w")
         self.current_volume_status_label = ctk.CTkLabel(
-            progress_frame,
+            progress_status_group,
             text="Tome/Chapitre en cours: --",
             fg_color="transparent",
-            text_color=self.palette["muted"],
-            font=body_font,
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 10),
             anchor="w",
         )
-        self.current_volume_status_label.pack(side="left", padx=(12, 0), pady=10)
+        self.current_volume_status_label.pack(side="left", padx=(0, 14))
         self.progress_detail_label = ctk.CTkLabel(
-            progress_frame,
+            progress_status_group,
             text="Images: --/--",
-            fg_color="transparent",
-            text_color=self.palette["muted"],
-            font=body_font,
+            fg_color=self.palette["card_bg"],
+            corner_radius=6,
+            text_color=self.palette["muted_strong"],
+            font=button_font,
             anchor="w",
+            width=108,
+            height=28,
         )
-        self.progress_detail_label.pack(side="left", padx=(12, 0), pady=10)
+        self.progress_detail_label.pack(side="left", padx=(0, 8))
         self.eta_label = ctk.CTkLabel(
-            progress_frame,
+            progress_status_group,
             text="ETA Tome: --:-- | ETA Global: --:--",
+            fg_color=self.palette["card_bg"],
+            corner_radius=6,
+            text_color=self.palette["muted_strong"],
+            font=button_font,
+            anchor="w",
+            width=220,
+            height=28,
+        )
+        self.eta_label.pack(side="left")
+
+        progress_title = ctk.CTkLabel(
+            progress_meta_row,
+            text="Progression",
             fg_color="transparent",
             text_color=self.palette["muted"],
-            font=body_font,
-            anchor="w",
+            font=("Segoe UI Semibold", 10),
+            anchor="e",
         )
-        self.eta_label.pack(side="left", padx=(12, 0), pady=10)
+        progress_title.grid(row=0, column=1, sticky="e")
+
+        progress_bar_row = ctk.CTkFrame(progress_frame, fg_color="transparent")
+        progress_bar_row.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+        progress_bar_row.grid_columnconfigure(0, weight=1)
         self.progress_bar = ctk.CTkProgressBar(
-            progress_frame,
-            height=16,
-            corner_radius=4,
+            progress_bar_row,
+            height=14,
+            corner_radius=7,
             fg_color=self.palette["progress_trough"],
             progress_color=self.palette["accent"],
         )
-        self.progress_bar.pack(side="left", fill="x", expand=True, padx=(12, 0))
+        self.progress_bar.grid(row=0, column=0, sticky="ew")
         self.progress_bar.set(0)
         self.progress_label = ctk.CTkLabel(
-            progress_frame,
+            progress_bar_row,
             text="0%",
-            fg_color="transparent",
-            text_color=self.palette["muted"],
+            fg_color=self.palette["card_bg"],
+            corner_radius=6,
+            text_color=self.palette["text"],
             font=button_font,
-            width=40,
+            width=54,
+            height=28,
             anchor="e",
         )
-        self.progress_label.pack(side="left", padx=(8, 12), pady=10)
+        self.progress_label.grid(row=0, column=1, sticky="e", padx=(10, 0))
 
         error_panel = ctk.CTkFrame(
             self.error_tab,
@@ -7119,6 +7729,8 @@ class MangaApp:
 
         self._set_workflow_step("source", "Validation URL et analyse catalogue...")
         self._set_analysis_status_label("Analyse en cours: validation URL...", success=None)
+        self.title = ""
+        self._refresh_source_title_label("")
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
@@ -7208,6 +7820,7 @@ class MangaApp:
                 )
             self.update_cookie_status(validate=True)
             self._set_analysis_status_label("Analyse échouée", success=False)
+            self._refresh_source_title_label("")
             self.toast("Impossible de charger la liste")
             finish_analysis()
 
@@ -7230,6 +7843,7 @@ class MangaApp:
                 self.title = title
                 self.pairs = pairs
                 self.ua_runtime_validity = bool((ua_for_url or "").strip())
+                self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
 
                 if domain in COOKIE_DOMAINS:
                     if self.pairs:
@@ -7291,7 +7905,6 @@ class MangaApp:
         self._update_selection_status()
 
     def _update_selection_status(self):
-        layout_name = self._get_volume_layout_mode_name()
         if getattr(self, "volume_virtualized", False):
             total = len(getattr(self, "check_vars", []) or [])
             filtered_indices = list(getattr(self, "filtered_volume_indices", []) or [])
@@ -7334,8 +7947,6 @@ class MangaApp:
                 hint_text = f"Filtre actif : {visible_total} élément(s) visibles."
             elif getattr(self, "volume_virtualized", False):
                 hint_text = "Grand catalogue : rendu virtualisé actif."
-            elif getattr(self, "use_compact_volume_mode", False):
-                hint_text = "Mode dense actif pour garder les gros catalogues fluides."
             else:
                 hint_text = "Sélectionne les tomes ou chapitres à télécharger."
             self.selection_hint_label.configure(text=hint_text)
@@ -7393,11 +8004,8 @@ class MangaApp:
 
         columns = max(1, int(getattr(self, "volume_grid_columns", self._get_volume_grid_columns(len(self.check_items) or 0)) or 1))
         is_compact = bool(getattr(self, "use_compact_volume_mode", False))
-        grid_padx = 12 if is_compact else 10
-        grid_pady = 6 if is_compact else 8
-        grid_sticky = "w" if is_compact else "ew"
-        row = 0
-        col = 0
+        kind = "compact" if is_compact else "card"
+        self._configure_volume_grid_columns(columns, kind=kind)
         visible_indices = []
         labels_lower = getattr(self, "volume_label_cache_lower", None) or [str(vol or "").lower() for vol, _link in getattr(self, "pairs", []) or []]
         for index, (chk, label) in enumerate(self.check_items):
@@ -7407,14 +8015,15 @@ class MangaApp:
             if not raw or raw in label_lower or \
             (raw.endswith('*') and raw[:-1].isdigit() and label_lower.startswith(raw[:-1])):
                 visible_indices.append(index)
-                chk.grid(row=row, column=col, padx=grid_padx, pady=grid_pady, sticky=grid_sticky)
-                col += 1
-                if col == columns:
-                    col = 0
-                    row += 1
             else:
                 chk.grid_remove()
+        for visible_pos, index in enumerate(visible_indices):
+            chk, _label = self.check_items[index]
+            row, col = self._get_centered_volume_grid_position(visible_pos, len(visible_indices), columns)
+            self._grid_virtual_volume_pool_item(chk, kind, row, col)
         self.filtered_volume_indices = visible_indices
+        self._update_volume_canvas_window(0)
+        self._update_volume_canvas_scrollregion()
         self._update_selection_status()
         self._refresh_volume_empty_state()
 

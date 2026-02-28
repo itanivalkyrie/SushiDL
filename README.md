@@ -1,4 +1,4 @@
-<p align="center">
+﻿<p align="center">
   <img alt="Banniere SushiDL" src="assets/banner.png" />
 </p>
 
@@ -15,9 +15,31 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.2.9`
+Version actuelle : `11.2.10`
 
 ## Nouveautes recentes
+
+### 11.2.10
+- Reorganisation complete de l'interface `CustomTkinter` autour d'une seule barre d'onglets en haut :
+  - `Telechargement`
+  - `Journal`
+  - `Erreurs`
+  - `Authentification`
+  - `Options`
+- Fusion du flux principal dans l'onglet `Telechargement` :
+  - bloc source,
+  - liste tomes / chapitres,
+  - barre d'actions,
+  - progression runtime.
+- Le rendu principal conserve uniquement le mode dense optimise, plus stable et plus rapide sur les gros catalogues.
+- Gros catalogues:
+  - rendu canvas mutualise,
+  - scroll et filtre stabilises,
+  - disparition des sauts visuels et des elements qui disparaissent au scroll.
+- Onglet `Telechargement` retravaille visuellement:
+  - toolbar plus compacte,
+  - progression plus lisible,
+  - bloc source mieux integre.
 
 ### 11.2.9
 - Refonte visuelle `CustomTkinter` vers un rendu plus sobre, plus lisible et plus homogene.
@@ -68,8 +90,8 @@ Formats d'URL catalogue attendus :
 - Creation optionnelle d'archives CBZ.
 - Journal unifie GUI + terminal avec filtres.
 - Tableau d'erreurs par tome avec raison technique et action recommande.
-- Branche `CustomTkinter` avec interface plus sobre, compteurs fusionnes et vues de liste adaptatives (`Auto`, `Dense`, `Confort`).
-- Affichage optimise des tres grands catalogues avec filtre rapide et rendu virtualise.
+- Branche `CustomTkinter` avec interface plus sobre, onglet `Telechargement` unifie et rendu dense optimise.
+- Affichage optimise des tres grands catalogues avec filtre rapide, rendu mutualise sur canvas et scroll stabilise.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
 
 ## Prerequis
@@ -166,10 +188,10 @@ Workflow standard :
 1. Lance `SushiDL.py`.
 2. Renseigne les cookies et le `User-Agent`.
 3. Colle une URL catalogue supportee.
-4. Clique sur `Analyser`.
+4. Clique sur `Analyser le lien`.
 5. Controle la liste detectee.
 6. Selectionne les tomes ou chapitres souhaites.
-7. Clique sur `Telecharger`.
+7. Clique sur `Telecharger la selection`.
 8. Choisis le dossier de destination.
 
 ## Sortie des fichiers
@@ -230,3 +252,5 @@ Historique complet des versions : `CHANGELOG.md`
 
 Si le projet t'est utile, tu peux soutenir le mainteneur sur Ko-fi :
 - https://ko-fi.com/itanivalkyrie
+
+

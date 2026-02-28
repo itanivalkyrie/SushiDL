@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 Toutes les modifications notables de ce projet seront documentees dans ce fichier.
 
@@ -6,6 +6,58 @@ Le format de version suit la regle `X.Y.Z` :
 - `X` = evolution majeure
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
+
+## [11.2.10] - 2026-02-28
+
+### Ameliorations
+- Interface `CustomTkinter`:
+  - remplacement de la double structure d'onglets par une barre unique en haut,
+  - nouvel ordre d'ecrans:
+    - `Telechargement`
+    - `Journal`
+    - `Erreurs`
+    - `Authentification`
+    - `Options`
+  - chaque onglet occupe maintenant toute la hauteur disponible de la fenetre.
+- Onglet `Telechargement`:
+  - fusion de `Sources` et `Tomes / Chapitres` dans un seul espace de travail,
+  - suppression des titres intermediaires redondants,
+  - barre d'actions retravaillee avec meilleure integration du filtre, des actions de selection et du bloc de telechargement,
+  - barre de progression refaite avec presentation plus lisible des statuts, compteurs images, ETA et pourcentage,
+  - bloc URL / cover / analyse harmonise avec le reste de l'interface.
+- Options:
+  - cases a cocher `CustomTkinter` harmonisees avec le style du listing,
+  - reduction de la hauteur de l'onglet pour liberer plus de place au flux principal.
+- Ergonomie:
+  - suppression du mode `Auto` et du mode `Confort`,
+  - adoption d'un rendu dense unique par defaut pour privilegier la stabilite et la fluidite.
+
+### Performance
+- Gros catalogues:
+  - remplacement progressif des widgets lourds par un rendu mutualise sur `Canvas`,
+  - pool de cartes dessinees reutilise au scroll pour les listes volumineuses,
+  - correction du centrage de la grille et de la derniere ligne visible,
+  - filtrage conserve rapide sur grands catalogues.
+- Scroll:
+  - rearchitecture de la zone tomes / chapitres autour d'un `Canvas` explicite et d'une scrollbar dediee,
+  - abandon de l'ancienne logique de spacers dans la zone scrollable,
+  - calcul du viewport base sur la position reelle de scroll,
+  - scroll plus stable visuellement sur les catalogues volumineux.
+
+### Corrections
+- Suppression d'un bug ou les chapitres pouvaient disparaitre temporairement pendant la navigation sur les grosses listes puis reapparaitre apres filtrage.
+- Correction du cas `rendu 0/20` dans le statut d'analyse apres certains rerenders internes.
+- Correction de plusieurs regressions de layout introduites pendant la phase de migration `CustomTkinter`:
+  - libelles d'onglets,
+  - largeur des boutons,
+  - alignement des badges,
+  - lisibilite des textes.
+
+### Documentation
+- README mis a jour pour refleter:
+  - la nouvelle structure d'onglets,
+  - la suppression des vues `Auto / Confort`,
+  - le flux principal unifie dans `Telechargement`.
 
 ## [11.2.9] - 2026-02-28
 
@@ -71,7 +123,7 @@ Le format de version suit la regle `X.Y.Z` :
 ### Corrections
 - Harmonisation des libelles et de la documentation:
   - suppression des mentions textuelles d'age,
-  - conservation du seul marqueur `🔞` pour les contenus adultes.
+  - conservation du seul marqueur `ðŸ”ž` pour les contenus adultes.
 
 ## [11.2.6] - 2026-02-24
 
@@ -106,17 +158,17 @@ Le format de version suit la regle `X.Y.Z` :
 ### Ameliorations
 - Support multi-sites etendu:
   - ajout de `mangas-origines.fr` (format oeuvre: `/oeuvre/<slug>/`),
-  - ajout de `hentai-origines.fr` (format manga: `/manga/<slug>/`, 🔞),
+  - ajout de `hentai-origines.fr` (format manga: `/manga/<slug>/`, ðŸ”ž),
   - extraction des chapitres via endpoint AJAX Madara (`ajax/chapters/?t=`) quand la liste est chargee dynamiquement.
 - Extraction images:
   - priorite forcee au mode `?style=list` pour les chapitres Origines,
   - fallback automatique depuis `?style=paged` et `/p/<n>/` vers la version `list`.
 - Authentification manuelle:
-  - ajout des cookies dedies `.origines` et `.hentai-origines` (🔞) dans l'UI,
+  - ajout des cookies dedies `.origines` et `.hentai-origines` (ðŸ”ž) dans l'UI,
   - persistance complete dans `cookie_cache.json` (sources, headers, timestamps),
   - probes de validation cookie au demarrage pour les nouveaux domaines:
     - `https://mangas-origines.fr/oeuvre/826-solo-leveling/`
-    - `https://hentai-origines.fr/manga/stop-smoking/` (🔞).
+    - `https://hentai-origines.fr/manga/stop-smoking/` (ðŸ”ž).
 - Couverture:
   - support et affichage des covers GIF (et sources `data-src` / `data-lazy-src`),
   - fallback meta etendu (`og:image`, `twitter:image`).
@@ -129,7 +181,7 @@ Le format de version suit la regle `X.Y.Z` :
   - prise en charge des formats:
     - `https://sushiscan.fr|net/catalogue/<slug>/`
     - `https://mangas-origines.fr/oeuvre/<slug>/`
-    - `https://hentai-origines.fr/manga/<slug>/` (🔞).
+    - `https://hentai-origines.fr/manga/<slug>/` (ðŸ”ž).
 
 ## [11.2.4] - 2026-02-24
 
@@ -501,8 +553,8 @@ Le format de version suit la regle `X.Y.Z` :
 
 ### Corrections
 - Correction d'encodage UTF-8 dans `SushiDL.py` (suppression des textes corrompus du type `telecharger`).
-- Configuration explicite de la console Windows en UTF-8 au démarrage.
-- Désactivation des emojis dans les logs terminal sous Windows pour éviter les caractères parasites.
+- Configuration explicite de la console Windows en UTF-8 au dÃ©marrage.
+- DÃ©sactivation des emojis dans les logs terminal sous Windows pour Ã©viter les caractÃ¨res parasites.
 
 ## [10.6.9] - 2026-02-20
 
@@ -537,8 +589,8 @@ Le format de version suit la regle `X.Y.Z` :
 
 ### Corrections
 - Libelles bouton avec accents dans l'UI:
-  - `Telecharger` -> `Télécharger`
-  - `Telechargement...` -> `Téléchargement...`
+  - `Telecharger` -> `TÃ©lÃ©charger`
+  - `Telechargement...` -> `Telechargement...`
 
 ## [10.6.4] - 2026-02-20
 
@@ -599,25 +651,27 @@ Le format de version suit la regle `X.Y.Z` :
 
 ## [10.2.0] - 2026-02-20
 
-### Améliorations
-- Intégration des actions `Tous/Aucun`, `Inverser`, `Telecharger`, `Annuler` dans l’en-tête de `Tomes / Chapitres`.
-- Suppression du bloc `Actions` séparé pour réduire la redondance visuelle et libérer de l’espace pour le `Journal`.
+### AmÃ©liorations
+- IntÃ©gration des actions `Tous/Aucun`, `Inverser`, `Telecharger`, `Annuler` dans lâ€™en-tÃªte de `Tomes / Chapitres`.
+- Suppression du bloc `Actions` sÃ©parÃ© pour rÃ©duire la redondance visuelle et libÃ©rer de lâ€™espace pour le `Journal`.
 
 ## [10.1.1] - 2026-02-20
 
 ### Corrections
-- Amélioration de la lisibilité du `Journal` en bas de fenêtre (zone log plus visible et extensible).
-- Ajustement compact de la zone `Source` pour libérer de l’espace vertical utile.
-- Réglage fin des hauteurs/paddings (`Tomes / Chapitres`, `Actions`, `Journal`) pour un affichage plus équilibré au démarrage.
+- AmÃ©lioration de la lisibilitÃ© du `Journal` en bas de fenÃªtre (zone log plus visible et extensible).
+- Ajustement compact de la zone `Source` pour libÃ©rer de lâ€™espace vertical utile.
+- RÃ©glage fin des hauteurs/paddings (`Tomes / Chapitres`, `Actions`, `Journal`) pour un affichage plus Ã©quilibrÃ© au dÃ©marrage.
 
 ## [10.1.0] - 2026-02-20
 
-### Améliorations
+### AmÃ©liorations
 - Renommage du script principal en `SushiDL.py`.
 - Affichage explicite de la version au lancement (console + interface).
-- Ajustements d’ergonomie GUI (taille de fenêtre par défaut, lisibilité globale, zone `Tomes / Chapitres` limitée visuellement à ~4 lignes avec scroll).
-- Modernisation visuelle inspirée du thème Breeze.
+- Ajustements dâ€™ergonomie GUI (taille de fenÃªtre par dÃ©faut, lisibilitÃ© globale, zone `Tomes / Chapitres` limitÃ©e visuellement Ã  ~4 lignes avec scroll).
+- Modernisation visuelle inspirÃ©e du thÃ¨me Breeze.
 
 ### Corrections
-- Correction du crash Tkinter lors de l’analyse (`ttk.Checkbutton` avec option `anchor` invalide).
-- Restauration de la visibilité des zones basses (`Actions`, `Journal`) sans redimensionnement manuel excessif.
+- Correction du crash Tkinter lors de lâ€™analyse (`ttk.Checkbutton` avec option `anchor` invalide).
+- Restauration de la visibilitÃ© des zones basses (`Actions`, `Journal`) sans redimensionnement manuel excessif.
+
+
