@@ -5,12 +5,15 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, ProgressBar, Static
 
+from .modals import ConfirmModal, HelpModal
+
 
 class DownloadScreen(Screen):
     BINDINGS = [
         ("a", "cancel_download", "Annuler"),
         ("e", "show_errors", "Erreurs"),
         ("escape", "go_back", "Retour"),
+        ("h", "show_help", "Aide"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -71,8 +74,19 @@ class DownloadScreen(Screen):
     def action_cancel_download(self) -> None:
         controller = getattr(self.app, "download_controller", None)
         if controller:
-            controller.cancel()
-            self.refresh_from_controller()
+            def confirm(result: str | None) -> None:
+                if result == "confirm":
+                    controller.cancel()
+                    self.refresh_from_controller()
+
+            self.app.push_screen(
+                ConfirmModal(
+                    "Annuler le telechargement",
+                    "Le telechargement en cours va etre interrompu.",
+                    confirm_label="Oui, annuler",
+                ),
+                confirm,
+            )
 
     def action_show_errors(self) -> None:
         self.app.push_screen("errors")
@@ -82,3 +96,13 @@ class DownloadScreen(Screen):
         if controller and controller.snapshot().active:
             return
         self.app.pop_screen()
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(
+            HelpModal(
+                "Aide telechargement",
+                "A annule le job en cours.\n"
+                "E ouvre le tableau des erreurs.\n"
+                "Le retour est bloque tant que le telechargement est actif.",
+            )
+        )

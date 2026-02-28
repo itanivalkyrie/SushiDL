@@ -38,6 +38,30 @@ Concretement :
 - indicateurs de chargement pendant l'analyse, le rendu de liste et la preview
 - `requirements.txt` inclut maintenant `customtkinter>=5.2.2`
 
+## Mode terminal (branche `tui-cli-mode`)
+
+Une interface terminal premium basee sur `Textual` est en cours d'integration sur la branche `tui-cli-mode`.
+
+Lancement :
+
+```bash
+python SushiDL.py --cli
+```
+
+Fonctions deja branchees sur cette branche :
+- menu principal terminal
+- ecran `Options / Cookies`
+- edition et test des cookies
+- edition du `User-Agent`
+- options runtime principales
+- analyse d'URL
+- filtre et selection des chapitres / tomes
+- telechargement terminal avec progression
+- ecran erreurs dedie
+
+Dependance supplementaire pour cette branche :
+- `textual>=0.82.0`
+
 ## Apercu visuel
 
 Captures d'ecran :

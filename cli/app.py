@@ -6,6 +6,7 @@ from textual.widgets import Footer, Header
 
 from .actions import load_state
 from .download import CliDownloadController
+from .modals import ConfirmModal
 from .screens_download import DownloadScreen
 from .screens_errors import ErrorsScreen
 from .screens_main import MainMenuScreen
@@ -119,6 +120,39 @@ class SushiTerminalApp(App):
         self.push_screen("main")
 
     def action_request_quit(self) -> None:
+        controller = self.download_controller
+        if controller and controller.snapshot().active:
+            def confirm_active(result: str | None) -> None:
+                if result == "confirm":
+                    controller.cancel()
+                    self.exit()
+
+            self.push_screen(
+                ConfirmModal(
+                    "Telechargement en cours",
+                    "Un telechargement est actif. Confirmer l'annulation et quitter ?",
+                    confirm_label="Annuler et quitter",
+                ),
+                confirm_active,
+            )
+            return
+
+        if self.cli_state.unsaved_changes:
+            def confirm_unsaved(result: str | None) -> None:
+                if result == "confirm":
+                    self.backend.save_settings(self.cli_state)
+                    self.cli_state.unsaved_changes = False
+                    self.exit()
+
+            self.push_screen(
+                ConfirmModal(
+                    "Quitter",
+                    "Des changements non sauvegardes existent. Sauvegarder puis quitter ?",
+                    confirm_label="Sauvegarder et quitter",
+                ),
+                confirm_unsaved,
+            )
+            return
         self.exit()
 
 

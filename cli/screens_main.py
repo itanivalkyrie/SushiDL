@@ -5,9 +5,11 @@ from textual.containers import Container, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, Static
 
+from .modals import HelpModal
+
 
 class MainMenuScreen(Screen):
-    BINDINGS = [("q", "quit", "Quitter")]
+    BINDINGS = [("q", "quit", "Quitter"), ("h", "show_help", "Aide")]
 
     def compose(self) -> ComposeResult:
         yield Static("SushiDL CLI", id="app-title")
@@ -44,3 +46,13 @@ class MainMenuScreen(Screen):
 
     def action_quit(self) -> None:
         self.app.exit()
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(
+            HelpModal(
+                "Aide menu principal",
+                "1. Options / Cookies : reglage des cookies, du User-Agent et des options runtime.\n"
+                "2. URL / Chapitres / Telechargement : analyse d'une source, selection des elements et telechargement.\n"
+                "Q : quitter l'application.",
+            )
+        )

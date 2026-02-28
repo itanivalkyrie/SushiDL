@@ -7,7 +7,7 @@ from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from .actions import analyze_current_url, apply_range_selection, apply_text_filter, deselect_all, invert_selection, select_all, toggle_item_selection
 from .download import CliDownloadController
-from .modals import MessageModal, TextPromptModal
+from .modals import HelpModal, MessageModal, TextPromptModal
 
 
 class WorkflowScreen(Screen):
@@ -15,11 +15,13 @@ class WorkflowScreen(Screen):
         ("escape", "go_back", "Retour"),
         ("/", "focus_filter", "Filtre"),
         ("space", "toggle_current", "Toggle"),
+        ("enter", "toggle_current", "Toggle"),
         ("a", "select_all", "Tout"),
         ("n", "select_none", "Rien"),
         ("i", "invert", "Inverser"),
         ("r", "select_range", "Plage"),
         ("t", "download", "Telecharger"),
+        ("h", "show_help", "Aide"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -35,6 +37,7 @@ class WorkflowScreen(Screen):
                 yield Label("Titre : --", id="workflow-title")
                 yield Label("Domaine : --", id="workflow-domain")
                 yield Label("Selection : 0 element", id="workflow-selection")
+                yield Label("Visibles : 0", id="workflow-visible")
             with Vertical(classes="panel", id="workflow-list-panel"):
                 with Horizontal(classes="button-row"):
                     yield Input(value="", placeholder="Filtre", id="workflow-filter")
@@ -62,6 +65,7 @@ class WorkflowScreen(Screen):
         self.query_one("#workflow-title", Label).update(f"Titre : {state.current_title or '--'}")
         self.query_one("#workflow-domain", Label).update(f"Domaine : {state.current_domain or '--'}")
         self.query_one("#workflow-selection", Label).update(f"Selection : {state.selection_summary}")
+        self.query_one("#workflow-visible", Label).update(f"Visibles : {len(state.filtered_indices)} / {len(state.detected_items)}")
         self.query_one("#workflow-status", Label).update(state.status_message)
 
         self.selection_list.clear()
@@ -176,3 +180,15 @@ class WorkflowScreen(Screen):
             state.reset_analysis()
             state.status_message = f"Analyse impossible: {exc}"
         self.refresh_from_state()
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(
+            HelpModal(
+                "Aide workflow",
+                "Entre une URL puis lance l'analyse.\n"
+                "Espace ou Entree bascule la ligne courante.\n"
+                "/ active le filtre.\n"
+                "A tout cocher, N tout decocher, I inverser, R selection par plage.\n"
+                "T ouvre le telechargement.",
+            )
+        )

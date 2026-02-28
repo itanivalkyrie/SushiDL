@@ -20,6 +20,16 @@ Le format de version suit la regle `X.Y.Z` :
   - `assets/sushi_icon_source.png`
   - `assets/sushidl_icon_preview.png`
 
+### Branche en cours
+- `tui-cli-mode`:
+  - ajout d'un mode terminal `--cli` base sur `Textual`,
+  - menu principal,
+  - ecran `Options / Cookies`,
+  - workflow `URL / Chapitres / Telechargement`,
+  - telechargement terminal avec progression,
+  - ecran erreurs dedie,
+  - ajout de `textual>=0.82.0` dans `requirements.txt` sur cette branche.
+
 ## [11.2.11] - 2026-02-28
 
 ### Ameliorations

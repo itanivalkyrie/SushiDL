@@ -4,9 +4,11 @@ from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Label, Static
 
+from .modals import HelpModal
+
 
 class ErrorsScreen(Screen):
-    BINDINGS = [("escape", "go_back", "Retour")]
+    BINDINGS = [("escape", "go_back", "Retour"), ("h", "show_help", "Aide")]
 
     def compose(self) -> ComposeResult:
         yield Static("Erreurs", id="screen-title")
@@ -45,3 +47,12 @@ class ErrorsScreen(Screen):
 
     def action_go_back(self) -> None:
         self.app.pop_screen()
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(
+            HelpModal(
+                "Aide erreurs",
+                "Cette vue affiche les erreurs remontees par le telechargement terminal :\n"
+                "tome/chapitre, etape, code HTTP, raison et action recommandee.",
+            )
+        )

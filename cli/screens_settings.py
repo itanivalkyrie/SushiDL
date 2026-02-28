@@ -6,7 +6,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Input, Label, ListItem, ListView, Static
 
 from .actions import save_state, test_all_cookies, test_cookie_for_domain
-from .modals import TextPromptModal
+from .modals import HelpModal, TextPromptModal
 
 
 class SettingsScreen(Screen):
@@ -16,6 +16,7 @@ class SettingsScreen(Screen):
         ("t", "test_selected", "Tester"),
         ("shift+t", "test_all", "Tester tout"),
         ("e", "edit_selected", "Editer"),
+        ("h", "show_help", "Aide"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -150,3 +151,13 @@ class SettingsScreen(Screen):
             self.refresh_from_state()
 
         self.app.push_screen(TextPromptModal(f"Editer cookie .{domain}", value=current, password=True), apply_value)
+
+    def action_show_help(self) -> None:
+        self.app.push_screen(
+            HelpModal(
+                "Aide options / cookies",
+                "Selectionne un domaine puis utilise E pour editer ou T pour tester.\n"
+                "Le User-Agent doit correspondre au navigateur qui a obtenu le cookie.\n"
+                "S sauvegarde les parametres. Shift+T teste tous les domaines.",
+            )
+        )
