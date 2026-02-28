@@ -7,6 +7,36 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.9] - 2026-02-28
+
+### Ameliorations
+- Branche `CustomTkinter`:
+  - refonte visuelle generale vers un rendu plus sobre, plus lisible et plus coherent,
+  - harmonisation des onglets `Journal / Authentification / Options` et `Tomes / Chapitres / Erreurs`,
+  - toolbar de selection reequilibree avec filtre, actions, compteurs, vues et telechargement mieux alignes,
+  - compteur fusionne en un seul badge (`0 element`, `1000 elements`, `1/1000 elements`, `1000/1000 elements`),
+  - controle de vue `Auto / Dense / Confort` rendu plus lisible et reserve sur une largeur fixe.
+- Performance gros catalogues:
+  - ajout d'un mode liste legere pour les tres grandes listes,
+  - virtualisation des widgets visibles dans la grille de tomes/chapitres,
+  - cache des labels normalises pour accelerer le filtrage,
+  - switches de vue et navigation plus fluides sur les catalogues volumineux.
+
+### Corrections
+- Analyse:
+  - le rendu de la liste n'attend plus le thread worker de facon synchrone, ce qui evite les timeouts UI sur les tres gros catalogues.
+- UX:
+  - suppression du resume `Selection: x/y` separe au profit d'un compteur unique plus compact,
+  - correction du statut d'analyse pour eviter les deplacements visuels pendant la mise a jour du texte.
+
+### Mesures
+- Validation reelle sur `https://sushiscan.fr/catalogue/one-piece/`:
+  - recuperation du catalogue constatee a environ `2.1s` pour `1174` elements.
+- Benchmark synthetique `1174` elements:
+  - rendu initial proche de `1s`,
+  - filtre et remise a zero autour de `0.1s`,
+  - switch de vue `Dense / Confort / Auto` redescendu a une latence faible.
+
 ## [11.2.8] - 2026-02-27
 
 ### Ameliorations

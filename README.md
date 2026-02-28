@@ -4,7 +4,7 @@
 
 # SushiDL
 
-SushiDL est une application Python avec interface graphique Tkinter pour analyser et telecharger des chapitres ou tomes de mangas depuis plusieurs domaines compatibles, avec gestion manuelle de l'authentification Cloudflare, telechargement multi-thread, conversion d'images et creation d'archives CBZ.
+SushiDL est une application Python avec interface graphique Tkinter / CustomTkinter pour analyser et telecharger des chapitres ou tomes de mangas depuis plusieurs domaines compatibles, avec gestion manuelle de l'authentification Cloudflare, telechargement multi-thread, conversion d'images et creation d'archives CBZ.
 
 ## Resume
 
@@ -15,9 +15,23 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.2.8`
+Version actuelle : `11.2.9`
 
 ## Nouveautes recentes
+
+### 11.2.9
+- Refonte visuelle `CustomTkinter` vers un rendu plus sobre, plus lisible et plus homogene.
+- Onglets `Journal / Authentification / Options` et `Tomes / Chapitres / Erreurs` harmonises avec un vrai comportement de notebook.
+- Toolbar de selection compactee:
+  - compteur fusionne (`1/1000 elements`),
+  - controle `Auto / Dense / Confort` plus lisible,
+  - meilleure integration du filtre, des actions et du bloc telechargement.
+- Support optimise des gros catalogues:
+  - mode liste legere automatique sur tres grandes listes,
+  - virtualisation des widgets visibles,
+  - filtres quasi instantanes,
+  - switches de vue plus fluides.
+- Analyse decouplee du rendu UI pour eviter les timeouts quand la liste contient un tres grand nombre d'elements.
 
 ### 11.2.8
 - Acceleration du flux de telechargement par suppression des attentes artificielles dans les boucles workers.
@@ -54,6 +68,8 @@ Formats d'URL catalogue attendus :
 - Creation optionnelle d'archives CBZ.
 - Journal unifie GUI + terminal avec filtres.
 - Tableau d'erreurs par tome avec raison technique et action recommande.
+- Branche `CustomTkinter` avec interface plus sobre, compteurs fusionnes et vues de liste adaptatives (`Auto`, `Dense`, `Confort`).
+- Affichage optimise des tres grands catalogues avec filtre rapide et rendu virtualise.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
 
 ## Prerequis
