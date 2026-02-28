@@ -22,6 +22,9 @@ class MainMenuScreen(Screen):
         self.query_one("#open-settings", Button).focus()
         self.refresh_status()
 
+    def on_show(self) -> None:
+        self.refresh_status()
+
     def refresh_status(self) -> None:
         app_state = self.app.cli_state
         auth_ready = sum(1 for value in app_state.cookies.values() if (value or "").strip())
@@ -41,4 +44,3 @@ class MainMenuScreen(Screen):
 
     def action_quit(self) -> None:
         self.app.exit()
-

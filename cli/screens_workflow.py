@@ -6,6 +6,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Input, Label, ListItem, ListView, Static
 
 from .actions import analyze_current_url, apply_range_selection, apply_text_filter, deselect_all, invert_selection, select_all, toggle_item_selection
+from .download import CliDownloadController
 from .modals import MessageModal, TextPromptModal
 
 
@@ -51,6 +52,9 @@ class WorkflowScreen(Screen):
     def on_mount(self) -> None:
         self.refresh_from_state()
         self.query_one("#workflow-url", Input).focus()
+
+    def on_show(self) -> None:
+        self.refresh_from_state()
 
     def refresh_from_state(self) -> None:
         state = self.app.cli_state
@@ -143,7 +147,25 @@ class WorkflowScreen(Screen):
         self.app.push_screen(TextPromptModal("Selection par plage", placeholder="1-20,50+,100-120"), apply_value)
 
     def action_download(self) -> None:
-        self.app.push_screen(MessageModal("Telechargement", "Le moteur de telechargement terminal sera branche dans l'etape suivante du chantier."))
+        if not self.app.cli_state.selected_urls:
+            self.app.push_screen(MessageModal("Telechargement", "Aucun element selectionne."))
+            return
+        controller = getattr(self.app, "download_controller", None)
+        if controller and controller.snapshot().active:
+            self.app.push_screen("download")
+            return
+
+        default_output = self.app.cli_state.download_status.output_dir or "DL SushiScan"
+
+        def start_with_output(value: str | None) -> None:
+            if value is None:
+                return
+            output_dir = (value or "").strip() or "DL SushiScan"
+            self.app.download_controller = CliDownloadController(self.app.backend, self.app.cli_state, output_dir)
+            self.app.download_controller.start()
+            self.app.push_screen("download")
+
+        self.app.push_screen(TextPromptModal("Dossier de sortie", value=default_output, placeholder="DL SushiScan"), start_with_output)
 
     def _run_analysis(self) -> None:
         state = self.app.cli_state
@@ -154,4 +176,3 @@ class WorkflowScreen(Screen):
             state.reset_analysis()
             state.status_message = f"Analyse impossible: {exc}"
         self.refresh_from_state()
-

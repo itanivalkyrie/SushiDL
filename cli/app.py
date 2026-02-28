@@ -5,6 +5,9 @@ from textual.binding import Binding
 from textual.widgets import Footer, Header
 
 from .actions import load_state
+from .download import CliDownloadController
+from .screens_download import DownloadScreen
+from .screens_errors import ErrorsScreen
 from .screens_main import MainMenuScreen
 from .screens_settings import SettingsScreen
 from .screens_workflow import WorkflowScreen
@@ -101,6 +104,7 @@ class SushiTerminalApp(App):
         super().__init__()
         self.backend = backend
         self.cli_state = load_state(backend)
+        self.download_controller: CliDownloadController | None = None
 
     def compose(self):
         yield Header(show_clock=False)
@@ -110,6 +114,8 @@ class SushiTerminalApp(App):
         self.install_screen(MainMenuScreen(), name="main")
         self.install_screen(SettingsScreen(), name="settings")
         self.install_screen(WorkflowScreen(), name="workflow")
+        self.install_screen(DownloadScreen(), name="download")
+        self.install_screen(ErrorsScreen(), name="errors")
         self.push_screen("main")
 
     def action_request_quit(self) -> None:

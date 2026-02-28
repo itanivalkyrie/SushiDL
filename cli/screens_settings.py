@@ -50,6 +50,9 @@ class SettingsScreen(Screen):
         self.refresh_from_state()
         self.query_one("#cookie-list", ListView).focus()
 
+    def on_show(self) -> None:
+        self.refresh_from_state()
+
     def refresh_from_state(self) -> None:
         state = self.app.cli_state
         self.cookie_list.clear()
@@ -147,4 +150,3 @@ class SettingsScreen(Screen):
             self.refresh_from_state()
 
         self.app.push_screen(TextPromptModal(f"Editer cookie .{domain}", value=current, password=True), apply_value)
-

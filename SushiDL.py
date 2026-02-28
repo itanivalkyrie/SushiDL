@@ -1874,6 +1874,7 @@ def download_volume(
     smart_resume_enabled=True,
     error_callback=None,
     output_root=ROOT_FOLDER,
+    prompt_cookie_retry=True,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
@@ -2056,6 +2057,10 @@ def download_volume(
 
             if not can_prompt_cookie_retry:
                 logger("Relance cookie déjà tentée une fois; abandon du tome.", level="warning")
+                return False
+
+            if not prompt_cookie_retry:
+                logger("Relance cookie interactive désactivée pour ce mode d'exécution.", level="warning")
                 return False
 
             can_prompt_cookie_retry = False
@@ -9214,6 +9219,52 @@ class SushiCliBackend:
             emit_logs=False,
         )
         return title, domain, pairs
+
+    def resolve_domain(self, url):
+        return get_cookie_domain_from_url((url or "").strip())
+
+    def get_images_for_download(self, url, cookie, ua, cancel_event=None):
+        return get_images(
+            (url or "").strip(),
+            (cookie or "").strip(),
+            (ua or DEFAULT_USER_AGENT).strip(),
+            cancel_event=cancel_event,
+            emit_logs=False,
+        )
+
+    def download_selected_volume(
+        self,
+        item,
+        image_urls,
+        title,
+        cookie,
+        ua,
+        output_dir,
+        logger,
+        update_progress,
+        error_callback,
+        cancel_event,
+        cbz_enabled,
+        webp2jpg_enabled,
+        smart_resume_enabled,
+    ):
+        return download_volume(
+            item.label,
+            list(image_urls or []),
+            title,
+            (cookie or "").strip(),
+            (ua or DEFAULT_USER_AGENT).strip(),
+            logger,
+            cancel_event,
+            cbz_enabled=bool(cbz_enabled),
+            update_progress=update_progress,
+            webp2jpg_enabled=bool(webp2jpg_enabled),
+            referer_url=(item.url or "").strip(),
+            smart_resume_enabled=bool(smart_resume_enabled),
+            error_callback=error_callback,
+            output_root=output_dir,
+            prompt_cookie_retry=False,
+        )
 
 
 # Point d'entrée de l'application

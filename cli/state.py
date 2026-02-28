@@ -11,6 +11,34 @@ class CliItem:
 
 
 @dataclass(slots=True)
+class CliDownloadError:
+    tome: str
+    stage: str
+    reason: str
+    status_code: int | None = None
+    action: str = ""
+
+
+@dataclass(slots=True)
+class CliDownloadStatus:
+    active: bool = False
+    finished: bool = False
+    cancelled: bool = False
+    output_dir: str = ""
+    total_volumes: int = 0
+    completed_volumes: int = 0
+    current_volume: str = "--"
+    current_images_done: int = 0
+    current_images_total: int = 0
+    global_percent: float = 0.0
+    logs: list[str] = field(default_factory=list)
+    errors: list[CliDownloadError] = field(default_factory=list)
+    status_message: str = "Pret."
+    eta_volume: str = "--:--"
+    eta_global: str = "--:--"
+
+
+@dataclass(slots=True)
 class CliState:
     cookies: dict[str, str]
     user_agent: str
@@ -27,6 +55,7 @@ class CliState:
     cookie_status: dict[str, str] = field(default_factory=dict)
     status_message: str = "Pret."
     unsaved_changes: bool = False
+    download_status: CliDownloadStatus = field(default_factory=CliDownloadStatus)
 
     def reset_analysis(self) -> None:
         self.current_title = ""
@@ -46,4 +75,3 @@ class CliState:
             return f"{total} {suffix}"
         suffix = "element" if total == 1 else "elements"
         return f"{selected}/{total} {suffix}"
-
