@@ -4812,7 +4812,7 @@ class MangaApp:
         raw_title = self.title if title is None else title
         safe_title = repair_mojibake_text(str(raw_title or "").strip())
         if not safe_title:
-            safe_title = "URL du Manga/Manhwa/BD"
+            safe_title = "Manga/Manhwa/Comics..."
         self.source_title_var.set(safe_title)
 
     def _mark_analysis_auth_state(self, domain, success, message=""):
@@ -5276,7 +5276,7 @@ class MangaApp:
         self.download_in_progress = False
         self.pairs = []
         self.title = ""
-        self.source_title_var = tk.StringVar(value="URL du Manga/Manhwa/BD")
+        self.source_title_var = tk.StringVar(value="Manga/Manhwa/Comics...")
         self.cancel_event = threading.Event()
         self.cover_preview = None
         self.cover_animation_frames = []
