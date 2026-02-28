@@ -23,7 +23,7 @@ Captures d'ecran :
 
 <p align="center">
   <img alt="Capture 1" src="assets/screenshot1.png" width="48%" />
-  <img alt="Capture 2" src="assets/screenshot2.png" width="48%" />
+  <img alt="Capture 2" src="assets/screenshot2_v2.png" width="48%" />
 </p>
 <p align="center">
   <img alt="Capture 4" src="assets/screenshot4.png" width="48%" />
@@ -264,5 +264,4 @@ Historique complet des versions : `CHANGELOG.md`
 
 Si le projet t'est utile, tu peux soutenir le mainteneur sur Ko-fi :
 - https://ko-fi.com/itanivalkyrie
-
 
