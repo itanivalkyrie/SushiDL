@@ -1492,7 +1492,7 @@ def build_mangas_origines_list_url(url):
     return urlunparse((scheme, host, path, "", query, ""))
 
 
-def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_event=None):
+def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_event=None, max_images=None, emit_logs=True):
     """
     Récupère la liste des URLs d'images pour un volume/chapitre
     
@@ -1508,6 +1508,8 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
     Returns:
         list: Liste des URLs d'images
     """
+    max_images = max(0, int(max_images or 0)) or None
+
     def clean_parasites(images, domain):
         """Filtre les images parasites (logos, pubs) pour sushiscan.fr"""
         if domain != "fr":
@@ -1524,15 +1526,35 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
 
         removed = len(images) - len(filtered)
         if removed > 0:
-            runtime_log(
-                f"{removed} image(s) parasite(s) supprimée(s) dynamiquement.",
-                level="debug",
-                context={"action": "image_filter", "domain": domain},
-            )
+            if emit_logs:
+                runtime_log(
+                    f"{removed} image(s) parasite(s) supprimée(s) dynamiquement.",
+                    level="debug",
+                    context={"action": "image_filter", "domain": domain},
+                )
         return filtered
 
     def extract_images(r_text, domain):
         """Extrait les URLs d'images depuis le contenu HTML"""
+        def finalize_images(items, detected_label=None):
+            images = list(items or [])
+            total_after_filter = len(images)
+            limited_images = images[:max_images] if max_images else images
+            if emit_logs:
+                if detected_label:
+                    runtime_log(
+                        f"{len(limited_images)} image(s) retenue(s){' sur ' + str(total_after_filter) if max_images and total_after_filter > len(limited_images) else ''} via {detected_label}.",
+                        level="info",
+                        context={"action": "extract_images", "domain": domain},
+                    )
+                else:
+                    runtime_log(
+                        f"{len(limited_images)} image(s) retenue(s){' sur ' + str(total_after_filter) if max_images and total_after_filter > len(limited_images) else ''} après filtrage.",
+                        level="info",
+                        context={"action": "extract_images", "domain": domain},
+                    )
+            return limited_images
+
         def dedupe_images(items):
             seen = set()
             unique = []
@@ -1643,11 +1665,12 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                 removed += 1
 
             if removed:
-                runtime_log(
-                    f"{removed} image(s) pub supprimée(s) (début/fin, résolution atypique).",
-                    level="debug",
-                    context={"action": "image_filter", "domain": domain},
-                )
+                if emit_logs:
+                    runtime_log(
+                        f"{removed} image(s) pub supprimée(s) (début/fin, résolution atypique).",
+                        level="debug",
+                        context={"action": "image_filter", "domain": domain},
+                    )
             return safe_entries
 
         # Étape 0 — Priorité à la structure Madara (mangas-origines)
@@ -1659,12 +1682,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
             images = [entry["url"] for entry in entries]
             if images:
                 images = clean_parasites(images, domain)
-                runtime_log(
-                    f"{len(images)} images finales après filtrage.",
-                    level="info",
-                    context={"action": "extract_images", "domain": domain},
-                )
-                return images
+                return finalize_images(images)
 
         # Étape 1 — Extraction depuis le JSON ts_reader.run
         json_str = parse_lr(r_text, "ts_reader.run(", ");</script>", False)
@@ -1677,20 +1695,11 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                 ]
                 if images:
                     images = dedupe_images(images)
-                    runtime_log(
-                        f"{len(images)} images détectées via ts_reader.run.",
-                        level="info",
-                        context={"action": "extract_images", "domain": domain},
-                    )
                     images = clean_parasites(images, domain)
-                    runtime_log(
-                        f"{len(images)} images finales après filtrage.",
-                        level="info",
-                        context={"action": "extract_images", "domain": domain},
-                    )
-                    return images
+                    return finalize_images(images, detected_label="ts_reader.run")
             except Exception as e:
-                runtime_log(f"Erreur parsing JSON images: {e}", level="warning", context={"action": "extract_images"})
+                if emit_logs:
+                    runtime_log(f"Erreur parsing JSON images: {e}", level="warning", context={"action": "extract_images"})
 
         # Étape 2 — Fallback : balises img dans #readerarea
         soup = BeautifulSoup(r_text, "html.parser")
@@ -1706,12 +1715,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
             images = dedupe_images(images)
             if images:
                 images = clean_parasites(images, domain)
-                runtime_log(
-                    f"{len(images)} images finales après filtrage.",
-                    level="info",
-                    context={"action": "extract_images", "domain": domain},
-                )
-                return images
+                return finalize_images(images)
 
         # Étape 2b — Fallback : structure Madara (mangas-origines)
         entries = collect_madara_page_entries(soup)
@@ -1720,12 +1724,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         images = [entry["url"] for entry in entries]
         if images:
             images = clean_parasites(images, domain)
-            runtime_log(
-                f"{len(images)} images finales après filtrage.",
-                level="info",
-                context={"action": "extract_images", "domain": domain},
-            )
-            return images
+            return finalize_images(images)
 
         reading_container = soup.select_one("div.reading-content, div.entry-content_wrap")
         if reading_container:
@@ -1733,12 +1732,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
             images = dedupe_images(images)
             if images:
                 images = clean_parasites(images, domain)
-                runtime_log(
-                    f"{len(images)} images finales après filtrage.",
-                    level="info",
-                    context={"action": "extract_images", "domain": domain},
-                )
-                return images
+                return finalize_images(images)
 
         # Étape 3 — Fallback regex brut
         img_urls = re.findall(
@@ -1750,12 +1744,8 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         img_urls = list(dict.fromkeys(img_urls))  # Supprime les doublons
         if img_urls:
             img_urls = clean_parasites(img_urls, domain)
-            runtime_log(
-                f"{len(img_urls)} images finales après filtrage.",
-                level="info",
-                context={"action": "extract_images", "domain": domain},
-            )
-        return img_urls
+            return finalize_images(img_urls)
+        return img_urls[:max_images] if max_images else img_urls
 
     attempt_count = max(1, int(retries or 1))
     site = get_supported_site_from_url(link)
@@ -1777,86 +1767,95 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         if link and link.strip() and link.strip() not in candidate_links:
             candidate_links.append(link.strip())
         if candidate_links:
-            runtime_log(
-                "Mode lecture privilégié: style=list.",
-                level="debug",
-                context={"action": "get_images", "domain": domain},
-            )
+            if emit_logs:
+                runtime_log(
+                    "Mode lecture privilégié: style=list.",
+                    level="debug",
+                    context={"action": "get_images", "domain": domain},
+                )
 
     for link_idx, candidate_link in enumerate(candidate_links, start=1):
         for attempt in range(1, attempt_count + 1):
             if cancel_event is not None and cancel_event.is_set():
-                runtime_log(
-                    "Extraction images annulée.",
-                    level="warning",
-                    context={"action": "get_images"},
-                )
+                if emit_logs:
+                    runtime_log(
+                        "Extraction images annulée.",
+                        level="warning",
+                        context={"action": "get_images"},
+                    )
                 return []
             try:
                 r = make_request(candidate_link, cookie, ua)
                 body = r.text or ""
-                runtime_log(
-                    f"Requête HTTP directe reçue (len={len(body)}) [tentative {attempt}/{attempt_count}]",
-                    level="debug",
-                    context={"action": "get_images", "url_idx": f"{link_idx}/{len(candidate_links)}"},
-                )
+                if emit_logs:
+                    runtime_log(
+                        f"Requête HTTP directe reçue (len={len(body)}) [tentative {attempt}/{attempt_count}]",
+                        level="debug",
+                        context={"action": "get_images", "url_idx": f"{link_idx}/{len(candidate_links)}"},
+                    )
 
                 if debug_mode:
                     suffix = f"_url{link_idx}_attempt{attempt}" if (attempt_count > 1 or len(candidate_links) > 1) else ""
                     debug_file = f"debug_sushiscan_{domain}{suffix}.log"
                     with open(debug_file, "w", encoding="utf-8") as f:
                         f.write(body)
-                    runtime_log(
-                        f"Fichier debug généré: {debug_file}",
-                        level="debug",
-                        context={"action": "debug_dump"},
-                    )
+                    if emit_logs:
+                        runtime_log(
+                            f"Fichier debug généré: {debug_file}",
+                            level="debug",
+                            context={"action": "debug_dump"},
+                        )
 
                 images = extract_images(body, domain)
                 if images:
                     return images
 
-                runtime_log(
-                    f"Aucune image trouvée en accès direct (tentative {attempt}/{attempt_count}).",
-                    level="warning",
-                    context={"action": "get_images"},
-                )
+                if emit_logs:
+                    runtime_log(
+                        f"Aucune image trouvée en accès direct (tentative {attempt}/{attempt_count}).",
+                        level="warning",
+                        context={"action": "get_images"},
+                    )
             except Exception as e:
                 message = str(e)
                 interpretation = interpret_curl_error(message)
-                if interpretation:
-                    runtime_log(
-                        f"{interpretation} (tentative {attempt}/{attempt_count})",
-                        level="warning",
-                        context={"action": "get_images"},
-                    )
-                else:
-                    runtime_log(
-                        f"Erreur directe (tentative {attempt}/{attempt_count}): {message}.",
-                        level="warning",
-                        context={"action": "get_images"},
-                    )
+                if emit_logs:
+                    if interpretation:
+                        runtime_log(
+                            f"{interpretation} (tentative {attempt}/{attempt_count})",
+                            level="warning",
+                            context={"action": "get_images"},
+                        )
+                    else:
+                        runtime_log(
+                            f"Erreur directe (tentative {attempt}/{attempt_count}): {message}.",
+                            level="warning",
+                            context={"action": "get_images"},
+                        )
 
             if attempt < attempt_count:
                 sleep_time = max(0, delay * (2 ** (attempt - 1)))
-                runtime_log(
-                    f"Nouvelle tentative extraction images dans {sleep_time}s.",
-                    level="debug",
-                    context={"action": "get_images"},
-                )
-                if interruptible_sleep(cancel_event, sleep_time):
+                if emit_logs:
                     runtime_log(
-                        "Extraction images annulée pendant l'attente de retry.",
-                        level="warning",
+                        f"Nouvelle tentative extraction images dans {sleep_time}s.",
+                        level="debug",
                         context={"action": "get_images"},
                     )
+                if interruptible_sleep(cancel_event, sleep_time):
+                    if emit_logs:
+                        runtime_log(
+                            "Extraction images annulée pendant l'attente de retry.",
+                            level="warning",
+                            context={"action": "get_images"},
+                        )
                     return []
 
-    runtime_log(
-        f"Impossible d'extraire des images depuis: {link}",
-        level="error",
-        context={"action": "get_images"},
-    )
+    if emit_logs:
+        runtime_log(
+            f"Impossible d'extraire des images depuis: {link}",
+            level="error",
+            context={"action": "get_images"},
+        )
     return []
 
 
@@ -2949,7 +2948,7 @@ class MangaApp:
         self.preview_prev_button = None
         self.preview_next_button = None
         self.preview_close_button = None
-        self.preview_photo = None
+        self.preview_ctk_image = None
         self.preview_resize_after_id = None
         if window is not None:
             try:
@@ -3070,7 +3069,7 @@ class MangaApp:
         window.bind("<Configure>", self._schedule_preview_image_refresh, add="+")
         self.preview_image_frame.bind("<Configure>", self._schedule_preview_image_refresh, add="+")
         self.preview_window = window
-        self.preview_photo = None
+        self.preview_ctk_image = None
         return window
 
     def _show_preview_loading(self, title):
@@ -3080,7 +3079,7 @@ class MangaApp:
         self.preview_status_label.configure(text="Chargement des pages...")
         self.preview_image_label.configure(image=None, text="Chargement...")
         self.preview_image_label.image = None
-        self.preview_photo = None
+        self.preview_ctk_image = None
         self.preview_prev_button.configure(state="disabled")
         self.preview_next_button.configure(state="disabled")
         self._start_preview_spinner("Chargement des pages...")
@@ -3101,7 +3100,7 @@ class MangaApp:
         self.preview_status_label.configure(text="Prévisualisation indisponible.")
         self.preview_image_label.configure(image=None, text=repair_mojibake_text(str(message or "Impossible de charger la preview.")))
         self.preview_image_label.image = None
-        self.preview_photo = None
+        self.preview_ctk_image = None
         self.preview_prev_button.configure(state="disabled")
         self.preview_next_button.configure(state="disabled")
 
@@ -3158,10 +3157,10 @@ class MangaApp:
         except Exception:
             target_w, target_h = (860, 620)
         fitted = ImageOps.contain(image.copy(), (target_w, target_h), method=Image.LANCZOS)
-        photo = ImageTk.PhotoImage(fitted)
-        self.preview_photo = photo
-        self.preview_image_label.configure(image=photo, text="")
-        self.preview_image_label.image = photo
+        ctk_image = ctk.CTkImage(light_image=fitted, dark_image=fitted, size=fitted.size)
+        self.preview_ctk_image = ctk_image
+        self.preview_image_label.configure(image=ctk_image, text="")
+        self.preview_image_label.image = ctk_image
 
     def _goto_preview_prev(self):
         state = getattr(self, "preview_state", None) or {}
@@ -3181,7 +3180,19 @@ class MangaApp:
             link = payload.get("link") or ""
             cookie = payload.get("cookie") or ""
             ua = payload.get("ua") or DEFAULT_USER_AGENT
-            image_urls = list(get_images(link, cookie, ua, retries=2, delay=1, cancel_event=None) or [])[:PREVIEW_PAGE_LIMIT]
+            image_urls = list(
+                get_images(
+                    link,
+                    cookie,
+                    ua,
+                    retries=2,
+                    delay=1,
+                    cancel_event=None,
+                    max_images=PREVIEW_PAGE_LIMIT,
+                    emit_logs=False,
+                )
+                or []
+            )
             if not image_urls:
                 raise ValueError("Aucune page récupérable pour cette preview.")
             pil_images = []
@@ -5907,7 +5918,7 @@ class MangaApp:
         self.preview_prev_button = None
         self.preview_next_button = None
         self.preview_close_button = None
-        self.preview_photo = None
+        self.preview_ctk_image = None
         self.preview_state = {"key": None, "title": "", "urls": [], "images": [], "index": 0}
         self.preview_request_id = 0
         self.preview_resize_after_id = None
