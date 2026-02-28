@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.2.10`
+Version actuelle : `11.2.11`
 
 ## Apercu visuel
 
@@ -30,6 +30,18 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.2.11
+- Ajout d'une previsualisation integree des chapitres/tomes:
+  - bouton loupe verte dans la liste dense,
+  - ouverture d'une popup dediee,
+  - chargement de `3 a 5` premieres pages,
+  - navigation `Precedent / Suivant`,
+  - cache memoire leger pour reouvrir rapidement une preview deja chargee.
+- Ajout d'indicateurs de chargement legers:
+  - spinner dans le statut d'analyse,
+  - overlay de chargement au centre de la liste pendant la recuperation / le rendu,
+  - spinner dans la popup de preview pendant le chargement des pages.
 
 ### 11.2.10
 - Reorganisation complete de l'interface `CustomTkinter` autour d'une seule barre d'onglets en haut :
@@ -104,6 +116,7 @@ Formats d'URL catalogue attendus :
 - Tableau d'erreurs par tome avec raison technique et action recommande.
 - Branche `CustomTkinter` avec interface plus sobre, onglet `Telechargement` unifie et rendu dense optimise.
 - Affichage optimise des tres grands catalogues avec filtre rapide, rendu mutualise sur canvas et scroll stabilise.
+- Preview rapide integree par chapitre/tome via popup dediee et loupe dans le listing.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
 
 ## Prerequis
@@ -264,4 +277,3 @@ Historique complet des versions : `CHANGELOG.md`
 
 Si le projet t'est utile, tu peux soutenir le mainteneur sur Ko-fi :
 - https://ko-fi.com/itanivalkyrie
-

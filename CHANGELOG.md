@@ -7,6 +7,26 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.2.11] - 2026-02-28
+
+### Ameliorations
+- Preview integree dans le listing des tomes / chapitres:
+  - ajout d'une loupe verte entre le titre et la coche bleue,
+  - ouverture d'une popup dediee pour previsualiser rapidement un chapitre ou tome,
+  - chargement limite aux `3 a 5` premieres pages pour rester reactif,
+  - navigation simple `Precedent / Suivant`,
+  - cache memoire court pour reouvrir rapidement une preview deja chargee.
+- Chargement plus lisible dans l'interface:
+  - ajout d'un spinner leger dans le statut d'analyse,
+  - ajout d'un overlay de chargement sur la zone tomes / chapitres pendant l'analyse et le rendu,
+  - ajout d'un spinner dedie dans la popup preview.
+
+### Technique
+- Reutilisation du pipeline de recuperation d'images existant pour la preview, sans ecriture sur disque ni creation de CBZ.
+- Couverture des deux chemins de rendu du listing:
+  - rendu canvas virtualise pour gros catalogues,
+  - rendu widgets pour petites listes.
+
 ## [11.2.10] - 2026-02-28
 
 ### Ameliorations

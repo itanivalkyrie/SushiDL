@@ -448,7 +448,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.2.10"
+APP_VERSION = "11.2.11"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -466,6 +466,9 @@ VOLUME_MAX_GRID_COLUMNS = 4
 VOLUME_CARD_COLUMN_WIDTH = 300
 VOLUME_COMPACT_COLUMN_WIDTH = 236
 VOLUME_FAST_COLUMN_WIDTH = 236
+PREVIEW_PAGE_LIMIT = 5
+PREVIEW_CACHE_MAX_ITEMS = 12
+SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
 COOKIE_DOMAINS = ("fr", "net", "origines", "hentai")
 COVER_RATIO_WIDTH = 2
@@ -2754,6 +2757,483 @@ class MangaApp:
             return
         self.progress_detail_label.configure(text=f"Images: {int(done)}/{int(total)}")
 
+    def _start_analysis_loading_indicators(self, overlay_text="Chargement de la liste..."):
+        self.analysis_spinner_running = True
+        self.analysis_spinner_index = 0
+        self.analysis_loading_overlay_text = repair_mojibake_text(overlay_text or "Chargement de la liste...")
+        if hasattr(self, "analysis_spinner_label"):
+            self.analysis_spinner_label.configure(text=SPINNER_FRAMES[0])
+        if hasattr(self, "vol_loading_label"):
+            self.vol_loading_label.configure(text=f"{SPINNER_FRAMES[0]} {self.analysis_loading_overlay_text}")
+            try:
+                host = getattr(self, "volume_list_container", None) or getattr(self, "vol_empty_label", None)
+                if host is not None:
+                    self.vol_loading_label.place(in_=host, relx=0.5, rely=0.5, anchor="center")
+                    self.vol_loading_label.lift()
+            except Exception:
+                pass
+        self._tick_analysis_spinner()
+
+    def _tick_analysis_spinner(self):
+        after_id = getattr(self, "analysis_spinner_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+            self.analysis_spinner_after_id = None
+        if not getattr(self, "analysis_spinner_running", False):
+            return
+        self.analysis_spinner_index = (int(getattr(self, "analysis_spinner_index", 0) or 0) + 1) % len(SPINNER_FRAMES)
+        frame = SPINNER_FRAMES[self.analysis_spinner_index]
+        if hasattr(self, "analysis_spinner_label"):
+            self.analysis_spinner_label.configure(text=frame)
+        if hasattr(self, "vol_loading_label"):
+            base = getattr(self, "analysis_loading_overlay_text", "Chargement de la liste...")
+            self.vol_loading_label.configure(text=f"{frame} {base}")
+        self.analysis_spinner_after_id = self.root.after(120, self._tick_analysis_spinner)
+
+    def _stop_analysis_loading_indicators(self):
+        self.analysis_spinner_running = False
+        after_id = getattr(self, "analysis_spinner_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.analysis_spinner_after_id = None
+        if hasattr(self, "analysis_spinner_label"):
+            self.analysis_spinner_label.configure(text="")
+        if hasattr(self, "vol_loading_label"):
+            try:
+                self.vol_loading_label.place_forget()
+            except Exception:
+                pass
+
+    def _start_preview_spinner(self, message="Chargement des pages..."):
+        self.preview_spinner_running = True
+        self.preview_spinner_index = 0
+        self.preview_spinner_message = repair_mojibake_text(message or "Chargement des pages...")
+        self._tick_preview_spinner()
+
+    def _tick_preview_spinner(self):
+        after_id = getattr(self, "preview_spinner_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+            self.preview_spinner_after_id = None
+        if not getattr(self, "preview_spinner_running", False):
+            return
+        self.preview_spinner_index = (int(getattr(self, "preview_spinner_index", 0) or 0) + 1) % len(SPINNER_FRAMES)
+        frame = SPINNER_FRAMES[self.preview_spinner_index]
+        message = getattr(self, "preview_spinner_message", "Chargement des pages...")
+        if getattr(self, "preview_status_label", None):
+            self.preview_status_label.configure(text=f"{frame} {message}")
+        if getattr(self, "preview_image_label", None):
+            try:
+                current_image = self.preview_image_label.cget("image")
+            except Exception:
+                current_image = ""
+            if not current_image:
+                self.preview_image_label.configure(text=f"{frame} Chargement...")
+        self.preview_spinner_after_id = self.root.after(120, self._tick_preview_spinner)
+
+    def _stop_preview_spinner(self):
+        self.preview_spinner_running = False
+        after_id = getattr(self, "preview_spinner_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.preview_spinner_after_id = None
+
+    def _build_preview_image_headers(self, image_url, referer_url, cookie, ua):
+        normalized_url = normalize_image_url(image_url)
+        referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
+        cookie_header = ""
+        try:
+            cookie_header = self.get_cookie_header_for_url(normalized_url, fallback_cookie=cookie)
+        except Exception:
+            cookie_header = ""
+        cookie_header = sanitize_cookie_header(cookie_header)
+        if not cookie_header and cookie:
+            cookie_header = build_cf_clearance_cookie_header(cookie)
+        headers = {
+            "Accept": "image/webp,image/jpeg,image/png,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9",
+            "User-Agent": ua or DEFAULT_USER_AGENT,
+            "Referer": referer,
+        }
+        if cookie_header:
+            headers["Cookie"] = cookie_header
+        return headers
+
+    def _download_preview_pil_image(self, image_url, referer_url, cookie, ua):
+        headers = self._build_preview_image_headers(image_url, referer_url, cookie, ua)
+        raw = robust_download_image(normalize_image_url(image_url), headers, max_try=3, delay=1)
+        with Image.open(BytesIO(raw)) as image:
+            image.load()
+            if image.mode not in ("RGB", "RGBA"):
+                image = image.convert("RGB")
+            return image.copy()
+
+    def _touch_preview_cache_key(self, key):
+        cache_key = str(key or "").strip()
+        if not cache_key:
+            return
+        order = getattr(self, "preview_cache_order", None)
+        if order is None:
+            order = []
+            self.preview_cache_order = order
+        if cache_key in order:
+            order.remove(cache_key)
+        order.append(cache_key)
+
+    def _get_preview_cache_entry(self, key):
+        cache_key = str(key or "").strip()
+        if not cache_key:
+            return None
+        entry = (getattr(self, "preview_cache", None) or {}).get(cache_key)
+        if entry:
+            self._touch_preview_cache_key(cache_key)
+        return entry
+
+    def _store_preview_cache_entry(self, key, entry):
+        cache_key = str(key or "").strip()
+        if not cache_key or not isinstance(entry, dict):
+            return
+        cache = getattr(self, "preview_cache", None)
+        if cache is None:
+            cache = {}
+            self.preview_cache = cache
+        cache[cache_key] = entry
+        self._touch_preview_cache_key(cache_key)
+        order = getattr(self, "preview_cache_order", None)
+        if order is None:
+            order = []
+            self.preview_cache_order = order
+        while len(order) > PREVIEW_CACHE_MAX_ITEMS:
+            oldest_key = order.pop(0)
+            if oldest_key != cache_key:
+                cache.pop(oldest_key, None)
+
+    def _get_preview_item_payload(self, index):
+        if index is None or index < 0 or index >= len(getattr(self, "pairs", []) or []):
+            return None
+        volume_label, link = self.pairs[index]
+        link = (link or "").strip()
+        if not link:
+            return None
+        return {
+            "index": index,
+            "key": link,
+            "title": normalize_tome_label(volume_label) or f"Chapitre {index + 1}",
+            "link": link,
+            "cookie": self.get_cookie(link),
+            "ua": self.get_request_user_agent_for_url(link),
+        }
+
+    def _close_preview_window(self):
+        self._stop_preview_spinner()
+        window = getattr(self, "preview_window", None)
+        self.preview_window = None
+        self.preview_header_label = None
+        self.preview_count_label = None
+        self.preview_image_frame = None
+        self.preview_image_label = None
+        self.preview_status_label = None
+        self.preview_prev_button = None
+        self.preview_next_button = None
+        self.preview_close_button = None
+        self.preview_photo = None
+        self.preview_resize_after_id = None
+        if window is not None:
+            try:
+                window.destroy()
+            except Exception:
+                pass
+
+    def _ensure_preview_window(self):
+        window = getattr(self, "preview_window", None)
+        if window is not None:
+            try:
+                if window.winfo_exists():
+                    return window
+            except Exception:
+                pass
+
+        window = ctk.CTkToplevel(self.root)
+        window.title("Prévisualisation")
+        window.geometry("920x720")
+        try:
+            window.minsize(560, 420)
+            window.transient(self.root)
+        except Exception:
+            pass
+        window.protocol("WM_DELETE_WINDOW", self._close_preview_window)
+
+        main = ctk.CTkFrame(window, fg_color=self.palette["panel_bg"], corner_radius=0)
+        main.pack(fill="both", expand=True)
+
+        header = ctk.CTkFrame(main, fg_color="transparent")
+        header.pack(fill="x", padx=14, pady=(14, 8))
+        header.grid_columnconfigure(0, weight=1)
+        self.preview_header_label = ctk.CTkLabel(
+            header,
+            text="Prévisualisation",
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 14),
+            anchor="w",
+        )
+        self.preview_header_label.grid(row=0, column=0, sticky="w")
+        self.preview_count_label = ctk.CTkLabel(
+            header,
+            text="0/0",
+            fg_color=self.palette["card_bg"],
+            corner_radius=6,
+            text_color=self.palette["muted_strong"],
+            font=("Segoe UI Semibold", 10),
+            width=84,
+            height=28,
+        )
+        self.preview_count_label.grid(row=0, column=1, sticky="e")
+
+        self.preview_image_frame = ctk.CTkFrame(
+            main,
+            fg_color=self.palette["canvas_bg"],
+            corner_radius=8,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        self.preview_image_frame.pack(fill="both", expand=True, padx=14, pady=(0, 10))
+        self.preview_image_label = ctk.CTkLabel(
+            self.preview_image_frame,
+            text="Chargement...",
+            fg_color="transparent",
+            text_color=self.palette["muted_strong"],
+            font=("Segoe UI", 12),
+        )
+        self.preview_image_label.place(relx=0.5, rely=0.5, anchor="center")
+
+        footer = ctk.CTkFrame(main, fg_color="transparent")
+        footer.pack(fill="x", padx=14, pady=(0, 14))
+        footer.grid_columnconfigure(1, weight=1)
+        self.preview_prev_button = ctk.CTkButton(
+            footer,
+            text="Précédent",
+            width=100,
+            height=30,
+            corner_radius=6,
+            command=self._goto_preview_prev,
+        )
+        self.preview_prev_button.grid(row=0, column=0, sticky="w")
+        self.preview_status_label = ctk.CTkLabel(
+            footer,
+            text="Préparation...",
+            fg_color="transparent",
+            text_color=self.palette["muted_strong"],
+            font=("Segoe UI", 11),
+            anchor="w",
+        )
+        self.preview_status_label.grid(row=0, column=1, sticky="w", padx=12)
+        action_group = ctk.CTkFrame(footer, fg_color="transparent")
+        action_group.grid(row=0, column=2, sticky="e")
+        self.preview_next_button = ctk.CTkButton(
+            action_group,
+            text="Suivant",
+            width=100,
+            height=30,
+            corner_radius=6,
+            command=self._goto_preview_next,
+        )
+        self.preview_next_button.pack(side="left", padx=(0, 8))
+        self.preview_close_button = ctk.CTkButton(
+            action_group,
+            text="Fermer",
+            width=92,
+            height=30,
+            corner_radius=6,
+            fg_color=self.palette["card_bg"],
+            hover_color=self.palette["card_alt"],
+            text_color=self.palette["text"],
+            border_width=1,
+            border_color=self.palette["border"],
+            command=self._close_preview_window,
+        )
+        self.preview_close_button.pack(side="left")
+
+        window.bind("<Configure>", self._schedule_preview_image_refresh, add="+")
+        self.preview_image_frame.bind("<Configure>", self._schedule_preview_image_refresh, add="+")
+        self.preview_window = window
+        self.preview_photo = None
+        return window
+
+    def _show_preview_loading(self, title):
+        window = self._ensure_preview_window()
+        self.preview_header_label.configure(text=title)
+        self.preview_count_label.configure(text="0/0")
+        self.preview_status_label.configure(text="Chargement des pages...")
+        self.preview_image_label.configure(image=None, text="Chargement...")
+        self.preview_image_label.image = None
+        self.preview_photo = None
+        self.preview_prev_button.configure(state="disabled")
+        self.preview_next_button.configure(state="disabled")
+        self._start_preview_spinner("Chargement des pages...")
+        try:
+            window.deiconify()
+            window.lift()
+            window.focus_force()
+        except Exception:
+            pass
+
+    def _show_preview_error(self, title, message, request_id=None):
+        if request_id is not None and request_id != getattr(self, "preview_request_id", 0):
+            return
+        self._stop_preview_spinner()
+        self._ensure_preview_window()
+        self.preview_header_label.configure(text=title)
+        self.preview_count_label.configure(text="0/0")
+        self.preview_status_label.configure(text="Prévisualisation indisponible.")
+        self.preview_image_label.configure(image=None, text=repair_mojibake_text(str(message or "Impossible de charger la preview.")))
+        self.preview_image_label.image = None
+        self.preview_photo = None
+        self.preview_prev_button.configure(state="disabled")
+        self.preview_next_button.configure(state="disabled")
+
+    def _apply_preview_result(self, payload, pil_images, request_id):
+        if request_id != getattr(self, "preview_request_id", 0):
+            return
+        self._stop_preview_spinner()
+        if not pil_images:
+            self._show_preview_error(payload.get("title"), "Aucune page exploitable trouvée.", request_id=request_id)
+            return
+        state = {
+            "key": payload.get("key"),
+            "title": payload.get("title"),
+            "urls": list(payload.get("urls") or []),
+            "images": list(pil_images),
+            "index": 0,
+        }
+        self.preview_state = state
+        self._store_preview_cache_entry(payload.get("key"), state)
+        self._render_preview_page(0)
+
+    def _schedule_preview_image_refresh(self, _event=None):
+        if not getattr(self, "preview_window", None):
+            return
+        if not getattr(self, "preview_state", {}).get("images"):
+            return
+        after_id = getattr(self, "preview_resize_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.preview_resize_after_id = self.root.after(60, self._render_preview_page)
+
+    def _render_preview_page(self, target_index=None):
+        self.preview_resize_after_id = None
+        state = getattr(self, "preview_state", None) or {}
+        images = list(state.get("images") or [])
+        if not images or not getattr(self, "preview_image_frame", None):
+            return
+        if target_index is not None:
+            state["index"] = max(0, min(int(target_index), len(images) - 1))
+        current_index = max(0, min(int(state.get("index", 0) or 0), len(images) - 1))
+        state["index"] = current_index
+        self.preview_header_label.configure(text=state.get("title") or "Prévisualisation")
+        self.preview_count_label.configure(text=f"{current_index + 1}/{len(images)}")
+        self.preview_status_label.configure(text=f"{len(images)} page(s) chargée(s)")
+        self.preview_prev_button.configure(state=("normal" if current_index > 0 else "disabled"))
+        self.preview_next_button.configure(state=("normal" if current_index < len(images) - 1 else "disabled"))
+        image = images[current_index]
+        try:
+            target_w = max(220, int(self.preview_image_frame.winfo_width() or 0) - 24)
+            target_h = max(220, int(self.preview_image_frame.winfo_height() or 0) - 24)
+        except Exception:
+            target_w, target_h = (860, 620)
+        fitted = ImageOps.contain(image.copy(), (target_w, target_h), method=Image.LANCZOS)
+        photo = ImageTk.PhotoImage(fitted)
+        self.preview_photo = photo
+        self.preview_image_label.configure(image=photo, text="")
+        self.preview_image_label.image = photo
+
+    def _goto_preview_prev(self):
+        state = getattr(self, "preview_state", None) or {}
+        current_index = int(state.get("index", 0) or 0)
+        if current_index > 0:
+            self._render_preview_page(current_index - 1)
+
+    def _goto_preview_next(self):
+        state = getattr(self, "preview_state", None) or {}
+        images = list(state.get("images") or [])
+        current_index = int(state.get("index", 0) or 0)
+        if current_index < len(images) - 1:
+            self._render_preview_page(current_index + 1)
+
+    def _load_preview_worker(self, payload, request_id):
+        try:
+            link = payload.get("link") or ""
+            cookie = payload.get("cookie") or ""
+            ua = payload.get("ua") or DEFAULT_USER_AGENT
+            image_urls = list(get_images(link, cookie, ua, retries=2, delay=1, cancel_event=None) or [])[:PREVIEW_PAGE_LIMIT]
+            if not image_urls:
+                raise ValueError("Aucune page récupérable pour cette preview.")
+            pil_images = []
+            for image_url in image_urls:
+                if request_id != getattr(self, "preview_request_id", 0):
+                    return
+                pil_images.append(self._download_preview_pil_image(image_url, link, cookie, ua))
+            payload = dict(payload)
+            payload["urls"] = image_urls
+            self.run_on_ui(self._apply_preview_result, payload, pil_images, request_id)
+        except Exception as exc:
+            self.run_on_ui(
+                self._show_preview_error,
+                payload.get("title") or "Prévisualisation",
+                f"Impossible de charger la preview: {exc}",
+                request_id,
+            )
+
+    def open_volume_preview_by_index(self, index):
+        payload = self._get_preview_item_payload(index)
+        if not payload:
+            self.log("Prévisualisation indisponible pour cet élément.", level="warning")
+            return
+        self.preview_request_id = int(getattr(self, "preview_request_id", 0) or 0) + 1
+        request_id = self.preview_request_id
+        cached = self._get_preview_cache_entry(payload["key"])
+        if cached and cached.get("images"):
+            self._stop_preview_spinner()
+            self.preview_state = {
+                "key": payload["key"],
+                "title": cached.get("title") or payload["title"],
+                "urls": list(cached.get("urls") or []),
+                "images": list(cached.get("images") or []),
+                "index": 0,
+            }
+            self._ensure_preview_window()
+            self._render_preview_page(0)
+            try:
+                self.preview_window.deiconify()
+                self.preview_window.lift()
+                self.preview_window.focus_force()
+            except Exception:
+                pass
+            return
+        self.preview_state = {"key": payload["key"], "title": payload["title"], "urls": [], "images": [], "index": 0}
+        self._show_preview_loading(payload["title"])
+        threading.Thread(
+            target=self._load_preview_worker,
+            args=(payload, request_id),
+            daemon=True,
+            name=f"preview-{index}",
+        ).start()
+
     def _set_workflow_step(self, step, hint_text=None):
         order = ("auth", "source", "select", "download", "logs")
         if step not in order:
@@ -3118,21 +3598,28 @@ class MangaApp:
         index_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=0, outline="", fill=self.palette["card_alt"], state="hidden", tags=(slot_tag, "volume_canvas_index_bg"))
         index_text_id = canvas.create_text(0, 0, text="", anchor="center", fill=self.palette["muted"], font=("Segoe UI Semibold", 9), state="hidden", tags=(slot_tag, "volume_canvas_index_text"))
         title_id = canvas.create_text(0, 0, text="", anchor="w", fill=self.palette["text"], font=("Segoe UI", 10), state="hidden", tags=(slot_tag, "volume_canvas_title"))
+        preview_tag = f"{slot_tag}_preview"
+        preview_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=1, outline="#a3cab1", fill="#dfeee5", state="hidden", tags=(preview_tag, "volume_canvas_preview"))
+        preview_text_id = canvas.create_text(0, 0, text="⌕", anchor="center", fill="#2f6d4a", font=("Segoe UI Semibold", 10), state="hidden", tags=(preview_tag, "volume_canvas_preview"))
         checkbox_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=1, outline=self.palette["border"], fill=self.palette["canvas_bg"], state="hidden", tags=(slot_tag, "volume_canvas_checkbox_bg"))
         checkbox_check_id = canvas.create_text(0, 0, text="✓", anchor="center", fill="#ffffff", font=("Segoe UI Semibold", 11), state="hidden", tags=(slot_tag, "volume_canvas_checkbox_check"))
         entry = {
             "slot_index": slot_index,
             "slot_tag": slot_tag,
+            "preview_tag": preview_tag,
             "absolute_index": None,
-            "item_ids": (bg_id, index_bg_id, index_text_id, title_id, checkbox_bg_id, checkbox_check_id),
+            "item_ids": (bg_id, index_bg_id, index_text_id, title_id, preview_bg_id, preview_text_id, checkbox_bg_id, checkbox_check_id),
             "bg_id": bg_id,
             "index_bg_id": index_bg_id,
             "index_text_id": index_text_id,
             "title_id": title_id,
+            "preview_bg_id": preview_bg_id,
+            "preview_text_id": preview_text_id,
             "checkbox_bg_id": checkbox_bg_id,
             "checkbox_check_id": checkbox_check_id,
         }
         canvas.tag_bind(slot_tag, "<Button-1>", lambda _event, slot=slot_index: self._on_canvas_volume_slot_click(slot))
+        canvas.tag_bind(preview_tag, "<Button-1>", lambda _event, slot=slot_index: self._on_canvas_volume_preview_click(slot))
         return entry
 
     def _ensure_canvas_volume_pool(self, capacity):
@@ -3220,12 +3707,19 @@ class MangaApp:
         checkbox_size = 18 if kind == "fast" else 20
         checkbox_x2 = card_x2 - 12
         checkbox_x1 = checkbox_x2 - checkbox_size
+        preview_size = 18 if kind == "fast" else 20
+        preview_x2 = checkbox_x1 - 8
+        preview_x1 = preview_x2 - preview_size
         checkbox_y1 = card_y + int((metrics["card_height"] - checkbox_size) / 2)
         checkbox_y2 = checkbox_y1 + checkbox_size
         canvas.coords(entry["bg_id"], card_x, card_y, card_x2, card_y2)
         canvas.itemconfigure(entry["bg_id"], fill=bg_fill, outline=bg_outline, state="normal")
         canvas.coords(entry["title_id"], title_x, (card_y + card_y2) / 2.0)
-        canvas.itemconfigure(entry["title_id"], text=title_text, fill=self.palette["text"], width=max(80, checkbox_x1 - title_x - 8), state="normal")
+        canvas.itemconfigure(entry["title_id"], text=title_text, fill=self.palette["text"], width=max(64, preview_x1 - title_x - 8), state="normal")
+        canvas.coords(entry["preview_bg_id"], preview_x1, checkbox_y1, preview_x2, checkbox_y2)
+        canvas.itemconfigure(entry["preview_bg_id"], state="normal")
+        canvas.coords(entry["preview_text_id"], (preview_x1 + preview_x2) / 2.0, (checkbox_y1 + checkbox_y2) / 2.0)
+        canvas.itemconfigure(entry["preview_text_id"], state="normal")
         canvas.coords(entry["checkbox_bg_id"], checkbox_x1, checkbox_y1, checkbox_x2, checkbox_y2)
         canvas.itemconfigure(entry["checkbox_bg_id"], fill=checkbox_fill, outline=checkbox_outline, state="normal")
         canvas.coords(entry["checkbox_check_id"], (checkbox_x1 + checkbox_x2) / 2.0, (checkbox_y1 + checkbox_y2) / 2.0)
@@ -3275,7 +3769,19 @@ class MangaApp:
             return
         var = self.check_vars[absolute_index]
         var.set(not bool(var.get()))
+        self._refresh_canvas_volume_entry_style(entry)
         self.update_master_toggle_button()
+
+    def _on_canvas_volume_preview_click(self, slot_index):
+        pool = getattr(self, "volume_canvas_item_pool", None) or []
+        if slot_index >= len(pool):
+            return "break"
+        entry = pool[slot_index]
+        absolute_index = entry.get("absolute_index")
+        if absolute_index is None:
+            return "break"
+        self.open_volume_preview_by_index(absolute_index)
+        return "break"
 
     def _refresh_canvas_volume_card_styles(self):
         if not getattr(self, "volume_canvas_render_active", False):
@@ -3848,10 +4354,6 @@ class MangaApp:
     def _sync_volume_card_style(self, card):
         if card is None or not self._is_ctk_widget(card):
             return
-        if getattr(card, "is_compact_volume_item", False):
-            selected = bool(getattr(card, "volume_var", None).get()) if hasattr(card, "volume_var") else False
-            card.configure(text_color=self.palette["text"] if selected else self.palette["muted"])
-            return
         selected = bool(getattr(card, "volume_var", None).get()) if hasattr(card, "volume_var") else False
         title = getattr(card, "volume_title_label", None)
         index = getattr(card, "volume_index_label", None)
@@ -3889,6 +4391,8 @@ class MangaApp:
             card.volume_index_label.configure(text=str(index + 1))
         if hasattr(card, "volume_checkbox"):
             card.volume_checkbox.configure(variable=var)
+        if hasattr(card, "volume_preview_button"):
+            card.volume_preview_button.configure(command=lambda idx=index: self.open_volume_preview_by_index(idx))
         self._sync_volume_card_style(card)
 
     def _create_volume_card(self, parent, volume_label, var, index):
@@ -3904,6 +4408,7 @@ class MangaApp:
         card.grid_columnconfigure(0, weight=0)
         card.grid_columnconfigure(1, weight=1)
         card.grid_columnconfigure(2, weight=0)
+        card.grid_columnconfigure(3, weight=0)
 
         index_label = ctk.CTkLabel(
             card,
@@ -3927,6 +4432,22 @@ class MangaApp:
         )
         title_label.grid(row=0, column=1, sticky="ew", pady=8)
 
+        preview_button = ctk.CTkButton(
+            card,
+            text="⌕",
+            width=26,
+            height=24,
+            corner_radius=5,
+            fg_color="#dfeee5",
+            hover_color="#cfe6d8",
+            border_width=1,
+            border_color="#a3cab1",
+            text_color="#2f6d4a",
+            font=("Segoe UI Semibold", 11),
+            command=lambda idx=index: self.open_volume_preview_by_index(idx),
+        )
+        preview_button.grid(row=0, column=2, padx=(8, 0), pady=8)
+
         checkbox = ctk.CTkCheckBox(
             card,
             text="",
@@ -3942,7 +4463,7 @@ class MangaApp:
             checkmark_color="#ffffff",
             command=self.update_master_toggle_button,
         )
-        checkbox.grid(row=0, column=2, padx=(8, 10), pady=8)
+        checkbox.grid(row=0, column=3, padx=(8, 10), pady=8)
 
         toggle = lambda _event=None, _widget=card: self._toggle_volume_widget(_widget)
         card.bind("<Button-1>", toggle)
@@ -3951,6 +4472,7 @@ class MangaApp:
 
         card.volume_title_label = title_label
         card.volume_index_label = index_label
+        card.volume_preview_button = preview_button
         card.volume_checkbox = checkbox
         self._assign_volume_card_content(card, volume_label, var, index)
         return card
@@ -3958,25 +4480,96 @@ class MangaApp:
     def _assign_compact_volume_item_content(self, item, volume_label, var, index):
         item.volume_var = var
         item.volume_index = index
-        item.configure(text=f"{index + 1:>3}  {volume_label}", variable=var)
+        if hasattr(item, "volume_title_label"):
+            item.volume_title_label.configure(text=volume_label)
+        if hasattr(item, "volume_index_label"):
+            item.volume_index_label.configure(text=str(index + 1))
+        if hasattr(item, "volume_checkbox"):
+            item.volume_checkbox.configure(variable=var)
+        if hasattr(item, "volume_preview_button"):
+            item.volume_preview_button.configure(command=lambda idx=index: self.open_volume_preview_by_index(idx))
         self._sync_volume_card_style(item)
 
     def _create_compact_volume_item(self, parent, volume_label, var, index):
-        item = ctk.CTkCheckBox(
+        item = ctk.CTkFrame(
             parent,
-            text=f"{index + 1:>3}  {volume_label}",
+            fg_color=self.palette["card_bg"],
+            corner_radius=6,
+            border_width=1,
+            border_color=self.palette["panel_shell"],
+            height=34,
+        )
+        item.grid_propagate(False)
+        item.grid_columnconfigure(0, weight=0)
+        item.grid_columnconfigure(1, weight=1)
+        item.grid_columnconfigure(2, weight=0)
+        item.grid_columnconfigure(3, weight=0)
+
+        index_label = ctk.CTkLabel(
+            item,
+            text=str(index + 1),
+            width=22,
+            height=18,
+            corner_radius=4,
+            fg_color=self.palette["card_alt"],
+            text_color=self.palette["muted"],
+            font=("Segoe UI Semibold", 9),
+        )
+        index_label.grid(row=0, column=0, padx=(8, 6), pady=6)
+
+        title_label = ctk.CTkLabel(
+            item,
+            text=volume_label,
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI", 10),
+            anchor="w",
+        )
+        title_label.grid(row=0, column=1, sticky="ew", pady=6)
+
+        preview_button = ctk.CTkButton(
+            item,
+            text="⌕",
+            width=24,
+            height=22,
+            corner_radius=5,
+            fg_color="#dfeee5",
+            hover_color="#cfe6d8",
+            border_width=1,
+            border_color="#a3cab1",
+            text_color="#2f6d4a",
+            font=("Segoe UI Semibold", 10),
+            command=lambda idx=index: self.open_volume_preview_by_index(idx),
+        )
+        preview_button.grid(row=0, column=2, padx=(6, 0), pady=6)
+
+        checkbox = ctk.CTkCheckBox(
+            item,
+            text="",
             variable=var,
+            width=20,
+            height=20,
+            checkbox_width=18,
+            checkbox_height=18,
+            corner_radius=4,
             fg_color=self.palette["accent"],
             hover_color=self.palette["accent_hover"],
             border_color=self.palette["border"],
-            text_color=self.palette["text"],
-            font=("Segoe UI", 10),
+            checkmark_color="#ffffff",
             command=self.update_master_toggle_button,
-            checkbox_width=20,
-            checkbox_height=20,
-            corner_radius=4,
         )
+        checkbox.grid(row=0, column=3, padx=(6, 8), pady=6)
+
+        toggle = lambda _event=None, _widget=item: self._toggle_volume_widget(_widget)
+        item.bind("<Button-1>", toggle)
+        index_label.bind("<Button-1>", toggle)
+        title_label.bind("<Button-1>", toggle)
+
         item.is_compact_volume_item = True
+        item.volume_title_label = title_label
+        item.volume_index_label = index_label
+        item.volume_preview_button = preview_button
+        item.volume_checkbox = checkbox
         self._assign_compact_volume_item_content(item, volume_label, var, index)
         return item
 
@@ -4039,6 +4632,7 @@ class MangaApp:
 
     def _finalize_volume_render(self):
         self.volume_render_after_id = None
+        self._stop_analysis_loading_indicators()
         self._scroll_volumes_to_top()
         feedback_enabled = bool(getattr(self, "volume_render_feedback_enabled", True))
         self.volume_render_feedback_enabled = True
@@ -4804,6 +5398,8 @@ class MangaApp:
             self.status_label.configure(text=safe_text, fg_color=fg_color, text_color=text_color)
         else:
             self.status_label.configure(text=safe_text, foreground=text_color)
+        if success is not None and not getattr(self, "analysis_in_progress", False):
+            self._stop_analysis_loading_indicators()
 
     def _refresh_source_title_label(self, title=None):
         """Met a jour le titre visible du bloc source."""
@@ -5279,6 +5875,29 @@ class MangaApp:
         self.source_title_var = tk.StringVar(value="Manga/Manhwa/Comics...")
         self.cancel_event = threading.Event()
         self.cover_preview = None
+        self.preview_window = None
+        self.preview_header_label = None
+        self.preview_count_label = None
+        self.preview_image_frame = None
+        self.preview_image_label = None
+        self.preview_status_label = None
+        self.preview_prev_button = None
+        self.preview_next_button = None
+        self.preview_close_button = None
+        self.preview_photo = None
+        self.preview_state = {"key": None, "title": "", "urls": [], "images": [], "index": 0}
+        self.preview_request_id = 0
+        self.preview_resize_after_id = None
+        self.preview_spinner_after_id = None
+        self.preview_spinner_running = False
+        self.preview_spinner_index = 0
+        self.preview_spinner_message = ""
+        self.preview_cache = {}
+        self.preview_cache_order = []
+        self.analysis_spinner_after_id = None
+        self.analysis_spinner_running = False
+        self.analysis_spinner_index = 0
+        self.analysis_loading_overlay_text = ""
         self.cover_animation_frames = []
         self.cover_animation_durations = []
         self.cover_animation_index = 0
@@ -6659,6 +7278,16 @@ class MangaApp:
         )
         self.status_container.pack(side="left", padx=(12, 0))
         self.status_container.pack_propagate(False)
+        self.analysis_spinner_label = ctk.CTkLabel(
+            self.status_container,
+            text="",
+            width=18,
+            fg_color="transparent",
+            text_color=self.palette["accent_hover"],
+            font=("Segoe UI Semibold", 12),
+            anchor="center",
+        )
+        self.analysis_spinner_label.pack(side="left", padx=(0, 6))
         self.status_label = ctk.CTkLabel(
             self.status_container,
             text="",
@@ -6917,6 +7546,15 @@ class MangaApp:
             font=body_font,
         )
         self.vol_empty_label.place(in_=vol_frame_container, relx=0.5, rely=0.5, anchor="center")
+        self.vol_loading_label = ctk.CTkLabel(
+            vol_frame_container,
+            text="",
+            fg_color=self.palette["card_bg"],
+            corner_radius=6,
+            text_color=self.palette["muted_strong"],
+            font=button_font,
+            height=34,
+        )
 
         progress_frame = ctk.CTkFrame(
             center_card,
@@ -6938,12 +7576,14 @@ class MangaApp:
         self.current_volume_status_label = ctk.CTkLabel(
             progress_status_group,
             text="Tome/Chapitre en cours: --",
-            fg_color="transparent",
-            text_color=self.palette["text"],
-            font=("Segoe UI Semibold", 10),
+            fg_color=self.palette["card_bg"],
+            corner_radius=6,
+            text_color=self.palette["muted_strong"],
+            font=button_font,
             anchor="w",
+            height=28,
         )
-        self.current_volume_status_label.pack(side="left", padx=(0, 14))
+        self.current_volume_status_label.pack(side="left", padx=(0, 8))
         self.progress_detail_label = ctk.CTkLabel(
             progress_status_group,
             text="Images: --/--",
@@ -7748,9 +8388,18 @@ class MangaApp:
                 "parse": "Analyse en cours: parsing des tomes/chapitres...",
                 "cover": "Analyse en cours: récupération de la couverture...",
             }
+            overlay_labels = {
+                "validate": "Validation de l'URL...",
+                "fetch": "Récupération du catalogue...",
+                "parse": "Parsing des tomes/chapitres...",
+                "cover": "Récupération de la couverture...",
+            }
             text = labels.get(step)
             if text:
                 self.run_on_ui(lambda: self._set_analysis_status_label(text, success=None))
+            overlay_text = overlay_labels.get(step)
+            if overlay_text:
+                self.analysis_loading_overlay_text = overlay_text
 
         cookie = self.get_cookie(url)
         ua_for_url = self.get_request_user_agent_for_url(url)
@@ -7767,6 +8416,7 @@ class MangaApp:
         self.filter_text.set("")
 
         self.analysis_in_progress = True
+        self._start_analysis_loading_indicators("Chargement de la liste...")
         self._cancel_pending_volume_render()
         if hasattr(self, "analyze_button"):
             self.analyze_button.configure(state="disabled")
@@ -7775,6 +8425,7 @@ class MangaApp:
 
         def finish_analysis():
             self.analysis_in_progress = False
+            self._stop_analysis_loading_indicators()
             if hasattr(self, "analyze_button"):
                 self.analyze_button.configure(state="normal")
             self.update_master_toggle_button()
