@@ -267,6 +267,8 @@ def get_supported_site_from_host(host):
         return "toonfr.com"
     if value == "ortegascans.fr" or value.endswith(".ortegascans.fr"):
         return "ortegascans.fr"
+    if value == "hentaizone.xyz" or value.endswith(".hentaizone.xyz"):
+        return "hentaizone.xyz"
     return ""
 
 
@@ -317,6 +319,7 @@ def get_cookie_domain_from_host(host):
         "hentai-origines.fr": "hentai",
         "toonfr.com": "toonfr",
         "ortegascans.fr": "ortega",
+        "hentaizone.xyz": "hentaizone",
     }
     return mapping.get(site, "")
 
@@ -353,6 +356,8 @@ def is_valid_catalogue_url(url):
         match = re.match(r"^/webtoon/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     elif site == "ortegascans.fr":
         match = re.match(r"^/serie/([^/?#]+)/?$", path, flags=re.IGNORECASE)
+    elif site == "hentaizone.xyz":
+        match = re.match(r"^/manga/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     else:
         return False
 
@@ -498,8 +503,8 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.6.1"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie)/[a-z0-9_-]+/?$"  # Formats d'URL valides
+APP_VERSION = "11.7.0"
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
@@ -520,7 +525,7 @@ PREVIEW_PAGE_LIMIT = 5
 PREVIEW_CACHE_MAX_ITEMS = 12
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
-COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega")
+COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone")
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
 COVER_TARGET_HEIGHT = 150
@@ -543,6 +548,7 @@ DEFAULT_APP_CONFIG = {
         "cookie_hentai": "https://hentai-origines.fr",
         "cookie_toonfr": "https://toonfr.com",
         "cookie_ortega": "https://ortegascans.fr",
+        "cookie_hentaizone": "https://hentaizone.xyz",
         "user_agent": "https://httpbin.org/user-agent",
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
         "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
@@ -555,6 +561,7 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
     "toonfr": "https://toonfr.com/webtoon/ma-brute/",
     "ortega": "https://ortegascans.fr/serie/moby-dick",
+    "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
@@ -978,6 +985,7 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
         "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
         "toonfr": "https://toonfr.com/webtoon/ma-brute/",
         "ortega": "https://ortegascans.fr/serie/moby-dick",
+        "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
     }
     if domain not in probe_urls:
         return result
@@ -1013,6 +1021,7 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
                 "listing-chapters_wrap",
                 "wp-manga-chapter",
                 "toonfr",
+                "hentaizone",
             )
         )
         challenge_blocking = is_cloudflare_challenge_page(text) and not has_content_markers
@@ -1455,6 +1464,10 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
             source_slug = match_slug.group(1).strip()
     elif source_site == "ortegascans.fr":
         match_slug = re.match(r"^/serie/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
+    elif source_site == "hentaizone.xyz":
+        match_slug = re.match(r"^/manga/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
         if match_slug:
             source_slug = match_slug.group(1).strip()
     pairs = []
@@ -2073,6 +2086,8 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         domain = "toonfr"
     elif site == "ortegascans.fr":
         domain = "ortega"
+    elif site == "hentaizone.xyz":
+        domain = "hentaizone"
     else:
         domain = normalize_hostname(urlparse(link).hostname) or "-"
 
@@ -5760,6 +5775,18 @@ class MangaApp:
         self.run_on_ui(self.update_runtime_status)
         self._schedule_cookie_listing_probe(domains=("ortega",), delay_ms=1200)
 
+    def _schedule_auth_status_update_cookie_hentaizone(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .hentaizone sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["hentaizone"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["hentaizone"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("hentaizone",), delay_ms=1200)
+
     def _schedule_auth_status_update_url(self, *_args):
         """Rafraîchit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
         if not hasattr(self, "cookie_sources"):
@@ -6094,6 +6121,7 @@ class MangaApp:
         self.cookie_hentai_label_var.set("Cookie (.hentai-origines) :")
         self.cookie_toonfr_label_var.set("Cookie (.toonfr) :")
         self.cookie_ortega_label_var.set("Cookie (.ortegascans) :")
+        self.cookie_hentaizone_label_var.set("Cookie (.hentaizone) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -6114,6 +6142,7 @@ class MangaApp:
                     "cookie_hentai_status",
                     "cookie_toonfr_status",
                     "cookie_ortega_status",
+                    "cookie_hentaizone_status",
                     "ua_status",
                 )
             ):
@@ -6246,6 +6275,7 @@ class MangaApp:
                 "hentai": "https://hentai-origines.fr/",
                 "toonfr": "https://toonfr.com/",
                 "ortega": "https://ortegascans.fr/",
+                "hentaizone": "https://hentaizone.xyz/",
             }
             probe_url = ua_probe_urls.get(domain, "")
             if not probe_url:
@@ -6444,12 +6474,14 @@ class MangaApp:
         self.cookie_hentai = tk.StringVar()
         self.cookie_toonfr = tk.StringVar()
         self.cookie_ortega = tk.StringVar()
+        self.cookie_hentaizone = tk.StringVar()
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
         self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines) :")
         self.cookie_toonfr_label_var = tk.StringVar(value="Cookie (.toonfr) :")
         self.cookie_ortega_label_var = tk.StringVar(value="Cookie (.ortegascans) :")
+        self.cookie_hentaizone_label_var = tk.StringVar(value="Cookie (.hentaizone) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
@@ -6481,12 +6513,14 @@ class MangaApp:
         self.cookie_hentai.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_toonfr.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_ortega.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_hentaizone.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_auth_status_update_cookie_fr)
         self.cookie_net.trace_add("write", self._schedule_auth_status_update_cookie_net)
         self.cookie_origines.trace_add("write", self._schedule_auth_status_update_cookie_origines)
         self.cookie_hentai.trace_add("write", self._schedule_auth_status_update_cookie_hentai)
         self.cookie_toonfr.trace_add("write", self._schedule_auth_status_update_cookie_toonfr)
         self.cookie_ortega.trace_add("write", self._schedule_auth_status_update_cookie_ortega)
+        self.cookie_hentaizone.trace_add("write", self._schedule_auth_status_update_cookie_hentaizone)
         self.ua.trace_add("write", self._schedule_auth_status_update)
         self.url.trace_add("write", self._schedule_auth_status_update_url)
         self.verbose_logs.trace_add("write", self._refresh_log_option_cache)
@@ -6513,6 +6547,7 @@ class MangaApp:
         self.cookie_hentai.set(cookies.get("hentai", ""))
         self.cookie_toonfr.set(cookies.get("toonfr", ""))
         self.cookie_ortega.set(cookies.get("ortega", ""))
+        self.cookie_hentaizone.set(cookies.get("hentaizone", ""))
         runtime_log(f"{APP_NAME} v{APP_VERSION}", level="info")
         runtime_log(f"Cache cookie : {COOKIE_CACHE_PATH}", level="info")
         runtime_log(f"Config : {CONFIG_PATH}", level="info")
@@ -7692,6 +7727,30 @@ class MangaApp:
 
         ctk.CTkLabel(
             auth_surface,
+            textvariable=self.cookie_hentaizone_label_var,
+            text_color=self.palette["text"],
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
+        )
+        self.cookie_hentaizone_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_hentaizone,
+            font=font_entry,
+            height=36,
+            corner_radius=6,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
+        )
+        self.cookie_hentaizone_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_hentaizone_status = create_ctk_badge(auth_surface)
+        self.cookie_hentaizone_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
+        row += 1
+
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.ua_label_var,
             text_color=self.palette["text"],
             font=font_label,
@@ -7985,7 +8044,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/",
             None,
         )
 
@@ -8593,6 +8652,7 @@ class MangaApp:
             "cookie_hentai_label_var",
             "cookie_toonfr_label_var",
             "cookie_ortega_label_var",
+            "cookie_hentaizone_label_var",
             "ua_label_var",
         ):
             var = getattr(self, var_name, None)
@@ -8875,6 +8935,7 @@ class MangaApp:
         cookie_origines_link = get_manual_link("cookie_origines", "https://mangas-origines.fr")
         cookie_hentai_link = get_manual_link("cookie_hentai", "https://hentai-origines.fr")
         cookie_toonfr_link = get_manual_link("cookie_toonfr", "https://toonfr.com")
+        cookie_hentaizone_link = get_manual_link("cookie_hentaizone", "https://hentaizone.xyz")
         self._attach_link_placeholder(
             self.cookie_fr_entry,
             self.cookie_fr,
@@ -8913,6 +8974,12 @@ class MangaApp:
             cookie_ortega_link,
         )
         self._attach_link_placeholder(
+            self.cookie_hentaizone_entry,
+            self.cookie_hentaizone,
+            'Cookie hentaizone.xyz: cf_clearance seul ou header Cookie complet.',
+            cookie_hentaizone_link,
+        )
+        self._attach_link_placeholder(
             self.ua_entry,
             self.ua,
             'Cliquer ici pour accéder à : Votre User-Agent (copier/coller seulement la partie à droite entre les "" )',
@@ -8934,10 +9001,12 @@ class MangaApp:
             self.cookie_toonfr_entry.configure(show=show_char)
         if hasattr(self, "cookie_ortega_entry"):
             self.cookie_ortega_entry.configure(show=show_char)
+        if hasattr(self, "cookie_hentaizone_entry"):
+            self.cookie_hentaizone_entry.configure(show=show_char)
 
 
     def get_domain_from_url(self, url):
-        """Retourne le domaine cookie interne: fr/net/origines/hentai/toonfr/ortega."""
+        """Retourne le domaine cookie interne: fr/net/origines/hentai/toonfr/ortega/hentaizone."""
         return get_cookie_domain_from_url(url)
 
     def _get_cookie_var_for_domain(self, domain):
@@ -8949,6 +9018,7 @@ class MangaApp:
             "hentai": getattr(self, "cookie_hentai", None),
             "toonfr": getattr(self, "cookie_toonfr", None),
             "ortega": getattr(self, "cookie_ortega", None),
+            "hentaizone": getattr(self, "cookie_hentaizone", None),
         }
         return mapping.get(domain)
 
@@ -8961,6 +9031,7 @@ class MangaApp:
             "hentai": getattr(self, "cookie_hentai_entry", None),
             "toonfr": getattr(self, "cookie_toonfr_entry", None),
             "ortega": getattr(self, "cookie_ortega_entry", None),
+            "hentaizone": getattr(self, "cookie_hentaizone_entry", None),
         }
         return mapping.get(domain)
 
@@ -8973,6 +9044,7 @@ class MangaApp:
             "hentai": getattr(self, "cookie_hentai_status", None),
             "toonfr": getattr(self, "cookie_toonfr_status", None),
             "ortega": getattr(self, "cookie_ortega_status", None),
+            "hentaizone": getattr(self, "cookie_hentaizone_status", None),
         }
         return mapping.get(domain)
 
@@ -9182,7 +9254,7 @@ class MangaApp:
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/.",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/.",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
@@ -10021,7 +10093,7 @@ class SushiCliBackend:
         if not safe_cookie:
             return False
 
-        if safe_domain in ("fr", "net", "toonfr", "ortega"):
+        if safe_domain in ("fr", "net", "toonfr", "ortega", "hentaizone"):
             return test_cookie_validity(
                 safe_domain,
                 safe_cookie,

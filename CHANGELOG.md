@@ -7,6 +7,23 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.7.0] - 2026-03-01
+
+### Ameliorations
+- Ajout du support de `https://hentaizone.xyz`.
+- Nouveau format d'URL catalogue supporte :
+  - `https://hentaizone.xyz/manga/<slug>/`
+- Ajout d'un cookie manuel dedie `.hentaizone` dans l'onglet `Authentification` et dans le mode terminal.
+- Validation du cookie `.hentaizone` sur :
+  - `https://hentaizone.xyz/manga/stepmothers-friends/`
+- Recuperation de la liste complete des chapitres HentaiZone directement depuis le HTML de la fiche.
+- Prise en charge des pages de lecture `.../chapitre-146/` et des images servies depuis `scanscloud.xyz`.
+
+### Corrections
+- Alignement des probes automatiques de l'onglet `Authentification` avec le User-Agent effectif de chaque domaine.
+- Validation Toonfr corrigee :
+  - le badge peut maintenant passer en valide sans attendre une analyse d'URL si le cookie et le User-Agent sont deja bons.
+
 ## [11.6.1] - 2026-03-01
 
 ### Corrections

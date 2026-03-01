@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.6.1`
+Version actuelle : `11.7.0`
 
 ## Ce qui change sur `main`
 
@@ -106,6 +106,19 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.7.0
+- Ajout du support de `https://hentaizone.xyz`.
+- Nouveau format d'URL catalogue supporte :
+  - `https://hentaizone.xyz/manga/<slug>/`
+- Ajout d'un cookie manuel dedie `.hentaizone` dans l'onglet `Authentification` et dans le mode terminal.
+- Validation du cookie `.hentaizone` sur :
+  - `https://hentaizone.xyz/manga/stepmothers-friends/`
+- Recuperation de la liste complete des chapitres directement depuis le HTML de la fiche.
+- Prise en charge des pages de lecture `.../chapitre-146/` et des images servies depuis `scanscloud.xyz`.
+- Correction des probes automatiques de l'onglet `Authentification` :
+  - chaque domaine teste maintenant son lien avec son User-Agent effectif,
+  - Toonfr ne depend plus d'une analyse de lien pour passer en valide si le cookie est deja bon.
 
 ### 11.6.1
 - OrtegaScans :
@@ -218,6 +231,7 @@ Pour le detail complet des versions : voir `CHANGELOG.md`.
 - `https://hentai-origines.fr`
 - `https://toonfr.com`
 - `https://ortegascans.fr`
+- `https://hentaizone.xyz`
 
 Formats d'URL catalogue attendus :
 - `https://sushiscan.fr/catalogue/<slug>/`

@@ -74,7 +74,7 @@ class SettingsScreen(Screen):
             state = self.app.cli_state
             previous_index = getattr(self.cookie_list, "index", None)
             self.cookie_list.clear()
-            self._cookie_domains = ["fr", "net", "origines", "hentai", "toonfr", "ortega"]
+            self._cookie_domains = ["fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone"]
             domain_labels = {
                 "fr": ".fr",
                 "net": ".net",
@@ -82,6 +82,7 @@ class SettingsScreen(Screen):
                 "hentai": ".hentai-origines",
                 "toonfr": ".toonfr",
                 "ortega": ".ortegascans",
+                "hentaizone": ".hentaizone",
             }
             status_labels = {
                 "PRESENT": "RENSEIGNE",
