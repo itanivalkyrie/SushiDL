@@ -79,7 +79,8 @@ class ConfirmModal(ModalScreen[str | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "confirm":
             self.dismiss("confirm")
-        self.dismiss(None)
+        else:
+            self.dismiss(None)
 
 
 class HelpModal(ModalScreen[None]):

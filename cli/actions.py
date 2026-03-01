@@ -64,7 +64,7 @@ def analyze_current_url(backend: CliBackend, state: CliState) -> None:
     ]
     state.filtered_indices = list(range(len(state.detected_items)))
     state.selected_urls = {item.url for item in state.detected_items}
-    state.status_message = f"{len(state.detected_items)} element(s) detecte(s) pour {title}."
+    state.status_message = f"{len(state.detected_items)} élément(s) détecté(s) pour {title}."
 
 
 def apply_text_filter(state: CliState, text: str) -> None:
@@ -131,4 +131,3 @@ def apply_range_selection(state: CliState, expr: str) -> None:
         for item in state.detected_items
         if item.index in selected_positions
     }
-

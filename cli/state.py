@@ -36,6 +36,7 @@ class CliDownloadStatus:
     status_message: str = "Pret."
     eta_volume: str = "--:--"
     eta_global: str = "--:--"
+    elapsed: str = "--:--"
 
 
 @dataclass(slots=True)

@@ -42,11 +42,12 @@ class CliDownloadController:
                 current_images_done=0,
                 current_images_total=0,
                 global_percent=0.0,
-                logs=["Preparation du telechargement..."],
+                logs=["Préparation du téléchargement..."],
                 errors=[],
                 status_message="Preparation...",
                 eta_volume="--:--",
                 eta_global="--:--",
+                elapsed="00:00",
             )
         self._start_time = time.time()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -77,6 +78,7 @@ class CliDownloadController:
                 status_message=status.status_message,
                 eta_volume=status.eta_volume,
                 eta_global=status.eta_global,
+                elapsed=status.elapsed,
             )
 
     def _append_log(self, message: str) -> None:
@@ -90,6 +92,7 @@ class CliDownloadController:
     def _refresh_eta(self, completed: int, total: int, done_images: int, total_images: int) -> None:
         elapsed = max(0.0, time.time() - self._start_time)
         status = self.state.download_status
+        status.elapsed = _format_eta(elapsed)
         if total <= 0:
             status.eta_global = "--:--"
             status.eta_volume = "--:--"
@@ -184,7 +187,7 @@ class CliDownloadController:
                     if total_images:
                         current_fraction = max(0.0, min(1.0, float(done or 0) / float(total_images)))
                     status.global_percent = ((index - 1) + current_fraction) / max(1, len(selected_items)) * 100.0
-                    status.status_message = f"Telechargement {item.label}"
+                    status.status_message = f"Téléchargement {item.label}"
                     self._refresh_eta(index - 1, len(selected_items), int(done or 0), int(total_images or 0))
 
             def error_callback(payload):
@@ -237,12 +240,13 @@ class CliDownloadController:
             status.current_images_total = 0
             status.eta_volume = "--:--"
             status.global_percent = (status.completed_volumes / max(1, len(selected_items))) * 100.0
+            status.elapsed = _format_eta(max(0.0, time.time() - self._start_time))
             if status.cancelled:
-                status.status_message = "Telechargement annule."
-                self._append_log("Telechargement annule.")
+                status.status_message = "Téléchargement annulé."
+                self._append_log("Téléchargement annulé.")
             elif status.errors:
-                status.status_message = "Telechargement termine avec erreurs."
-                self._append_log("Telechargement termine avec erreurs.")
+                status.status_message = "Téléchargement terminé avec erreurs."
+                self._append_log("Téléchargement terminé avec erreurs.")
             else:
-                status.status_message = "Telechargement termine."
-                self._append_log("Telechargement termine.")
+                status.status_message = "Téléchargement terminé."
+                self._append_log("Téléchargement terminé.")

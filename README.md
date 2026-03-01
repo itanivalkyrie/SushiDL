@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.2.12`
+Version actuelle : `11.2.13`
 
 ## Ce qui change sur `main`
 
@@ -40,7 +40,12 @@ Concretement :
 
 ## Mode terminal (branche `tui-cli-mode`)
 
-Une interface terminal premium basee sur `Textual` est en cours d'integration sur la branche `tui-cli-mode`.
+La branche `tui-cli-mode` ajoute une interface terminal interactive basee sur `Textual`.
+
+Objectif :
+- utiliser SushiDL sans GUI
+- piloter les cookies, l'analyse, la selection et le telechargement uniquement au clavier
+- garder une interface dense mais lisible sur gros catalogues
 
 Lancement :
 
@@ -48,16 +53,39 @@ Lancement :
 python SushiDL.py --cli
 ```
 
-Fonctions deja branchees sur cette branche :
+Fonctionnalites CLI disponibles sur cette branche :
 - menu principal terminal
 - ecran `Options / Cookies`
-- edition et test des cookies
+- edition et test des cookies par domaine
 - edition du `User-Agent`
-- options runtime principales
-- analyse d'URL
-- filtre et selection des chapitres / tomes
-- telechargement terminal avec progression
-- ecran erreurs dedie
+- sauvegarde des options runtime
+- ecran `URL / Chapitres / Telechargement`
+- analyse d'URL reelle via le backend existant
+- filtre texte dans la liste
+- selection / deselection / inversion
+- selection par plage (`1-20`, `50+`, `1,4,7`, etc.)
+- telechargement terminal reel avec progression
+- annulation du telechargement
+- ecran d'erreurs dedie
+- copie et export des erreurs
+- aides contextuelles et modales de confirmation
+- adaptation partielle aux terminaux plus petits avec mode compact et avertissement de taille
+
+Navigation terminal :
+- `Tab` / `Shift+Tab` : changer de zone
+- `Fleches` ou `J/K` : naviguer
+- `Entree` / clic souris : selectionner ou activer
+- `Espace` : basculer la ligne courante dans la liste
+- `F5` : lancer l'analyse
+- `/` : focus filtre
+- `A` : tout cocher
+- `N` : tout decocher
+- `I` : inverser
+- `R` : selection par plage
+- `T` : telecharger
+- `Esc` : retour
+- `Q` : quitter
+- `H` : aide
 
 Dependance supplementaire pour cette branche :
 - `textual>=0.82.0`
@@ -75,6 +103,19 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.2.13
+- Branche `tui-cli-mode`:
+  - ajout d'un mode terminal interactif via `python SushiDL.py --cli`,
+  - ecrans `Options / Cookies`, `URL / Chapitres / Telechargement`, `Telechargement`, `Erreurs`,
+  - navigation clavier + souris dans la liste,
+  - selection par plage et filtre texte,
+  - telechargement reel avec progression, annulation et resume de fin,
+  - copie / export des erreurs,
+  - mode compact automatique et avertissement si le terminal est trop petit.
+- GUI:
+  - correction de la preview pour limiter l'extraction aux `4/5` premieres pages utiles,
+  - utilisation de `CTkImage` dans la preview pour eviter le warning `CustomTkinter` sur les ecrans HiDPI.
 
 ### 11.2.12
 - Ajout d'une icone de fenetre native `assets/sushidl.ico` multi-tailles.
@@ -172,6 +213,11 @@ Formats d'URL catalogue attendus :
 - Affichage optimise des tres grands catalogues avec filtre rapide, rendu mutualise sur canvas et scroll stabilise.
 - Preview rapide integree par chapitre/tome via popup dediee et loupe dans le listing.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
+- Branche `tui-cli-mode`:
+  - mode terminal interactif `--cli`,
+  - gestion des cookies et options en terminal,
+  - workflow URL / selection / telechargement,
+  - ecran erreurs dedie avec copie / export.
 
 ## Prerequis
 
@@ -220,10 +266,22 @@ Sous Windows :
 python SushiDL.py
 ```
 
+Mode terminal interactif :
+
+```bash
+python SushiDL.py --cli
+```
+
 Sous Linux :
 
 ```bash
 python3 SushiDL.py
+```
+
+Mode terminal interactif :
+
+```bash
+python3 SushiDL.py --cli
 ```
 
 ## Authentification manuelle
