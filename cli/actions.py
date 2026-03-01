@@ -9,7 +9,7 @@ class CliBackend(Protocol):
     def load_settings(self) -> CliState: ...
     def save_settings(self, state: CliState) -> None: ...
     def test_cookie(self, domain: str, cookie: str, ua: str) -> bool | None: ...
-    def analyze_url(self, url: str, cookies: dict[str, str], ua: str) -> tuple[str, str, list[tuple[str, str]]]: ...
+    def analyze_url(self, url: str, cookies: dict[str, str], ua: str) -> tuple[str, str, list[tuple[str, str]], dict[str, dict]]: ...
 
 
 def load_state(backend: CliBackend) -> CliState:
@@ -55,16 +55,23 @@ def analyze_current_url(backend: CliBackend, state: CliState) -> None:
     if not url:
         state.status_message = "Aucune URL fournie."
         return
-    title, domain, pairs = backend.analyze_url(url, state.cookies, state.user_agent)
+    title, domain, pairs, metadata = backend.analyze_url(url, state.cookies, state.user_agent)
     state.current_title = title
     state.current_domain = domain
     state.detected_items = [
-        CliItem(index=idx + 1, label=(label or f"Element {idx + 1}").strip(), url=(item_url or "").strip())
+        CliItem(
+            index=idx + 1,
+            label=(label or f"Element {idx + 1}").strip(),
+            url=(item_url or "").strip(),
+            premium=bool((metadata.get((item_url or "").strip()) or {}).get("premium")),
+        )
         for idx, (label, item_url) in enumerate(pairs)
     ]
     state.filtered_indices = list(range(len(state.detected_items)))
     state.selected_urls = {item.url for item in state.detected_items}
-    state.status_message = f"{len(state.detected_items)} élément(s) détecté(s) pour {title}."
+    premium_count = sum(1 for item in state.detected_items if item.premium)
+    suffix = f", dont {premium_count} premium" if premium_count else ""
+    state.status_message = f"{len(state.detected_items)} élément(s) détecté(s) pour {title}{suffix}."
 
 
 def apply_text_filter(state: CliState, text: str) -> None:

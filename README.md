@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.5.0`
+Version actuelle : `11.6.0`
 
 ## Ce qui change sur `main`
 
@@ -107,6 +107,22 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.6.0
+- Ajout du support de `https://ortegascans.fr`.
+- Nouveau format d'URL catalogue supporte :
+  - `https://ortegascans.fr/serie/<slug>/`
+- Ajout d'un cookie manuel dedie `.ortegascans` dans l'onglet `Authentification`.
+- Le champ `.ortegascans` accepte :
+  - un simple `cf_clearance`
+  - ou un header `Cookie` complet
+- Detection des chapitres premium Ortega :
+  - badge `$` dore dans le listing,
+  - preview desactivee,
+  - telechargement ignore automatiquement meme si l'element est coche.
+- Normalisation des libelles de chapitres :
+  - `Ep 221 - Ma brute` devient `Chapitre 221`
+  - le nom d'archive devient donc `Ma brute - Chapitre 221.cbz`
+
 ### 11.5.0
 - Ajout du support de `https://toonfr.com`.
 - Nouveau format d'URL catalogue supporte :
@@ -191,6 +207,7 @@ Pour le detail complet des versions : voir `CHANGELOG.md`.
 - `https://mangas-origines.fr`
 - `https://hentai-origines.fr`
 - `https://toonfr.com`
+- `https://ortegascans.fr`
 
 Formats d'URL catalogue attendus :
 - `https://sushiscan.fr/catalogue/<slug>/`
@@ -198,12 +215,14 @@ Formats d'URL catalogue attendus :
 - `https://mangas-origines.fr/oeuvre/<slug>/`
 - `https://hentai-origines.fr/manga/<slug>/`
 - `https://toonfr.com/webtoon/<slug>/`
+- `https://ortegascans.fr/serie/<slug>/`
 
 ## Fonctionnalites principales
 
 - Authentification manuelle par cookies `cf_clearance` et `User-Agent`.
-- Champs separes par domaine pour `.fr`, `.net`, `.origines`, `.hentai-origines` et `.toonfr`.
+- Champs separes par domaine pour `.fr`, `.net`, `.origines`, `.hentai-origines`, `.toonfr` et `.ortegascans`.
 - Pour `.toonfr`, tu peux coller soit `cf_clearance`, soit un header `Cookie` complet si le site devient plus strict.
+- Pour `.ortegascans`, tu peux coller soit `cf_clearance`, soit un header `Cookie` complet.
 - Detection automatique du domaine a utiliser pour les pages, images et couvertures.
 - Telechargement multi-thread des images avec retries et classification des erreurs.
 - Annulation possible pendant l'execution.
@@ -215,6 +234,7 @@ Formats d'URL catalogue attendus :
 - Interface `CustomTkinter` avec onglet `Telechargement` unifie et rendu dense optimise.
 - Affichage optimise des tres grands catalogues avec filtre rapide, rendu mutualise sur canvas et scroll stabilise.
 - Preview rapide integree par chapitre/tome via popup dediee et loupe dans le listing.
+- Normalisation automatique des libelles `Episode` / `Ep` / `Chapter` vers `Chapitre`.
 - Mode terminal interactif `--cli` avec gestion des cookies, analyse, selection, telechargement et erreurs.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
 

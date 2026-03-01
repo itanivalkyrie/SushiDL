@@ -185,10 +185,28 @@ def interruptible_sleep(cancel_event, duration):
 
 
 def normalize_tome_label(label):
-    """Normalise l'affichage des labels en remplaçant 'Volume' par 'Tome'."""
-    cleaned = (label or "").strip()
+    """Normalise les labels en standardisant épisode/chapitre/tome et en retirant les titres redondants."""
+    cleaned = repair_mojibake_text((label or "").strip())
     if not cleaned:
         return ""
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—|:")
+
+    number_pattern = r"([0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)"
+
+    chapter_match = re.match(
+        rf"(?i)^(?:ep|episode|chapitre|chapter)\s*[-._:# ]*\s*{number_pattern}\b",
+        cleaned,
+    )
+    if chapter_match:
+        return f"Chapitre {chapter_match.group(1).replace(',', '.')}".strip()
+
+    tome_match = re.match(
+        rf"(?i)^(?:tome|volume)\s*[-._:# ]*\s*{number_pattern}\b",
+        cleaned,
+    )
+    if tome_match:
+        return f"Tome {tome_match.group(1).replace(',', '.')}".strip()
+
     return re.sub(r"(?i)\bvolume\b", "Tome", cleaned)
 
 
@@ -225,6 +243,8 @@ def get_supported_site_from_host(host):
         return "hentai-origines.fr"
     if value == "toonfr.com" or value.endswith(".toonfr.com"):
         return "toonfr.com"
+    if value == "ortegascans.fr" or value.endswith(".ortegascans.fr"):
+        return "ortegascans.fr"
     return ""
 
 
@@ -274,6 +294,7 @@ def get_cookie_domain_from_host(host):
         "mangas-origines.fr": "origines",
         "hentai-origines.fr": "hentai",
         "toonfr.com": "toonfr",
+        "ortegascans.fr": "ortega",
     }
     return mapping.get(site, "")
 
@@ -308,6 +329,8 @@ def is_valid_catalogue_url(url):
         match = re.match(r"^/manga/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     elif site == "toonfr.com":
         match = re.match(r"^/webtoon/([^/?#]+)/?$", path, flags=re.IGNORECASE)
+    elif site == "ortegascans.fr":
+        match = re.match(r"^/serie/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     else:
         return False
 
@@ -453,8 +476,8 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.5.0"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon)/[a-z0-9_-]+/?$"  # Formats d'URL valides
+APP_VERSION = "11.6.0"
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
@@ -475,7 +498,7 @@ PREVIEW_PAGE_LIMIT = 5
 PREVIEW_CACHE_MAX_ITEMS = 12
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
-COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr")
+COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega")
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
 COVER_TARGET_HEIGHT = 150
@@ -497,6 +520,7 @@ DEFAULT_APP_CONFIG = {
         "cookie_origines": "https://mangas-origines.fr",
         "cookie_hentai": "https://hentai-origines.fr",
         "cookie_toonfr": "https://toonfr.com",
+        "cookie_ortega": "https://ortegascans.fr",
         "user_agent": "https://httpbin.org/user-agent",
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
         "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
@@ -508,6 +532,7 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
     "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
     "toonfr": "https://toonfr.com/webtoon/un-xy-dans-un-monde-de-xx/",
+    "ortega": "https://ortegascans.fr/serie/love-quest",
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
@@ -930,6 +955,7 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
         "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
         "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
         "toonfr": "https://toonfr.com/webtoon/un-xy-dans-un-monde-de-xx/",
+        "ortega": "https://ortegascans.fr/serie/love-quest",
     }
     if domain not in probe_urls:
         return result
@@ -1222,6 +1248,55 @@ def extract_manga_title_from_html(url, html_content):
     return "Sans titre"
 
 
+def parse_ortega_chapters_from_html(url, soup, source_slug):
+    """Extrait les chapitres OrtegaScans et leur statut premium."""
+    pairs = []
+    metadata = {}
+    seen_links = set()
+    selector = f'a[href*="/serie/{source_slug}/chapter/"]'
+    for anchor in soup.select(selector):
+        href = (anchor.get("href") or "").strip()
+        if not href:
+            continue
+        full_link = urljoin(url, href)
+        parsed_path = (urlparse(full_link).path or "").strip("/")
+        match = re.match(
+            rf"^serie/{re.escape(source_slug)}/chapter/([^/?#]+)/?$",
+            parsed_path,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            continue
+        raw_tokens = [repair_mojibake_text(token) for token in anchor.stripped_strings if str(token or "").strip()]
+        if raw_tokens and raw_tokens[0].lower().startswith("commencer la lecture"):
+            continue
+
+        chapter_ref = (match.group(1) or "").strip()
+        premium = any("PREMIUM" in token.upper() for token in raw_tokens)
+        label = ""
+
+        for idx, token in enumerate(raw_tokens):
+            token_lower = token.lower()
+            if token_lower in ("chapitre", "chapter", "ep", "episode"):
+                if idx + 1 < len(raw_tokens):
+                    number_token = raw_tokens[idx + 1].strip()
+                    if number_token:
+                        label = f"Chapitre {number_token}"
+                        break
+
+        if not label:
+            chapter_number = chapter_ref.replace("-", " ").strip()
+            label = f"Chapitre {chapter_number}" if chapter_number else ""
+
+        clean_label = normalize_tome_label(label)
+        if not clean_label or full_link in seen_links:
+            continue
+        seen_links.add(full_link)
+        pairs.append((clean_label, full_link))
+        metadata[full_link] = {"premium": premium}
+    return pairs, metadata
+
+
 def parse_manga_data_from_html(url, html_content, emit_logs=True):
     """
     Parse le HTML du catalogue et retourne (title, pairs).
@@ -1253,7 +1328,32 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         match_slug = re.match(r"^/webtoon/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
         if match_slug:
             source_slug = match_slug.group(1).strip()
+    elif source_site == "ortegascans.fr":
+        match_slug = re.match(r"^/serie/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
     pairs = []
+    volume_metadata = {}
+
+    if source_site == "ortegascans.fr" and source_slug:
+        pairs, volume_metadata = parse_ortega_chapters_from_html(url, soup, source_slug)
+        unique_pairs = list(reversed(pairs))
+        ordered_metadata = {
+            link: volume_metadata.get(link, {})
+            for _label, link in unique_pairs
+            if link
+        }
+        if not unique_pairs:
+            raise Exception("Aucun tome/chapitre détecté (page protégée ou structure modifiée).")
+        if emit_logs:
+            premium_count = sum(1 for meta in ordered_metadata.values() if bool(meta.get("premium")))
+            suffix = f", dont {premium_count} premium" if premium_count else ""
+            runtime_log(
+                f"{len(unique_pairs)} tomes/chapitres détectés{suffix}",
+                level="info",
+                context={"action": "parse_catalogue"},
+            )
+        return title, unique_pairs, ordered_metadata
 
     def is_same_site(full_link):
         link_site = get_supported_site_from_url(full_link)
@@ -1346,14 +1446,14 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
             level="info",
             context={"action": "parse_catalogue"},
         )
-    return title, unique_pairs
+    return title, unique_pairs, {}
 
 
 def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
     """Récupère les chapitres via l'endpoint AJAX Madara (origines, hentai, toonfr)."""
     site = get_supported_site_from_url(url)
     if site not in ("mangas-origines.fr", "hentai-origines.fr", "toonfr.com"):
-        return []
+        return [], {}
 
     parsed = urlparse(url)
     base_url = (url if url.endswith("/") else f"{url}/").strip()
@@ -1366,10 +1466,10 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
 
     match_slug = re.match(rf"^/{path_prefix}/([^/?#]+)/?$", parsed.path or "", flags=re.IGNORECASE)
     if not match_slug:
-        return []
+        return [], {}
     source_slug = (match_slug.group(1) or "").strip().lower()
     if not source_slug:
-        return []
+        return [], {}
 
     app = getattr(MangaApp, "current_instance", None)
     cookie_header = ""
@@ -1467,7 +1567,7 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
                 level="info",
                 context={"action": "parse_catalogue_ajax", "domain": log_domain},
             )
-    return unique_pairs
+    return unique_pairs, {}
 
 
 def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None, emit_logs=True):
@@ -1501,10 +1601,12 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
     if callable(progress_callback):
         progress_callback("parse")
     site = get_supported_site_from_url(url)
+    volume_metadata = {}
+    fetch_manga_data.last_volume_metadata = {}
     if site in ("mangas-origines.fr", "hentai-origines.fr", "toonfr.com"):
         parse_error = None
         try:
-            title, pairs = parse_manga_data_from_html(
+            title, pairs, volume_metadata = parse_manga_data_from_html(
                 url,
                 html_content,
                 emit_logs=False,
@@ -1513,10 +1615,12 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
             parse_error = exc
             title = extract_manga_title_from_html(url, html_content)
             pairs = []
+            volume_metadata = {}
 
-        ajax_pairs = fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=emit_logs)
+        ajax_pairs, ajax_metadata = fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=emit_logs)
         if ajax_pairs:
             pairs = ajax_pairs
+            volume_metadata = ajax_metadata
             if not title:
                 title = extract_manga_title_from_html(url, html_content)
         elif not pairs:
@@ -1524,11 +1628,12 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
                 raise parse_error
             raise Exception("Aucun tome/chapitre détecté sur ce site.")
     else:
-        title, pairs = parse_manga_data_from_html(
+        title, pairs, volume_metadata = parse_manga_data_from_html(
             url,
             html_content,
             emit_logs=emit_logs,
         )
+    fetch_manga_data.last_volume_metadata = dict(volume_metadata or {})
     if return_html:
         return title, pairs, html_content
     return title, pairs
@@ -1739,6 +1844,22 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                     )
             return safe_entries
 
+        if domain == "ortega":
+            ortega_text = (r_text or "").replace("\\/", "/")
+            api_matches = re.findall(
+                r'(?:\\?["\'])url(?:\\?["\'])\s*:\s*(?:\\?["\'])(/api/chapters/[^"\'\\]+)',
+                ortega_text,
+                re.IGNORECASE,
+            )
+            images = [
+                normalize_image_url(urljoin(link, match.strip().rstrip("\\")))
+                for match in api_matches
+                if match.strip().rstrip("\\")
+            ]
+            images = dedupe_images(images)
+            if images:
+                return finalize_images(images, detected_label="ortega.initialData")
+
         # Étape 0 — Priorité à la structure Madara (mangas-origines)
         if domain == "origines":
             soup = BeautifulSoup(r_text, "html.parser")
@@ -1825,6 +1946,8 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         domain = "hentai"
     elif site == "toonfr.com":
         domain = "toonfr"
+    elif site == "ortegascans.fr":
+        domain = "ortega"
     else:
         domain = normalize_hostname(urlparse(link).hostname) or "-"
 
@@ -2993,6 +3116,24 @@ class MangaApp:
             if oldest_key != cache_key:
                 cache.pop(oldest_key, None)
 
+    def get_volume_meta(self, index=None, link=None):
+        """Retourne le metadata d'un tome/chapitre courant."""
+        safe_link = (link or "").strip()
+        if not safe_link and index is not None:
+            try:
+                safe_link = ((self.pairs or [])[index][1] or "").strip()
+            except Exception:
+                safe_link = ""
+        if not safe_link:
+            return {}
+        metadata = getattr(self, "volume_meta_by_url", None) or {}
+        value = metadata.get(safe_link)
+        return value if isinstance(value, dict) else {}
+
+    def is_volume_premium(self, index=None, link=None):
+        """Indique si le tome/chapitre est premium et doit être ignoré."""
+        return bool(self.get_volume_meta(index=index, link=link).get("premium"))
+
     def _get_preview_item_payload(self, index):
         if index is None or index < 0 or index >= len(getattr(self, "pairs", []) or []):
             return None
@@ -3007,6 +3148,7 @@ class MangaApp:
             "link": link,
             "cookie": self.get_cookie(link),
             "ua": self.get_request_user_agent_for_url(link),
+            "premium": self.is_volume_premium(index=index, link=link),
         }
 
     def _close_preview_window(self):
@@ -3288,6 +3430,13 @@ class MangaApp:
         payload = self._get_preview_item_payload(index)
         if not payload:
             self.log("Prévisualisation indisponible pour cet élément.", level="warning")
+            return
+        if payload.get("premium"):
+            self.log(
+                f"Prévisualisation ignorée: {payload.get('title') or 'élément'} est premium.",
+                level="warning",
+            )
+            self.toast("Preview indisponible: premium")
             return
         self.preview_request_id = int(getattr(self, "preview_request_id", 0) or 0) + 1
         request_id = self.preview_request_id
@@ -3683,6 +3832,8 @@ class MangaApp:
         index_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=0, outline="", fill=self.palette["card_alt"], state="hidden", tags=(slot_tag, "volume_canvas_index_bg"))
         index_text_id = canvas.create_text(0, 0, text="", anchor="center", fill=self.palette["muted"], font=("Segoe UI Semibold", 9), state="hidden", tags=(slot_tag, "volume_canvas_index_text"))
         title_id = canvas.create_text(0, 0, text="", anchor="w", fill=self.palette["text"], font=("Segoe UI", 10), state="hidden", tags=(slot_tag, "volume_canvas_title"))
+        premium_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=1, outline="#d6b44d", fill="#f4dd8c", state="hidden", tags=(slot_tag, "volume_canvas_premium_bg"))
+        premium_text_id = canvas.create_text(0, 0, text="$", anchor="center", fill="#8f6500", font=("Segoe UI Semibold", 10), state="hidden", tags=(slot_tag, "volume_canvas_premium_text"))
         preview_tag = f"{slot_tag}_preview"
         preview_bg_id = canvas.create_rectangle(0, 0, 0, 0, width=1, outline="#a3cab1", fill="#dfeee5", state="hidden", tags=(preview_tag, "volume_canvas_preview"))
         preview_text_id = canvas.create_text(0, 0, text="⌕", anchor="center", fill="#2f6d4a", font=("Segoe UI Semibold", 10), state="hidden", tags=(preview_tag, "volume_canvas_preview"))
@@ -3693,11 +3844,13 @@ class MangaApp:
             "slot_tag": slot_tag,
             "preview_tag": preview_tag,
             "absolute_index": None,
-            "item_ids": (bg_id, index_bg_id, index_text_id, title_id, preview_bg_id, preview_text_id, checkbox_bg_id, checkbox_check_id),
+            "item_ids": (bg_id, index_bg_id, index_text_id, title_id, premium_bg_id, premium_text_id, preview_bg_id, preview_text_id, checkbox_bg_id, checkbox_check_id),
             "bg_id": bg_id,
             "index_bg_id": index_bg_id,
             "index_text_id": index_text_id,
             "title_id": title_id,
+            "premium_bg_id": premium_bg_id,
+            "premium_text_id": premium_text_id,
             "preview_bg_id": preview_bg_id,
             "preview_text_id": preview_text_id,
             "checkbox_bg_id": checkbox_bg_id,
@@ -3773,6 +3926,7 @@ class MangaApp:
         badge_text = self.palette["accent_hover"] if selected else self.palette["muted"]
         checkbox_fill = self.palette["accent"] if selected else self.palette["canvas_bg"]
         checkbox_outline = self.palette["accent"] if selected else self.palette["border"]
+        premium = self.is_volume_premium(index=absolute_index)
         title_text = f"{absolute_index + 1}. {vol}" if kind == "fast" else str(vol)
         index_text = "" if kind == "fast" else str(absolute_index + 1)
         title_x = card_x + 14
@@ -3795,12 +3949,24 @@ class MangaApp:
         preview_size = 18 if kind == "fast" else 20
         preview_x2 = checkbox_x1 - 8
         preview_x1 = preview_x2 - preview_size
+        premium_size = 18 if kind == "fast" else 20
+        premium_x2 = preview_x1 - 8
+        premium_x1 = premium_x2 - premium_size
         checkbox_y1 = card_y + int((metrics["card_height"] - checkbox_size) / 2)
         checkbox_y2 = checkbox_y1 + checkbox_size
         canvas.coords(entry["bg_id"], card_x, card_y, card_x2, card_y2)
         canvas.itemconfigure(entry["bg_id"], fill=bg_fill, outline=bg_outline, state="normal")
         canvas.coords(entry["title_id"], title_x, (card_y + card_y2) / 2.0)
-        canvas.itemconfigure(entry["title_id"], text=title_text, fill=self.palette["text"], width=max(64, preview_x1 - title_x - 8), state="normal")
+        title_limit_x = premium_x1 if premium else preview_x1
+        canvas.itemconfigure(entry["title_id"], text=title_text, fill=self.palette["text"], width=max(64, title_limit_x - title_x - 8), state="normal")
+        if premium:
+            canvas.coords(entry["premium_bg_id"], premium_x1, checkbox_y1, premium_x2, checkbox_y2)
+            canvas.itemconfigure(entry["premium_bg_id"], state="normal")
+            canvas.coords(entry["premium_text_id"], (premium_x1 + premium_x2) / 2.0, (checkbox_y1 + checkbox_y2) / 2.0)
+            canvas.itemconfigure(entry["premium_text_id"], state="normal")
+        else:
+            canvas.itemconfigure(entry["premium_bg_id"], state="hidden")
+            canvas.itemconfigure(entry["premium_text_id"], state="hidden")
         canvas.coords(entry["preview_bg_id"], preview_x1, checkbox_y1, preview_x2, checkbox_y2)
         canvas.itemconfigure(entry["preview_bg_id"], state="normal")
         canvas.coords(entry["preview_text_id"], (preview_x1 + preview_x2) / 2.0, (checkbox_y1 + checkbox_y2) / 2.0)
@@ -4470,10 +4636,14 @@ class MangaApp:
     def _assign_volume_card_content(self, card, volume_label, var, index):
         card.volume_var = var
         card.volume_index = index
+        premium = self.is_volume_premium(index=index)
         if hasattr(card, "volume_title_label"):
             card.volume_title_label.configure(text=volume_label)
         if hasattr(card, "volume_index_label"):
             card.volume_index_label.configure(text=str(index + 1))
+        if hasattr(card, "volume_premium_badge"):
+            card.volume_premium_badge.configure(text="$")
+            card.volume_premium_badge.grid_remove() if not premium else card.volume_premium_badge.grid()
         if hasattr(card, "volume_checkbox"):
             card.volume_checkbox.configure(variable=var)
         if hasattr(card, "volume_preview_button"):
@@ -4494,6 +4664,7 @@ class MangaApp:
         card.grid_columnconfigure(1, weight=1)
         card.grid_columnconfigure(2, weight=0)
         card.grid_columnconfigure(3, weight=0)
+        card.grid_columnconfigure(4, weight=0)
 
         index_label = ctk.CTkLabel(
             card,
@@ -4517,6 +4688,18 @@ class MangaApp:
         )
         title_label.grid(row=0, column=1, sticky="ew", pady=8)
 
+        premium_badge = ctk.CTkLabel(
+            card,
+            text="$",
+            width=24,
+            height=22,
+            corner_radius=5,
+            fg_color="#f4dd8c",
+            text_color="#8f6500",
+            font=("Segoe UI Semibold", 11),
+        )
+        premium_badge.grid(row=0, column=2, padx=(8, 0), pady=8)
+
         preview_button = ctk.CTkButton(
             card,
             text="⌕",
@@ -4531,7 +4714,7 @@ class MangaApp:
             font=("Segoe UI Semibold", 11),
             command=lambda idx=index: self.open_volume_preview_by_index(idx),
         )
-        preview_button.grid(row=0, column=2, padx=(8, 0), pady=8)
+        preview_button.grid(row=0, column=3, padx=(8, 0), pady=8)
 
         checkbox = ctk.CTkCheckBox(
             card,
@@ -4548,7 +4731,7 @@ class MangaApp:
             checkmark_color="#ffffff",
             command=self.update_master_toggle_button,
         )
-        checkbox.grid(row=0, column=3, padx=(8, 10), pady=8)
+        checkbox.grid(row=0, column=4, padx=(8, 10), pady=8)
 
         toggle = lambda _event=None, _widget=card: self._toggle_volume_widget(_widget)
         card.bind("<Button-1>", toggle)
@@ -4557,6 +4740,7 @@ class MangaApp:
 
         card.volume_title_label = title_label
         card.volume_index_label = index_label
+        card.volume_premium_badge = premium_badge
         card.volume_preview_button = preview_button
         card.volume_checkbox = checkbox
         self._assign_volume_card_content(card, volume_label, var, index)
@@ -4565,10 +4749,14 @@ class MangaApp:
     def _assign_compact_volume_item_content(self, item, volume_label, var, index):
         item.volume_var = var
         item.volume_index = index
+        premium = self.is_volume_premium(index=index)
         if hasattr(item, "volume_title_label"):
             item.volume_title_label.configure(text=volume_label)
         if hasattr(item, "volume_index_label"):
             item.volume_index_label.configure(text=str(index + 1))
+        if hasattr(item, "volume_premium_badge"):
+            item.volume_premium_badge.configure(text="$")
+            item.volume_premium_badge.grid_remove() if not premium else item.volume_premium_badge.grid()
         if hasattr(item, "volume_checkbox"):
             item.volume_checkbox.configure(variable=var)
         if hasattr(item, "volume_preview_button"):
@@ -4601,6 +4789,7 @@ class MangaApp:
         content.grid_columnconfigure(1, weight=1)
         content.grid_columnconfigure(2, weight=0)
         content.grid_columnconfigure(3, weight=0)
+        content.grid_columnconfigure(4, weight=0)
 
         index_label = ctk.CTkLabel(
             content,
@@ -4624,6 +4813,18 @@ class MangaApp:
         )
         title_label.grid(row=0, column=1, sticky="ew", pady=6)
 
+        premium_badge = ctk.CTkLabel(
+            content,
+            text="$",
+            width=22,
+            height=20,
+            corner_radius=5,
+            fg_color="#f4dd8c",
+            text_color="#8f6500",
+            font=("Segoe UI Semibold", 10),
+        )
+        premium_badge.grid(row=0, column=2, padx=(6, 0), pady=5)
+
         preview_button = ctk.CTkButton(
             content,
             text="⌕",
@@ -4638,7 +4839,7 @@ class MangaApp:
             font=("Segoe UI Semibold", 10),
             command=lambda idx=index: self.open_volume_preview_by_index(idx),
         )
-        preview_button.grid(row=0, column=2, padx=(6, 0), pady=5)
+        preview_button.grid(row=0, column=3, padx=(6, 0), pady=5)
 
         checkbox = ctk.CTkCheckBox(
             content,
@@ -4655,7 +4856,7 @@ class MangaApp:
             checkmark_color="#ffffff",
             command=self.update_master_toggle_button,
         )
-        checkbox.grid(row=0, column=3, padx=(6, 8), pady=5)
+        checkbox.grid(row=0, column=4, padx=(6, 8), pady=5)
 
         toggle = lambda _event=None, _widget=item: self._toggle_volume_widget(_widget)
         item.bind("<Button-1>", toggle)
@@ -4667,6 +4868,7 @@ class MangaApp:
         item.volume_content_frame = content
         item.volume_title_label = title_label
         item.volume_index_label = index_label
+        item.volume_premium_badge = premium_badge
         item.volume_preview_button = preview_button
         item.volume_checkbox = checkbox
         self._assign_compact_volume_item_content(item, volume_label, var, index)
@@ -4675,7 +4877,8 @@ class MangaApp:
     def _assign_fast_volume_item_content(self, item, volume_label, var, index):
         item.volume_var = var
         item.volume_index = index
-        item.configure(text=f"{index + 1}. {volume_label}", variable=var)
+        premium_prefix = "$ " if self.is_volume_premium(index=index) else ""
+        item.configure(text=f"{index + 1}. {premium_prefix}{volume_label}", variable=var)
 
     def _create_fast_volume_item(self, parent, volume_label, var, index):
         item = ttk.Checkbutton(
@@ -5244,6 +5447,18 @@ class MangaApp:
         self.run_on_ui(self.update_runtime_status)
         self._schedule_cookie_listing_probe(domains=("toonfr",), delay_ms=1200)
 
+    def _schedule_auth_status_update_cookie_ortega(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .ortegascans sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["ortega"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["ortega"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("ortega",), delay_ms=1200)
+
     def _schedule_auth_status_update_url(self, *_args):
         """Rafraîchit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
         if not hasattr(self, "cookie_sources"):
@@ -5577,6 +5792,7 @@ class MangaApp:
         self.cookie_origines_label_var.set("Cookie (.origines) :")
         self.cookie_hentai_label_var.set("Cookie (.hentai-origines 🔞) :")
         self.cookie_toonfr_label_var.set("Cookie (.toonfr 🔞) :")
+        self.cookie_ortega_label_var.set("Cookie (.ortegascans) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -5596,6 +5812,7 @@ class MangaApp:
                     "cookie_origines_status",
                     "cookie_hentai_status",
                     "cookie_toonfr_status",
+                    "cookie_ortega_status",
                     "ua_status",
                 )
             ):
@@ -5727,6 +5944,7 @@ class MangaApp:
                 "origines": "https://mangas-origines.fr/",
                 "hentai": "https://hentai-origines.fr/",
                 "toonfr": "https://toonfr.com/",
+                "ortega": "https://ortegascans.fr/",
             }
             probe_url = ua_probe_urls.get(domain, "")
             if not probe_url:
@@ -5911,11 +6129,13 @@ class MangaApp:
         self.cookie_origines = tk.StringVar()
         self.cookie_hentai = tk.StringVar()
         self.cookie_toonfr = tk.StringVar()
+        self.cookie_ortega = tk.StringVar()
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
         self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines 🔞) :")
         self.cookie_toonfr_label_var = tk.StringVar(value="Cookie (.toonfr 🔞) :")
+        self.cookie_ortega_label_var = tk.StringVar(value="Cookie (.ortegascans) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
@@ -5946,11 +6166,13 @@ class MangaApp:
         self.cookie_origines.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_hentai.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_toonfr.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_ortega.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_auth_status_update_cookie_fr)
         self.cookie_net.trace_add("write", self._schedule_auth_status_update_cookie_net)
         self.cookie_origines.trace_add("write", self._schedule_auth_status_update_cookie_origines)
         self.cookie_hentai.trace_add("write", self._schedule_auth_status_update_cookie_hentai)
         self.cookie_toonfr.trace_add("write", self._schedule_auth_status_update_cookie_toonfr)
+        self.cookie_ortega.trace_add("write", self._schedule_auth_status_update_cookie_ortega)
         self.ua.trace_add("write", self._schedule_auth_status_update)
         self.url.trace_add("write", self._schedule_auth_status_update_url)
         self.verbose_logs.trace_add("write", self._refresh_log_option_cache)
@@ -5976,6 +6198,7 @@ class MangaApp:
         self.cookie_origines.set(cookies.get("origines", ""))
         self.cookie_hentai.set(cookies.get("hentai", ""))
         self.cookie_toonfr.set(cookies.get("toonfr", ""))
+        self.cookie_ortega.set(cookies.get("ortega", ""))
         runtime_log(f"{APP_NAME} v{APP_VERSION}", level="info")
         runtime_log(f"Cache cookie : {COOKIE_CACHE_PATH}", level="info")
         runtime_log(f"Config : {CONFIG_PATH}", level="info")
@@ -6022,6 +6245,7 @@ class MangaApp:
         self.source_title_var = tk.StringVar(value="Manga/Manhwa/Comics...")
         self.cancel_event = threading.Event()
         self.cover_preview = None
+        self.volume_meta_by_url = {}
         self.preview_window = None
         self.preview_header_label = None
         self.preview_count_label = None
@@ -7129,6 +7353,30 @@ class MangaApp:
 
         ctk.CTkLabel(
             auth_surface,
+            textvariable=self.cookie_ortega_label_var,
+            text_color=self.palette["text"],
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
+        )
+        self.cookie_ortega_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_ortega,
+            font=font_entry,
+            height=36,
+            corner_radius=6,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
+        )
+        self.cookie_ortega_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_ortega_status = create_ctk_badge(auth_surface)
+        self.cookie_ortega_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
+        row += 1
+
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.ua_label_var,
             text_color=self.palette["text"],
             font=font_label,
@@ -7422,7 +7670,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞)",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞) ou https://ortegascans.fr/serie/slug/",
             None,
         )
 
@@ -8029,6 +8277,7 @@ class MangaApp:
             "cookie_origines_label_var",
             "cookie_hentai_label_var",
             "cookie_toonfr_label_var",
+            "cookie_ortega_label_var",
             "ua_label_var",
         ):
             var = getattr(self, var_name, None)
@@ -8341,6 +8590,13 @@ class MangaApp:
             'Cookie toonfr.com: cf_clearance seul ou header Cookie complet (🔞).',
             cookie_toonfr_link,
         )
+        cookie_ortega_link = get_manual_link("cookie_ortega", "https://ortegascans.fr")
+        self._attach_link_placeholder(
+            self.cookie_ortega_entry,
+            self.cookie_ortega,
+            'Cookie ortegascans.fr: cf_clearance seul ou header Cookie complet.',
+            cookie_ortega_link,
+        )
         self._attach_link_placeholder(
             self.ua_entry,
             self.ua,
@@ -8361,10 +8617,12 @@ class MangaApp:
             self.cookie_hentai_entry.configure(show=show_char)
         if hasattr(self, "cookie_toonfr_entry"):
             self.cookie_toonfr_entry.configure(show=show_char)
+        if hasattr(self, "cookie_ortega_entry"):
+            self.cookie_ortega_entry.configure(show=show_char)
 
 
     def get_domain_from_url(self, url):
-        """Retourne le domaine cookie interne: fr/net/origines/hentai/toonfr."""
+        """Retourne le domaine cookie interne: fr/net/origines/hentai/toonfr/ortega."""
         return get_cookie_domain_from_url(url)
 
     def _get_cookie_var_for_domain(self, domain):
@@ -8375,6 +8633,7 @@ class MangaApp:
             "origines": getattr(self, "cookie_origines", None),
             "hentai": getattr(self, "cookie_hentai", None),
             "toonfr": getattr(self, "cookie_toonfr", None),
+            "ortega": getattr(self, "cookie_ortega", None),
         }
         return mapping.get(domain)
 
@@ -8386,6 +8645,7 @@ class MangaApp:
             "origines": getattr(self, "cookie_origines_entry", None),
             "hentai": getattr(self, "cookie_hentai_entry", None),
             "toonfr": getattr(self, "cookie_toonfr_entry", None),
+            "ortega": getattr(self, "cookie_ortega_entry", None),
         }
         return mapping.get(domain)
 
@@ -8397,6 +8657,7 @@ class MangaApp:
             "origines": getattr(self, "cookie_origines_status", None),
             "hentai": getattr(self, "cookie_hentai_status", None),
             "toonfr": getattr(self, "cookie_toonfr_status", None),
+            "ortega": getattr(self, "cookie_ortega_status", None),
         }
         return mapping.get(domain)
 
@@ -8555,10 +8816,11 @@ class MangaApp:
         self._set_analysis_status_label("Analyse en cours: validation URL...", success=None)
         self.title = ""
         self._refresh_source_title_label("")
+        self.volume_meta_by_url = {}
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞).",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞) ou https://ortegascans.fr/serie/slug/.",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
@@ -8656,6 +8918,7 @@ class MangaApp:
             self.update_cookie_status(validate=True)
             self._set_analysis_status_label("Analyse échouée", success=False)
             self._refresh_source_title_label("")
+            self.volume_meta_by_url = {}
             self.toast("Impossible de charger la liste")
             finish_analysis()
 
@@ -8677,6 +8940,7 @@ class MangaApp:
                 )
                 self.title = title
                 self.pairs = pairs
+                self.volume_meta_by_url = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
                 self.ua_runtime_validity = bool((ua_for_url or "").strip())
                 self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
 
@@ -8917,18 +9181,36 @@ class MangaApp:
         """Lance le téléchargement des tomes sélectionnés."""
         self.cancel_event.clear()
         selected = []
+        premium_skipped = []
         if getattr(self, "volume_virtualized", False):
             visible_indices = set(getattr(self, "filtered_volume_indices", []) or [])
             for index, ((vol, link), var) in enumerate(zip(self.pairs, self.check_vars)):
                 if index in visible_indices and var.get():
-                    selected.append((vol, link))
+                    if self.is_volume_premium(index=index, link=link):
+                        premium_skipped.append(vol)
+                    else:
+                        selected.append((vol, link))
         else:
-            for (chk, _label), (vol, link), var in zip(self.check_items, self.pairs, self.check_vars):
+            for index, ((chk, _label), (vol, link), var) in enumerate(zip(self.check_items, self.pairs, self.check_vars)):
                 if var.get() and self._is_volume_visible(chk):
-                    selected.append((vol, link))
+                    if self.is_volume_premium(index=index, link=link):
+                        premium_skipped.append(vol)
+                    else:
+                        selected.append((vol, link))
+
+        if premium_skipped:
+            skipped_count = len(premium_skipped)
+            self.log(
+                f"{skipped_count} élément(s) premium ignoré(s): téléchargement réservé aux comptes premium.",
+                level="warning",
+            )
+            self.toast(f"{skipped_count} premium ignoré(s)")
 
         if not selected:
-            self.log("Aucun tome sélectionné.", level="info")
+            if premium_skipped:
+                self.log("Aucun élément téléchargeable sélectionné.", level="info")
+            else:
+                self.log("Aucun tome sélectionné.", level="info")
             return
 
         initial_output_root = (getattr(self, "download_output_root", "") or os.path.abspath(ROOT_FOLDER)).strip()
@@ -9333,7 +9615,7 @@ class SushiCliBackend:
         if not safe_cookie:
             return False
 
-        if safe_domain in ("fr", "net", "toonfr"):
+        if safe_domain in ("fr", "net", "toonfr", "ortega"):
             return test_cookie_validity(
                 safe_domain,
                 safe_cookie,
@@ -9363,7 +9645,8 @@ class SushiCliBackend:
             safe_ua,
             emit_logs=False,
         )
-        return title, domain, pairs
+        metadata = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
+        return title, domain, pairs, metadata
 
     def resolve_domain(self, url):
         return get_cookie_domain_from_url((url or "").strip())

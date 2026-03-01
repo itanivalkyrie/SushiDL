@@ -110,7 +110,11 @@ class WorkflowScreen(Screen):
         text = Text()
         text.append(f"{item.index:>{index_width}}  ", style="bold cyan")
         text.append(f"{marker}  ", style=marker_style)
+        if item.premium:
+            text.append("[$]  ", style="bold #8f6500 on #f4dd8c")
         text.append(item.label or f"Element {item.index}", style="white")
+        if item.premium:
+            text.append("  PREMIUM", style="bold #d9a200")
         return text
 
     def _refresh_current_item_label(self) -> None:

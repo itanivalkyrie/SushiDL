@@ -8,6 +8,7 @@ class CliItem:
     index: int
     label: str
     url: str
+    premium: bool = False
 
 
 @dataclass(slots=True)

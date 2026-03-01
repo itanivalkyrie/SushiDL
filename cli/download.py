@@ -30,7 +30,8 @@ class CliDownloadController:
 
     def start(self) -> None:
         with self._lock:
-            selected_items = [item for item in self.state.detected_items if item.url in self.state.selected_urls]
+            selected_items = [item for item in self.state.detected_items if item.url in self.state.selected_urls and not item.premium]
+            premium_skipped = [item for item in self.state.detected_items if item.url in self.state.selected_urls and item.premium]
             self.state.download_status = CliDownloadStatus(
                 active=True,
                 finished=False,
@@ -50,6 +51,8 @@ class CliDownloadController:
                 elapsed="00:00",
             )
         self._start_time = time.time()
+        if premium_skipped:
+            self.state.download_status.logs.append(f"{len(premium_skipped)} élément(s) premium ignoré(s).")
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -116,7 +119,8 @@ class CliDownloadController:
 
     def _run(self) -> None:
         status = self.state.download_status
-        selected_items = [item for item in self.state.detected_items if item.url in self.state.selected_urls]
+        selected_items = [item for item in self.state.detected_items if item.url in self.state.selected_urls and not item.premium]
+        premium_skipped = [item for item in self.state.detected_items if item.url in self.state.selected_urls and item.premium]
         title = self.state.current_title or "Sans titre"
         ua = self.state.user_agent
 
@@ -127,6 +131,10 @@ class CliDownloadController:
                 status.status_message = "Aucun element selectionne."
                 self._append_log("Aucun element selectionne.")
             return
+
+        for skipped in premium_skipped:
+            with self._lock:
+                self._append_log(f"Ignoré premium: {skipped.label}")
 
         for index, item in enumerate(selected_items, start=1):
             if self.cancel_event.is_set():

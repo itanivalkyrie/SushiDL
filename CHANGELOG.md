@@ -7,6 +7,29 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.6.0] - 2026-03-01
+
+### Ameliorations
+- Ajout du support de `https://ortegascans.fr`.
+- Nouveau format d'URL catalogue supporte :
+  - `https://ortegascans.fr/serie/<slug>/`
+- Ajout d'un cookie manuel dedie `.ortegascans` dans l'onglet `Authentification`.
+- Le champ `.ortegascans` accepte desormais :
+  - un simple `cf_clearance`
+  - ou un header `Cookie` complet
+- Detection des chapitres premium Ortega :
+  - affichage d'un badge `$` dore dans le listing,
+  - preview desactivee,
+  - telechargement ignore automatiquement meme si le chapitre est selectionne.
+
+### Corrections
+- Standardisation des libelles de chapitres :
+  - `Ep 221 - Ma brute` devient `Chapitre 221`
+  - les noms de dossiers et archives CBZ suivent maintenant ce format normalise.
+- Mode terminal :
+  - prise en charge du flag premium dans la liste et dans le telechargement,
+  - cookie `.ortegascans` disponible dans l'ecran `Options / Cookies`.
+
 ## [11.5.0] - 2026-03-01
 
 ### Ameliorations
