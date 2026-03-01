@@ -6304,10 +6304,6 @@ class MangaApp:
             if not hasattr(self, "cookie_probe_state") or not isinstance(self.cookie_probe_state, dict):
                 self.cookie_probe_state = {domain: None for domain in COOKIE_DOMAINS}
 
-            ua_value = self.get_direct_user_agent().strip()
-            if not ua_value:
-                return
-
             probe_urls = getattr(self, "startup_cookie_listing_probe_urls", {}) or {}
             for domain in valid_domains:
                 cookie_var = self._get_cookie_var_for_domain(domain)
@@ -6326,20 +6322,32 @@ class MangaApp:
                 probe_url = (probe_urls.get(domain) or "").strip() or STARTUP_COOKIE_LISTING_PROBE_URLS.get(domain, "")
                 if not probe_url:
                     continue
+
+                ua_value = self.get_request_user_agent_for_domain(domain)
+                if not ua_value:
+                    self.cookie_probe_state[domain] = False
+                    self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+                    self.run_on_ui(self.update_runtime_status)
+                    continue
+
                 probe_ok = False
                 failure_reason = ""
                 try:
-                    _title, pairs = fetch_manga_data(
-                        probe_url,
+                    status = evaluate_cookie_and_challenge(
+                        domain,
                         cookie_value,
                         ua_value,
-                        return_html=False,
-                        progress_callback=None,
-                        emit_logs=False,
+                        probe_url=probe_url,
                     )
-                    probe_ok = bool(pairs)
+                    probe_ok = bool(status.get("cookie_valid", False))
                     if not probe_ok:
-                        failure_reason = "listing vide"
+                        http_status = status.get("http_status")
+                        challenge_state = status.get("challenge_state")
+                        failure_reason = (
+                            f"HTTP {http_status} | challenge={challenge_state}"
+                            if http_status
+                            else f"challenge={challenge_state}"
+                        )
                 except Exception as probe_exc:
                     probe_ok = False
                     failure_reason = str(probe_exc)
@@ -6351,15 +6359,20 @@ class MangaApp:
                 if probe_ok:
                     if previous_state is not True:
                         self.log(
-                            f"Test cookie .{domain} : Réussite.",
+                            f"Test cookie .{domain} : Reussite.",
                             level="info",
                         )
                 else:
                     if previous_state is not False:
                         self.log(
-                            f"Test cookie .{domain} : Échec.",
+                            f"Test cookie .{domain} : Echec.",
                             level="warning",
                         )
+                        if failure_reason:
+                            self.log(
+                                f"Probe .{domain} non validee: {failure_reason}",
+                                level="debug",
+                            )
         except Exception as exc:
             self.log(f"Probe cookie non concluant: {exc}", level="debug")
 
@@ -9001,7 +9014,13 @@ class MangaApp:
     def get_request_user_agent_for_domain(self, domain):
         """UA effectif pour un domaine selon l'origine du cookie."""
         self.sync_cookie_source_for_domain(domain)
-        return self.get_direct_user_agent()
+        direct_ua = self.run_on_ui(self.ua.get, wait=True, default="").strip()
+        if direct_ua:
+            return direct_ua
+        stored_ua = (self.cookie_user_agents.get(domain) or "").strip()
+        if stored_ua:
+            return stored_ua
+        return DIRECT_USER_AGENT_DEFAULT
 
     def get_request_user_agent_for_url(self, url):
         domain = self.get_domain_from_url(url)
