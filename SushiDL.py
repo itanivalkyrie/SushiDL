@@ -174,6 +174,28 @@ def recommend_action_for_failure(status_code=None, reason=""):
     return "Relancer le tome; si l'échec persiste, vérifier cookie et User-Agent."
 
 
+def should_offer_cookie_refresh(status_code=None, reason=""):
+    """Indique si l'échec justifie de demander un renouvellement de cookie."""
+    lower = (reason or "").lower()
+    normalized = "".join(
+        ch for ch in unicodedata.normalize("NFKD", lower) if unicodedata.category(ch) != "Mn"
+    )
+    if status_code in (401, 403):
+        return True
+    markers = (
+        "http error 401",
+        "http error 403",
+        "forbidden",
+        "acces refuse",
+        "cloudflare",
+        "just a moment",
+        "challenge",
+        "cookie",
+        "unauthorized",
+    )
+    return any(marker in normalized for marker in markers)
+
+
 def interruptible_sleep(cancel_event, duration):
     """Attend `duration` secondes, interrompu si annulation demandée."""
     if duration <= 0:
@@ -1248,11 +1270,114 @@ def extract_manga_title_from_html(url, html_content):
     return "Sans titre"
 
 
-def parse_ortega_chapters_from_html(url, soup, source_slug):
+def extract_json_object_after_marker(text, marker):
+    """Extrait un objet JSON/JS équilibré juste après un marqueur donné."""
+    raw_text = str(text or "")
+    if not raw_text or not marker:
+        return ""
+    marker_index = raw_text.find(marker)
+    if marker_index < 0:
+        return ""
+    start_index = raw_text.find("{", marker_index + len(marker))
+    if start_index < 0:
+        return ""
+
+    depth = 0
+    escaped = False
+    for index in range(start_index, len(raw_text)):
+        char = raw_text[index]
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return raw_text[start_index : index + 1]
+    return ""
+
+
+def parse_ortega_initial_data(html_content):
+    """Décode initialData embarqué dans le flux Next.js OrtegaScans."""
+    raw_text = str(html_content or "")
+    if not raw_text:
+        return {}
+
+    candidates = (
+        ('initialData\\":', True),
+        ('"initialData":', False),
+    )
+    for marker, escaped in candidates:
+        raw_object = extract_json_object_after_marker(raw_text, marker)
+        if not raw_object:
+            continue
+        decoded_object = raw_object
+        if escaped:
+            decoded_object = decoded_object.replace('\\"', '"')
+        decoded_object = decoded_object.replace("\\/", "/")
+        try:
+            parsed = json.loads(decoded_object)
+        except Exception:
+            continue
+        if isinstance(parsed, dict) and isinstance(parsed.get("manga"), dict):
+            return parsed
+    return {}
+
+
+def is_ortega_premium_chapter_locked(chapter):
+    """Retourne True si le chapitre Ortega est réellement verrouillé premium."""
+    if not bool((chapter or {}).get("isPremium")):
+        return False
+    premium_until = str((chapter or {}).get("premiumUntil") or "").strip()
+    if premium_until.startswith("$D"):
+        premium_until = premium_until[2:]
+    if not premium_until:
+        return True
+    try:
+        expiry = datetime.datetime.fromisoformat(premium_until.replace("Z", "+00:00"))
+    except Exception:
+        return True
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=datetime.timezone.utc)
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    return expiry > now_utc
+
+
+def parse_ortega_chapters_from_html(url, soup, source_slug, html_content=""):
     """Extrait les chapitres OrtegaScans et leur statut premium."""
     pairs = []
     metadata = {}
     seen_links = set()
+
+    initial_data = parse_ortega_initial_data(html_content or str(soup))
+    manga_data = initial_data.get("manga") if isinstance(initial_data, dict) else {}
+    chapters_data = manga_data.get("chapters") if isinstance(manga_data, dict) else []
+    if isinstance(chapters_data, list) and chapters_data:
+        for chapter in chapters_data:
+            if not isinstance(chapter, dict):
+                continue
+            chapter_number = chapter.get("number")
+            if chapter_number in (None, ""):
+                continue
+            chapter_number_text = str(chapter_number).strip()
+            if not chapter_number_text:
+                continue
+            full_link = urljoin(url, f"/serie/{source_slug}/chapter/{chapter_number_text}")
+            if full_link in seen_links:
+                continue
+            seen_links.add(full_link)
+            label = normalize_tome_label(f"Chapitre {chapter_number_text}")
+            if not label:
+                continue
+            pairs.append((label, full_link))
+            metadata[full_link] = {"premium": is_ortega_premium_chapter_locked(chapter)}
+        if pairs:
+            return pairs, metadata
+
     selector = f'a[href*="/serie/{source_slug}/chapter/"]'
     for anchor in soup.select(selector):
         href = (anchor.get("href") or "").strip()
@@ -1336,7 +1461,7 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
     volume_metadata = {}
 
     if source_site == "ortegascans.fr" and source_slug:
-        pairs, volume_metadata = parse_ortega_chapters_from_html(url, soup, source_slug)
+        pairs, volume_metadata = parse_ortega_chapters_from_html(url, soup, source_slug, html_content)
         unique_pairs = list(reversed(pairs))
         ordered_metadata = {
             link: volume_metadata.get(link, {})
@@ -2105,6 +2230,7 @@ def download_volume(
 
     active_cookie = (cookie or "").strip()
     can_prompt_cookie_retry = True
+    force_resume_after_cookie_refresh = False
 
     while True:
         if cancel_event.is_set():
@@ -2121,7 +2247,7 @@ def download_volume(
         failed_downloads = []
 
         existing_indexes = set()
-        if smart_resume_enabled:
+        if smart_resume_enabled or force_resume_after_cookie_refresh:
             for i, page_url in enumerate(images):
                 page_no = str(i + 1).zfill(number_len)
                 expected_ext = infer_ext(page_url)
@@ -2139,7 +2265,7 @@ def download_volume(
                             continue
 
         existing_count = len(existing_indexes)
-        if smart_resume_enabled and existing_count:
+        if (smart_resume_enabled or force_resume_after_cookie_refresh) and existing_count:
             logger(
                 f"Reprise intelligente: {existing_count}/{len(images)} page(s) déjà présentes pour {tome_label}.",
                 level="info",
@@ -2246,6 +2372,11 @@ def download_volume(
             if cancel_event.is_set():
                 return None
 
+            should_prompt_cookie = any(
+                should_offer_cookie_refresh(f.get("status_code"), f.get("reason"))
+                for f in hard_failures
+            )
+
             if not can_prompt_cookie_retry:
                 logger("Relance cookie déjà tentée une fois; abandon du tome.", level="warning")
                 return False
@@ -2254,60 +2385,54 @@ def download_volume(
                 logger("Relance cookie interactive désactivée pour ce mode d'exécution.", level="warning")
                 return False
 
+            if not should_prompt_cookie or target_domain not in COOKIE_DOMAINS:
+                logger("Échec non lié au cookie: abandon du tome sans popup de renouvellement.", level="warning")
+                return False
+
             can_prompt_cookie_retry = False
             try:
-                if app and hasattr(app, "ask_yes_no"):
+                if app and hasattr(app, "prompt_cookie_refresh"):
+                    res = app.prompt_cookie_refresh(
+                        target_domain,
+                        tome_label,
+                        sample_reason,
+                        cancel_event=cancel_event,
+                    )
+                elif app and hasattr(app, "ask_yes_no"):
                     res = app.ask_yes_no(
                         "Erreur de téléchargement",
-                        "Des images ont échoué. Voulez-vous modifier le cookie et relancer le téléchargement complet de ce tome ?",
+                        "Le cookie semble expiré. Mets-le à jour puis confirme la relance.",
                     )
                 else:
                     res = messagebox.askyesno(
                         "Erreur de téléchargement",
-                        "Des images ont échoué. Voulez-vous modifier le cookie et relancer le téléchargement complet de ce tome ?",
+                        "Le cookie semble expiré. Mets-le à jour puis confirme la relance.",
                     )
 
                 if cancel_event.is_set():
                     return None
 
                 if res:
-                    if app and hasattr(app, "ask_string"):
-                        new_cookie = app.ask_string(
-                            "Nouveau cookie",
-                            "Entrez le nouveau cookie cf_clearance :",
-                        )
-                    else:
-                        import tkinter.simpledialog as simpledialog
-                        new_cookie = simpledialog.askstring(
-                            "Nouveau cookie",
-                            "Entrez le nouveau cookie cf_clearance :",
-                        )
+                    refreshed_cookie = active_cookie
+                    if app and target_domain in COOKIE_DOMAINS:
+                        try:
+                            app.sync_cookie_source_for_domain(target_domain)
+                            app.persist_settings()
+                            refreshed_cookie = app.get_cookie(referer_url or "")
+                        except Exception as sync_err:
+                            logger(f"Impossible de récupérer le nouveau cookie: {sync_err}", level="warning")
 
-                    if cancel_event.is_set():
-                        return None
-
-                    new_cookie = (new_cookie or "").strip()
-                    if new_cookie:
-                        active_cookie = new_cookie
-                        if app and target_domain in COOKIE_DOMAINS:
-                            try:
-                                cookie_var = app._get_cookie_var_for_domain(target_domain)
-                                if cookie_var is None:
-                                    raise RuntimeError("Domaine cookie non supporté pour synchronisation UI.")
-                                app.run_on_ui(cookie_var.set, active_cookie)
-                                app.sync_cookie_source_for_domain(target_domain)
-                                app.persist_settings()
-                            except Exception as sync_err:
-                                logger(f"Impossible de synchroniser le nouveau cookie: {sync_err}", level="warning")
-
-                        shutil.rmtree(folder, ignore_errors=True)
+                    refreshed_cookie = (refreshed_cookie or "").strip()
+                    if refreshed_cookie:
+                        active_cookie = refreshed_cookie
+                        force_resume_after_cookie_refresh = True
                         logger(
-                            "Ancien dossier supprimé. Relancement du téléchargement avec le nouveau cookie...",
+                            "Cookie mis à jour. Relance du tome avec reprise intelligente au point d'arrêt...",
                             level="info",
                         )
                         continue
 
-                logger("Aucun cookie saisi. Le tome ne sera pas complété.", level="error")
+                logger("Relance abandonnée: cookie non mis à jour.", level="error")
             except Exception as e:
                 logger(f"Erreur durant la relance : {e}", level="error")
             return False
@@ -5351,6 +5476,182 @@ class MangaApp:
             parent=self.root,
         )
 
+    def _focus_cookie_editor_for_domain(self, domain):
+        """Bascule sur Authentification et focus le champ cookie du domaine."""
+        try:
+            self._select_config_tab("auth")
+        except Exception:
+            pass
+        entry = self._get_cookie_entry_for_domain(domain)
+        if entry is None:
+            return
+        try:
+            entry.focus_set()
+            if hasattr(entry, "icursor"):
+                entry.icursor("end")
+        except Exception:
+            pass
+
+    def _show_cookie_refresh_prompt(self, domain, volume_label, reason, done, holder):
+        """Affiche une popup non modale pour demander la mise à jour du cookie."""
+        existing = getattr(self, "cookie_refresh_prompt_window", None)
+        try:
+            if existing is not None and existing.winfo_exists():
+                existing.destroy()
+        except Exception:
+            pass
+
+        def finalize(result):
+            window = holder.get("window")
+            try:
+                if window is not None and window.winfo_exists():
+                    window.destroy()
+            except Exception:
+                pass
+            self.cookie_refresh_prompt_window = None
+            holder["result"] = bool(result)
+            done.set()
+
+        domain_label = f".{domain}" if domain else "du domaine"
+        title = "Cookie à renouveler"
+        subtitle = f"{volume_label} a rencontré un accès refusé."
+        detail = (
+            f"Le cookie {domain_label} semble expiré ou refusé.\n"
+            "Mets à jour le cookie dans l'onglet Authentification,\n"
+            "puis clique sur OK et relancer pour reprendre au même endroit."
+        )
+        if reason:
+            detail = f"{detail}\n\nCause détectée : {reason}"
+
+        win = ctk.CTkToplevel(self.root)
+        win.title(title)
+        win.transient(self.root)
+        try:
+            win.attributes("-topmost", True)
+        except Exception:
+            pass
+        win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", lambda: finalize(False))
+
+        outer = ctk.CTkFrame(
+            win,
+            fg_color=self.palette["card_bg"],
+            corner_radius=10,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        outer.pack(fill="both", expand=True, padx=12, pady=12)
+
+        ctk.CTkLabel(
+            outer,
+            text=title,
+            font=("Segoe UI Semibold", 15),
+            text_color=self.palette["text"],
+            anchor="w",
+        ).pack(fill="x", padx=14, pady=(14, 6))
+
+        ctk.CTkLabel(
+            outer,
+            text=subtitle,
+            font=("Segoe UI Semibold", 12),
+            text_color=self.palette["warning_text"],
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=14)
+
+        ctk.CTkLabel(
+            outer,
+            text=detail,
+            font=("Segoe UI", 11),
+            text_color=self.palette["muted"],
+            anchor="w",
+            justify="left",
+        ).pack(fill="x", padx=14, pady=(8, 12))
+
+        actions = ctk.CTkFrame(outer, fg_color="transparent")
+        actions.pack(fill="x", padx=14, pady=(0, 14))
+        actions.grid_columnconfigure(0, weight=1)
+        actions.grid_columnconfigure(1, weight=0)
+        actions.grid_columnconfigure(2, weight=0)
+
+        ctk.CTkButton(
+            actions,
+            text="Aller à Authentification",
+            command=lambda: self._focus_cookie_editor_for_domain(domain),
+            height=32,
+            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            text_color=self.palette["text"],
+            border_width=1,
+            border_color=self.palette["border"],
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkButton(
+            actions,
+            text="Annuler",
+            command=lambda: finalize(False),
+            height=32,
+            width=90,
+            corner_radius=6,
+            fg_color=self.palette["danger_soft"],
+            hover_color="#edd0d7",
+            text_color=self.palette["danger_text"],
+            border_width=1,
+            border_color=self.palette["danger_border"],
+        ).grid(row=0, column=1, padx=(10, 8))
+
+        ok_button = ctk.CTkButton(
+            actions,
+            text="OK et relancer",
+            command=lambda: finalize(True),
+            height=32,
+            width=120,
+            corner_radius=6,
+            fg_color=self.palette["success_soft"],
+            hover_color="#d6ebdd",
+            text_color=self.palette["success_text"],
+            border_width=1,
+            border_color=self.palette["success_border"],
+        )
+        ok_button.grid(row=0, column=2)
+
+        holder["window"] = win
+        self.cookie_refresh_prompt_window = win
+
+        try:
+            win.update_idletasks()
+            width = max(420, win.winfo_reqwidth())
+            height = max(220, win.winfo_reqheight())
+            x = self.root.winfo_rootx() + max(20, (self.root.winfo_width() - width) // 2)
+            y = self.root.winfo_rooty() + max(20, (self.root.winfo_height() - height) // 3)
+            win.geometry(f"{width}x{height}+{x}+{y}")
+        except Exception:
+            pass
+
+        self._focus_cookie_editor_for_domain(domain)
+        try:
+            ok_button.focus_set()
+        except Exception:
+            pass
+
+    def prompt_cookie_refresh(self, domain, volume_label, reason="", cancel_event=None):
+        """Attend qu'un utilisateur mette à jour le cookie puis confirme la relance."""
+        if threading.current_thread() is threading.main_thread():
+            return False
+
+        done = threading.Event()
+        holder = {"result": False, "window": None}
+        self.ui_queue.put(
+            lambda: self._show_cookie_refresh_prompt(domain, volume_label, reason, done, holder)
+        )
+
+        while not done.wait(0.2):
+            if cancel_event is not None and cancel_event.is_set():
+                self.ui_queue.put(lambda: holder.get("window") and holder["window"].destroy())
+                return False
+        return bool(holder["result"])
+
     def _reset_analysis_auth_state(self, reset_domains=COOKIE_DOMAINS, reset_ua=True, clear_label=True):
         """Réinitialise l'état d'auth d'analyse (par domaine et/ou UA)."""
         if not hasattr(self, "analysis_auth_state") or not isinstance(self.analysis_auth_state, dict):
@@ -6247,6 +6548,7 @@ class MangaApp:
         self.cover_preview = None
         self.volume_meta_by_url = {}
         self.preview_window = None
+        self.cookie_refresh_prompt_window = None
         self.preview_header_label = None
         self.preview_count_label = None
         self.preview_image_frame = None
@@ -8705,6 +9007,47 @@ class MangaApp:
         domain = self.get_domain_from_url(url)
         return self.get_request_user_agent_for_domain(domain)
 
+    def get_images_with_cookie_recovery(self, link, volume_label=None, cancel_event=None):
+        """Extrait les images en proposant un renouvellement de cookie si l'accès est refusé."""
+        safe_link = (link or "").strip()
+        safe_volume = normalize_tome_label(volume_label or "") or "Chapitre"
+        domain = self.get_domain_from_url(safe_link)
+
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise DownloadCancelled("Extraction annulée.")
+
+            cookie = self.get_cookie(safe_link)
+            ua = self.get_request_user_agent_for_url(safe_link)
+            try:
+                images = get_images(
+                    safe_link,
+                    cookie,
+                    ua,
+                    cancel_event=cancel_event,
+                )
+                return cookie, ua, images
+            except DownloadCancelled:
+                raise
+            except Exception as exc:
+                reason = str(exc)
+                if domain in COOKIE_DOMAINS and should_offer_cookie_refresh(None, reason):
+                    self.log(
+                        f"Extraction images bloquée pour {safe_volume}: {reason}",
+                        level="warning",
+                    )
+                    confirmed = self.prompt_cookie_refresh(
+                        domain,
+                        safe_volume,
+                        reason,
+                        cancel_event=cancel_event,
+                    )
+                    if confirmed:
+                        self.sync_cookie_source_for_domain(domain)
+                        self.persist_settings()
+                        continue
+                raise
+
     def get_cookie_header_for_domain(self, domain, fallback_cookie=None):
         """Retourne l'en-tête Cookie effectif (complet si disponible)."""
         if domain not in COOKIE_DOMAINS:
@@ -9307,8 +9650,33 @@ class MangaApp:
 
                 self.run_on_ui(self._set_progress_ui, 0)
 
-                ua = self.get_request_user_agent_for_url(link)
-                images = get_images(link, cookie, ua, cancel_event=self.cancel_event)
+                try:
+                    cookie, ua, images = self.get_images_with_cookie_recovery(
+                        link,
+                        volume_label=vol,
+                        cancel_event=self.cancel_event,
+                    )
+                except DownloadCancelled:
+                    break
+                except Exception as exc:
+                    reason = str(exc)
+                    self.run_on_ui(self._set_progress_detail_ui, None, None)
+                    self.log(
+                        f"Échec récupération images: {reason}",
+                        level="warning",
+                        context={"domain": domain, "tome": vol, "action": "images_fetch_failed"},
+                    )
+                    self.add_volume_error(
+                        vol,
+                        "images",
+                        reason,
+                        None,
+                        recommend_action_for_failure(None, reason),
+                    )
+                    failed.append((vol, link))
+                    completed_volumes += 1
+                    push_idle_global_eta()
+                    continue
                 self.log(
                     f"{len(images)} image(s) trouvée(s)",
                     level="info",
@@ -9464,9 +9832,28 @@ class MangaApp:
                     if self.cancel_event.is_set():
                         break
                     self.run_on_ui(self._set_current_volume_ui, vol)
-                    cookie = self.get_cookie(link)
-                    ua = self.get_request_user_agent_for_url(link)
-                    images = get_images(link, cookie, ua, cancel_event=self.cancel_event)
+                    try:
+                        cookie, ua, images = self.get_images_with_cookie_recovery(
+                            link,
+                            volume_label=vol,
+                            cancel_event=self.cancel_event,
+                        )
+                    except DownloadCancelled:
+                        break
+                    except Exception as exc:
+                        images = []
+                        reason = str(exc)
+                        self.log(
+                            f"Retry échoué: récupération images impossible ({vol}) - {reason}",
+                            level="error",
+                        )
+                        self.add_volume_error(
+                            vol,
+                            "retry",
+                            reason,
+                            None,
+                            recommend_action_for_failure(None, reason),
+                        )
                     if images:
                         self.log(f"Retry réussi: {vol}", level="info")
                         retry_error_state = {"reported": False}
