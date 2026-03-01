@@ -102,6 +102,7 @@ Captures d'ecran :
 </p>
 <p align="center">
   <img alt="Capture 4" src="assets/screenshot4.png" width="48%" />
+  <img alt="Capture terminal" src="assets/screenshot_terminal.png" width="48%" />
 </p>
 
 ## Nouveautes recentes
