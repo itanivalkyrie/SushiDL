@@ -7,6 +7,35 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.4.0] - 2026-03-01
+
+### Ameliorations
+- ajout d'un mode terminal interactif lance via `python SushiDL.py --cli`,
+- menu principal terminal,
+- ecran `Options / Cookies`,
+- ecran `URL / Chapitres / Telechargement`,
+- ecran `Telechargement`,
+- ecran `Erreurs`,
+- selection par plage, filtre texte, copie/export des erreurs,
+- telechargement reel avec progression, annulation et resume final.
+- TUI:
+  - navigation clavier et souris amelioree,
+  - mode compact automatique,
+  - avertissement quand le terminal est trop petit,
+  - ecran workflow compacte pour garder les actions visibles.
+
+### Corrections
+- Preview GUI:
+  - limitation de l'extraction aux premieres pages utiles en mode preview,
+  - suppression du warning `CTkLabel ... Given image is not CTkImage` via usage de `CTkImage`.
+- TUI:
+  - correction des `DuplicateIds` dans les listes,
+  - correction du clic souris dans la liste chapitres/tomes,
+  - durcissement des modales de confirmation et de l'export d'erreurs.
+
+### Dependances
+- `requirements.txt` inclut maintenant `textual>=0.82.0`.
+
 ## [11.3.0] - 2026-02-28
 
 ### Ameliorations

@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.3.0`
+Version actuelle : `11.4.0`
 
 ## Ce qui change sur `main`
 
@@ -36,7 +36,61 @@ Concretement :
 - rendu dense optimise et virtualise pour les gros catalogues
 - popup de preview rapide `3 a 5` pages depuis le listing
 - indicateurs de chargement pendant l'analyse, le rendu de liste et la preview
-- `requirements.txt` inclut maintenant `customtkinter>=5.2.2`
+- `requirements.txt` inclut maintenant :
+  - `customtkinter>=5.2.2`
+  - `textual>=0.82.0`
+
+## Mode terminal
+
+`main` embarque maintenant aussi une interface terminal interactive basee sur `Textual`.
+
+Objectif :
+- utiliser SushiDL sans GUI
+- piloter les cookies, l'analyse, la selection et le telechargement uniquement au clavier
+- garder une interface dense mais lisible sur gros catalogues
+
+Lancement :
+
+```bash
+python SushiDL.py --cli
+```
+
+Fonctionnalites CLI disponibles :
+- menu principal terminal
+- ecran `Options / Cookies`
+- edition et test des cookies par domaine
+- edition du `User-Agent`
+- sauvegarde des options runtime
+- ecran `URL / Chapitres / Telechargement`
+- analyse d'URL reelle via le backend existant
+- filtre texte dans la liste
+- selection / deselection / inversion
+- selection par plage (`1-20`, `50+`, `1,4,7`, etc.)
+- telechargement terminal reel avec progression
+- annulation du telechargement
+- ecran d'erreurs dedie
+- copie et export des erreurs
+- aides contextuelles et modales de confirmation
+- adaptation partielle aux terminaux plus petits avec mode compact et avertissement de taille
+
+Navigation terminal :
+- `Tab` / `Shift+Tab` : changer de zone
+- `Fleches` ou `J/K` : naviguer
+- `Entree` / clic souris : selectionner ou activer
+- `Espace` : basculer la ligne courante dans la liste
+- `F5` : lancer l'analyse
+- `/` : focus filtre
+- `A` : tout cocher
+- `N` : tout decocher
+- `I` : inverser
+- `R` : selection par plage
+- `T` : telecharger
+- `Esc` : retour
+- `Q` : quitter
+- `H` : aide
+
+Dependance supplementaire :
+- `textual>=0.82.0`
 
 ## Apercu visuel
 
@@ -51,6 +105,21 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.4.0
+- Ajout d'un mode terminal interactif via `python SushiDL.py --cli`.
+- Ecrans CLI:
+  - `Options / Cookies`
+  - `URL / Chapitres / Telechargement`
+  - `Telechargement`
+  - `Erreurs`
+- Navigation clavier + souris dans la liste.
+- Selection par plage et filtre texte.
+- Telechargement reel avec progression, annulation et resume de fin.
+- Copie / export des erreurs.
+- Mode compact automatique et avertissement si le terminal est trop petit.
+- Correction de la preview GUI pour limiter l'extraction aux `4/5` premieres pages utiles.
+- Utilisation de `CTkImage` dans la preview pour eviter le warning `CustomTkinter` sur les ecrans HiDPI.
 
 ### 11.3.0
 - Ajout d'une icone de fenetre native `assets/sushidl.ico` multi-tailles.
@@ -144,10 +213,16 @@ Formats d'URL catalogue attendus :
 - Creation optionnelle d'archives CBZ.
 - Journal unifie GUI + terminal avec filtres.
 - Tableau d'erreurs par tome avec raison technique et action recommande.
-- Branche `CustomTkinter` avec interface plus sobre, onglet `Telechargement` unifie et rendu dense optimise.
+- Interface `CustomTkinter` avec onglet `Telechargement` unifie et rendu dense optimise.
 - Affichage optimise des tres grands catalogues avec filtre rapide, rendu mutualise sur canvas et scroll stabilise.
 - Preview rapide integree par chapitre/tome via popup dediee et loupe dans le listing.
+- Mode terminal interactif `--cli` avec gestion des cookies, analyse, selection, telechargement et erreurs.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
+- Branche `tui-cli-mode`:
+  - mode terminal interactif `--cli`,
+  - gestion des cookies et options en terminal,
+  - workflow URL / selection / telechargement,
+  - ecran erreurs dedie avec copie / export.
 
 ## Prerequis
 
@@ -187,6 +262,7 @@ Dependances Python actuelles :
 - `curl_cffi>=0.10.0`
 - `Pillow>=11.3.0`
 - `requests>=2.32.3`
+- `textual>=0.82.0`
 
 ## Lancement
 
@@ -196,10 +272,22 @@ Sous Windows :
 python SushiDL.py
 ```
 
+Mode terminal interactif :
+
+```bash
+python SushiDL.py --cli
+```
+
 Sous Linux :
 
 ```bash
 python3 SushiDL.py
+```
+
+Mode terminal interactif :
+
+```bash
+python3 SushiDL.py --cli
 ```
 
 ## Authentification manuelle

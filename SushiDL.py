@@ -448,7 +448,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.3.0"
+APP_VERSION = "11.4.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1874,6 +1874,7 @@ def download_volume(
     smart_resume_enabled=True,
     error_callback=None,
     output_root=ROOT_FOLDER,
+    prompt_cookie_retry=True,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
@@ -2056,6 +2057,10 @@ def download_volume(
 
             if not can_prompt_cookie_retry:
                 logger("Relance cookie déjà tentée une fois; abandon du tome.", level="warning")
+                return False
+
+            if not prompt_cookie_retry:
+                logger("Relance cookie interactive désactivée pour ce mode d'exécution.", level="warning")
                 return False
 
             can_prompt_cookie_retry = False
@@ -9130,7 +9135,144 @@ class MangaApp:
             self.log(f"Erreur sauvegarde: {e}", level="error")
 
 
+class SushiCliBackend:
+    """Pont minimal entre le backend SushiDL et la future interface terminale."""
+
+    def load_settings(self):
+        from cli.state import CliState
+
+        (
+            cookies,
+            ua,
+            cbz_enabled,
+            last_url,
+            webp2jpg_enabled,
+            smart_resume_enabled,
+            verbose_logs,
+            _cookie_sources,
+            _cookie_user_agents,
+            _cookie_headers,
+            _cookie_updated_at,
+        ) = load_cookie_cache()
+
+        cookie_status = {
+            domain: ("PRESENT" if (cookies.get(domain) or "").strip() else "VIDE")
+            for domain in COOKIE_DOMAINS
+        }
+        return CliState(
+            cookies=dict(cookies),
+            user_agent=(ua or DEFAULT_USER_AGENT).strip(),
+            cbz_enabled=bool(cbz_enabled),
+            webp2jpg_enabled=bool(webp2jpg_enabled),
+            smart_resume_enabled=bool(smart_resume_enabled),
+            verbose_logs=bool(verbose_logs),
+            current_url=(last_url or "").strip(),
+            cookie_status=cookie_status,
+        )
+
+    def save_settings(self, state):
+        MangaApp.last_url_used = (state.current_url or "").strip()
+        save_cookie_cache(
+            cookies_dict=dict(state.cookies),
+            ua=(state.user_agent or DEFAULT_USER_AGENT).strip(),
+            cbz=bool(state.cbz_enabled),
+            webp2jpg_enabled=bool(state.webp2jpg_enabled),
+            smart_resume_enabled=bool(state.smart_resume_enabled),
+            verbose_logs=bool(state.verbose_logs),
+        )
+
+    def test_cookie(self, domain, cookie, ua):
+        safe_domain = (domain or "").strip().lower()
+        safe_cookie = (cookie or "").strip()
+        safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+        if not safe_cookie:
+            return False
+
+        if safe_domain in ("fr", "net"):
+            return test_cookie_validity(
+                safe_domain,
+                safe_cookie,
+                safe_ua,
+                probe_url=STARTUP_COOKIE_LISTING_PROBE_URLS.get(safe_domain),
+            )
+
+        if safe_domain in ("origines", "hentai"):
+            try:
+                probe_url = STARTUP_COOKIE_LISTING_PROBE_URLS.get(safe_domain)
+                response = make_request(probe_url, safe_cookie, safe_ua)
+                return int(getattr(response, "status_code", 0) or 0) == 200
+            except Exception:
+                return False
+        return None
+
+    def analyze_url(self, url, cookies, ua):
+        safe_url = (url or "").strip()
+        domain = get_cookie_domain_from_url(safe_url)
+        if domain not in COOKIE_DOMAINS:
+            raise ValueError("URL non supportee.")
+        cookie = (cookies.get(domain) or "").strip()
+        safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+        title, pairs = fetch_manga_data(
+            safe_url,
+            cookie,
+            safe_ua,
+            emit_logs=False,
+        )
+        return title, domain, pairs
+
+    def resolve_domain(self, url):
+        return get_cookie_domain_from_url((url or "").strip())
+
+    def get_images_for_download(self, url, cookie, ua, cancel_event=None):
+        return get_images(
+            (url or "").strip(),
+            (cookie or "").strip(),
+            (ua or DEFAULT_USER_AGENT).strip(),
+            cancel_event=cancel_event,
+            emit_logs=False,
+        )
+
+    def download_selected_volume(
+        self,
+        item,
+        image_urls,
+        title,
+        cookie,
+        ua,
+        output_dir,
+        logger,
+        update_progress,
+        error_callback,
+        cancel_event,
+        cbz_enabled,
+        webp2jpg_enabled,
+        smart_resume_enabled,
+    ):
+        return download_volume(
+            item.label,
+            list(image_urls or []),
+            title,
+            (cookie or "").strip(),
+            (ua or DEFAULT_USER_AGENT).strip(),
+            logger,
+            cancel_event,
+            cbz_enabled=bool(cbz_enabled),
+            update_progress=update_progress,
+            webp2jpg_enabled=bool(webp2jpg_enabled),
+            referer_url=(item.url or "").strip(),
+            smart_resume_enabled=bool(smart_resume_enabled),
+            error_callback=error_callback,
+            output_root=output_dir,
+            prompt_cookie_retry=False,
+        )
+
+
 # Point d'entrée de l'application
 if __name__ == "__main__":
-    runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
-    MangaApp()
+    if "--cli" in sys.argv[1:]:
+        from cli.app import run_cli_app
+
+        run_cli_app(SushiCliBackend())
+    else:
+        runtime_log(f"Lancement de {APP_NAME} v{APP_VERSION}", level="info")
+        MangaApp()
