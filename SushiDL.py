@@ -223,6 +223,8 @@ def get_supported_site_from_host(host):
         return "mangas-origines.fr"
     if value == "hentai-origines.fr" or value.endswith(".hentai-origines.fr"):
         return "hentai-origines.fr"
+    if value == "toonfr.com" or value.endswith(".toonfr.com"):
+        return "toonfr.com"
     return ""
 
 
@@ -271,6 +273,7 @@ def get_cookie_domain_from_host(host):
         "sushiscan.net": "net",
         "mangas-origines.fr": "origines",
         "hentai-origines.fr": "hentai",
+        "toonfr.com": "toonfr",
     }
     return mapping.get(site, "")
 
@@ -303,6 +306,8 @@ def is_valid_catalogue_url(url):
         match = re.match(r"^/oeuvre/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     elif site == "hentai-origines.fr":
         match = re.match(r"^/manga/([^/?#]+)/?$", path, flags=re.IGNORECASE)
+    elif site == "toonfr.com":
+        match = re.match(r"^/webtoon/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     else:
         return False
 
@@ -448,8 +453,8 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.4.0"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
+APP_VERSION = "11.5.0"
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
@@ -470,7 +475,7 @@ PREVIEW_PAGE_LIMIT = 5
 PREVIEW_CACHE_MAX_ITEMS = 12
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
-COOKIE_DOMAINS = ("fr", "net", "origines", "hentai")
+COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr")
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
 COVER_TARGET_HEIGHT = 150
@@ -491,6 +496,7 @@ DEFAULT_APP_CONFIG = {
         "cookie_net": "https://sushiscan.net",
         "cookie_origines": "https://mangas-origines.fr",
         "cookie_hentai": "https://hentai-origines.fr",
+        "cookie_toonfr": "https://toonfr.com",
         "user_agent": "https://httpbin.org/user-agent",
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
         "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
@@ -501,6 +507,7 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "net": "https://sushiscan.net/catalogue/one-piece/",
     "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
     "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
+    "toonfr": "https://toonfr.com/webtoon/un-xy-dans-un-monde-de-xx/",
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
@@ -772,8 +779,19 @@ def sanitize_cookie_header(header_value):
 
 
 def build_cf_clearance_cookie_header(cookie_value):
-    """Construit un header Cookie minimal à partir de cf_clearance."""
-    safe_cookie = sanitize_cookie_value(cookie_value)
+    """Construit un header Cookie a partir d'un cf_clearance ou d'un header complet."""
+    raw = str(cookie_value or "").strip()
+    if not raw:
+        return ""
+
+    # Accepte soit:
+    # - la valeur brute de cf_clearance
+    # - un cookie unique de type name=value
+    # - un header complet de type name=value; name2=value2
+    if ";" in raw or re.match(r"^[A-Za-z0-9!#$%&'*+.^_`|~-]+\s*=", raw):
+        return sanitize_cookie_header(raw)
+
+    safe_cookie = sanitize_cookie_value(raw)
     if not safe_cookie:
         return ""
     return f"cf_clearance={safe_cookie}"
@@ -906,13 +924,27 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
       - http_status: int|None
     """
     result = {"cookie_valid": False, "challenge_state": "unknown", "http_status": None}
-    if domain not in ("fr", "net"):
+    probe_urls = {
+        "fr": "https://sushiscan.fr/catalogue/one-piece/",
+        "net": "https://sushiscan.net/catalogue/one-piece/",
+        "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
+        "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
+        "toonfr": "https://toonfr.com/webtoon/un-xy-dans-un-monde-de-xx/",
+    }
+    if domain not in probe_urls:
         return result
 
-    test_url = probe_url or f"https://sushiscan.{domain}/"
-    expected_host = f"sushiscan.{domain}"
-    if expected_host not in test_url:
-        test_url = f"https://{expected_host}/"
+    test_url = (probe_url or probe_urls.get(domain) or "").strip()
+    if not test_url:
+        return result
+
+    expected_site = get_supported_site_from_host(urlparse(test_url).hostname or "")
+    if not expected_site:
+        expected_site = get_supported_site_from_url(probe_urls.get(domain, ""))
+    if expected_site:
+        current_site = get_supported_site_from_url(test_url)
+        if current_site != expected_site:
+            test_url = probe_urls.get(domain, test_url)
 
     try:
         r = make_request(test_url, cookie or "", ua)
@@ -929,6 +961,10 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
                 "chapternum",
                 "readerarea",
                 "ts_reader.run",
+                "reading-content",
+                "listing-chapters_wrap",
+                "wp-manga-chapter",
+                "toonfr",
             )
         )
         challenge_blocking = is_cloudflare_challenge_page(text) and not has_content_markers
@@ -1198,6 +1234,10 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         match_slug = re.match(r"^/manga/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
         if match_slug:
             source_slug = match_slug.group(1).strip()
+    elif source_site == "toonfr.com":
+        match_slug = re.match(r"^/webtoon/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
     pairs = []
 
     def is_same_site(full_link):
@@ -1295,17 +1335,19 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
 
 
 def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
-    """Récupère les chapitres via l'endpoint AJAX Madara (mangas/hentai-origines)."""
+    """Récupère les chapitres via l'endpoint AJAX Madara (origines, hentai, toonfr)."""
     site = get_supported_site_from_url(url)
-    if site not in ("mangas-origines.fr", "hentai-origines.fr"):
+    if site not in ("mangas-origines.fr", "hentai-origines.fr", "toonfr.com"):
         return []
 
     parsed = urlparse(url)
     base_url = (url if url.endswith("/") else f"{url}/").strip()
     if site == "mangas-origines.fr":
         path_prefix = "oeuvre"
-    else:
+    elif site == "hentai-origines.fr":
         path_prefix = "manga"
+    else:
+        path_prefix = "webtoon"
 
     match_slug = re.match(rf"^/{path_prefix}/([^/?#]+)/?$", parsed.path or "", flags=re.IGNORECASE)
     if not match_slug:
@@ -1339,7 +1381,10 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
     max_page = 1
     page = 1
     while page <= max_page:
-        endpoint = urljoin(base_url, f"ajax/chapters/?t={page}")
+        if site == "toonfr.com":
+            endpoint = urljoin(base_url, "ajax/chapters/")
+        else:
+            endpoint = urljoin(base_url, f"ajax/chapters/?t={page}")
         try:
             response = requests.post(
                 endpoint,
@@ -1362,7 +1407,7 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
             raw_page = (a.get("data-page") or "").strip()
             if raw_page.isdigit():
                 page_ids.append(int(raw_page))
-        if page_ids:
+        if page_ids and site != "toonfr.com":
             max_page = max(max_page, max(page_ids))
 
         for a in soup.select("li.wp-manga-chapter a[href], .listing-chapters_wrap a[href]"):
@@ -1383,6 +1428,8 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
                 pairs.append((label, full_link))
 
         page += 1
+        if site == "toonfr.com":
+            break
 
     seen = set()
     unique_pairs = []
@@ -1395,7 +1442,11 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
     if unique_pairs:
         unique_pairs.reverse()
         if emit_logs:
-            log_domain = "origines" if site == "mangas-origines.fr" else "hentai"
+            log_domain = (
+                "origines"
+                if site == "mangas-origines.fr"
+                else "hentai" if site == "hentai-origines.fr" else "toonfr"
+            )
             runtime_log(
                 f"{len(unique_pairs)} tomes/chapitres détectés via AJAX.",
                 level="info",
@@ -1435,7 +1486,7 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
     if callable(progress_callback):
         progress_callback("parse")
     site = get_supported_site_from_url(url)
-    if site in ("mangas-origines.fr", "hentai-origines.fr"):
+    if site in ("mangas-origines.fr", "hentai-origines.fr", "toonfr.com"):
         parse_error = None
         try:
             title, pairs = parse_manga_data_from_html(
@@ -1757,6 +1808,8 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         domain = "origines"
     elif site == "hentai-origines.fr":
         domain = "hentai"
+    elif site == "toonfr.com":
+        domain = "toonfr"
     else:
         domain = normalize_hostname(urlparse(link).hostname) or "-"
 
@@ -4508,23 +4561,34 @@ class MangaApp:
         self._sync_volume_card_style(item)
 
     def _create_compact_volume_item(self, parent, volume_label, var, index):
+        outer_radius = 4
         item = ctk.CTkFrame(
             parent,
             fg_color=self.palette["card_bg"],
-            corner_radius=6,
+            corner_radius=outer_radius,
             border_width=1,
-            border_color=self.palette["panel_shell"],
-            height=38,
+            border_color=self.palette["border"],
+            height=40,
         )
         item.grid_propagate(False)
-        item.grid_rowconfigure(0, minsize=28)
-        item.grid_columnconfigure(0, weight=0)
-        item.grid_columnconfigure(1, weight=1)
-        item.grid_columnconfigure(2, weight=0)
-        item.grid_columnconfigure(3, weight=0)
+        item.grid_rowconfigure(0, weight=1)
+        item.grid_columnconfigure(0, weight=1)
+
+        content = ctk.CTkFrame(
+            item,
+            fg_color=self.palette["card_bg"],
+            corner_radius=max(0, outer_radius - 1),
+            border_width=0,
+        )
+        content.grid(row=0, column=0, sticky="nsew", padx=1, pady=1)
+        content.grid_rowconfigure(0, minsize=28)
+        content.grid_columnconfigure(0, weight=0)
+        content.grid_columnconfigure(1, weight=1)
+        content.grid_columnconfigure(2, weight=0)
+        content.grid_columnconfigure(3, weight=0)
 
         index_label = ctk.CTkLabel(
-            item,
+            content,
             text=str(index + 1),
             width=22,
             height=18,
@@ -4536,7 +4600,7 @@ class MangaApp:
         index_label.grid(row=0, column=0, padx=(8, 6), pady=7)
 
         title_label = ctk.CTkLabel(
-            item,
+            content,
             text=volume_label,
             fg_color="transparent",
             text_color=self.palette["text"],
@@ -4546,7 +4610,7 @@ class MangaApp:
         title_label.grid(row=0, column=1, sticky="ew", pady=6)
 
         preview_button = ctk.CTkButton(
-            item,
+            content,
             text="⌕",
             width=24,
             height=22,
@@ -4562,7 +4626,7 @@ class MangaApp:
         preview_button.grid(row=0, column=2, padx=(6, 0), pady=5)
 
         checkbox = ctk.CTkCheckBox(
-            item,
+            content,
             text="",
             variable=var,
             width=20,
@@ -4580,10 +4644,12 @@ class MangaApp:
 
         toggle = lambda _event=None, _widget=item: self._toggle_volume_widget(_widget)
         item.bind("<Button-1>", toggle)
+        content.bind("<Button-1>", toggle)
         index_label.bind("<Button-1>", toggle)
         title_label.bind("<Button-1>", toggle)
 
         item.is_compact_volume_item = True
+        item.volume_content_frame = content
         item.volume_title_label = title_label
         item.volume_index_label = index_label
         item.volume_preview_button = preview_button
@@ -5151,6 +5217,18 @@ class MangaApp:
         self.run_on_ui(self.update_runtime_status)
         self._schedule_cookie_listing_probe(domains=("hentai",), delay_ms=1200)
 
+    def _schedule_auth_status_update_cookie_toonfr(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .toonfr sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["toonfr"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["toonfr"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("toonfr",), delay_ms=1200)
+
     def _schedule_auth_status_update_url(self, *_args):
         """Rafraîchit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
         if not hasattr(self, "cookie_sources"):
@@ -5483,6 +5561,7 @@ class MangaApp:
         self.cookie_net_label_var.set("Cookie (.net) :")
         self.cookie_origines_label_var.set("Cookie (.origines) :")
         self.cookie_hentai_label_var.set("Cookie (.hentai-origines 🔞) :")
+        self.cookie_toonfr_label_var.set("Cookie (.toonfr 🔞) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -5496,7 +5575,14 @@ class MangaApp:
             self._refresh_auth_labels(active_domain=active_domain)
             if not all(
                 hasattr(self, name)
-                for name in ("cookie_fr_status", "cookie_net_status", "cookie_origines_status", "cookie_hentai_status", "ua_status")
+                for name in (
+                    "cookie_fr_status",
+                    "cookie_net_status",
+                    "cookie_origines_status",
+                    "cookie_hentai_status",
+                    "cookie_toonfr_status",
+                    "ua_status",
+                )
             ):
                 return
 
@@ -5625,6 +5711,7 @@ class MangaApp:
                 "net": "https://sushiscan.net/",
                 "origines": "https://mangas-origines.fr/",
                 "hentai": "https://hentai-origines.fr/",
+                "toonfr": "https://toonfr.com/",
             }
             probe_url = ua_probe_urls.get(domain, "")
             if not probe_url:
@@ -5808,10 +5895,12 @@ class MangaApp:
         self.cookie_net = tk.StringVar()
         self.cookie_origines = tk.StringVar()
         self.cookie_hentai = tk.StringVar()
+        self.cookie_toonfr = tk.StringVar()
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
         self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines 🔞) :")
+        self.cookie_toonfr_label_var = tk.StringVar(value="Cookie (.toonfr 🔞) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
@@ -5841,10 +5930,12 @@ class MangaApp:
         self.cookie_net.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_origines.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_hentai.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_toonfr.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_auth_status_update_cookie_fr)
         self.cookie_net.trace_add("write", self._schedule_auth_status_update_cookie_net)
         self.cookie_origines.trace_add("write", self._schedule_auth_status_update_cookie_origines)
         self.cookie_hentai.trace_add("write", self._schedule_auth_status_update_cookie_hentai)
+        self.cookie_toonfr.trace_add("write", self._schedule_auth_status_update_cookie_toonfr)
         self.ua.trace_add("write", self._schedule_auth_status_update)
         self.url.trace_add("write", self._schedule_auth_status_update_url)
         self.verbose_logs.trace_add("write", self._refresh_log_option_cache)
@@ -5869,6 +5960,7 @@ class MangaApp:
         self.cookie_net.set(cookies.get("net", ""))
         self.cookie_origines.set(cookies.get("origines", ""))
         self.cookie_hentai.set(cookies.get("hentai", ""))
+        self.cookie_toonfr.set(cookies.get("toonfr", ""))
         runtime_log(f"{APP_NAME} v{APP_VERSION}", level="info")
         runtime_log(f"Cache cookie : {COOKIE_CACHE_PATH}", level="info")
         runtime_log(f"Config : {CONFIG_PATH}", level="info")
@@ -6998,6 +7090,30 @@ class MangaApp:
 
         ctk.CTkLabel(
             auth_surface,
+            textvariable=self.cookie_toonfr_label_var,
+            text_color=self.palette["text"],
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
+        )
+        self.cookie_toonfr_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_toonfr,
+            font=font_entry,
+            height=36,
+            corner_radius=6,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
+        )
+        self.cookie_toonfr_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_toonfr_status = create_ctk_badge(auth_surface)
+        self.cookie_toonfr_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
+        row += 1
+
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.ua_label_var,
             text_color=self.palette["text"],
             font=font_label,
@@ -7291,7 +7407,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞)",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞)",
             None,
         )
 
@@ -7897,6 +8013,7 @@ class MangaApp:
             "cookie_net_label_var",
             "cookie_origines_label_var",
             "cookie_hentai_label_var",
+            "cookie_toonfr_label_var",
             "ua_label_var",
         ):
             var = getattr(self, var_name, None)
@@ -8178,6 +8295,7 @@ class MangaApp:
         cookie_net_link = get_manual_link("cookie_net", "https://sushiscan.net")
         cookie_origines_link = get_manual_link("cookie_origines", "https://mangas-origines.fr")
         cookie_hentai_link = get_manual_link("cookie_hentai", "https://hentai-origines.fr")
+        cookie_toonfr_link = get_manual_link("cookie_toonfr", "https://toonfr.com")
         self._attach_link_placeholder(
             self.cookie_fr_entry,
             self.cookie_fr,
@@ -8203,6 +8321,12 @@ class MangaApp:
             cookie_hentai_link,
         )
         self._attach_link_placeholder(
+            self.cookie_toonfr_entry,
+            self.cookie_toonfr,
+            'Cookie toonfr.com: cf_clearance seul ou header Cookie complet (🔞).',
+            cookie_toonfr_link,
+        )
+        self._attach_link_placeholder(
             self.ua_entry,
             self.ua,
             'Cliquer ici pour accéder à : Votre User-Agent (copier/coller seulement la partie à droite entre les "" )',
@@ -8220,10 +8344,12 @@ class MangaApp:
             self.cookie_origines_entry.configure(show=show_char)
         if hasattr(self, "cookie_hentai_entry"):
             self.cookie_hentai_entry.configure(show=show_char)
+        if hasattr(self, "cookie_toonfr_entry"):
+            self.cookie_toonfr_entry.configure(show=show_char)
 
 
     def get_domain_from_url(self, url):
-        """Retourne le domaine cookie interne: fr/net/origines."""
+        """Retourne le domaine cookie interne: fr/net/origines/hentai/toonfr."""
         return get_cookie_domain_from_url(url)
 
     def _get_cookie_var_for_domain(self, domain):
@@ -8233,6 +8359,7 @@ class MangaApp:
             "net": getattr(self, "cookie_net", None),
             "origines": getattr(self, "cookie_origines", None),
             "hentai": getattr(self, "cookie_hentai", None),
+            "toonfr": getattr(self, "cookie_toonfr", None),
         }
         return mapping.get(domain)
 
@@ -8243,6 +8370,7 @@ class MangaApp:
             "net": getattr(self, "cookie_net_entry", None),
             "origines": getattr(self, "cookie_origines_entry", None),
             "hentai": getattr(self, "cookie_hentai_entry", None),
+            "toonfr": getattr(self, "cookie_toonfr_entry", None),
         }
         return mapping.get(domain)
 
@@ -8253,6 +8381,7 @@ class MangaApp:
             "net": getattr(self, "cookie_net_status", None),
             "origines": getattr(self, "cookie_origines_status", None),
             "hentai": getattr(self, "cookie_hentai_status", None),
+            "toonfr": getattr(self, "cookie_toonfr_status", None),
         }
         return mapping.get(domain)
 
@@ -8414,7 +8543,7 @@ class MangaApp:
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞).",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞).",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
@@ -9189,7 +9318,7 @@ class SushiCliBackend:
         if not safe_cookie:
             return False
 
-        if safe_domain in ("fr", "net"):
+        if safe_domain in ("fr", "net", "toonfr"):
             return test_cookie_validity(
                 safe_domain,
                 safe_cookie,
