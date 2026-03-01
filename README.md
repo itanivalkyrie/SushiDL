@@ -202,11 +202,6 @@ Formats d'URL catalogue attendus :
 - Preview rapide integree par chapitre/tome via popup dediee et loupe dans le listing.
 - Mode terminal interactif `--cli` avec gestion des cookies, analyse, selection, telechargement et erreurs.
 - Sauvegarde persistante des parametres dans `cookie_cache.json`.
-- Branche `tui-cli-mode`:
-  - mode terminal interactif `--cli`,
-  - gestion des cookies et options en terminal,
-  - workflow URL / selection / telechargement,
-  - ecran erreurs dedie avec copie / export.
 
 ## Prerequis
 
