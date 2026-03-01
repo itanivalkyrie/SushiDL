@@ -1185,6 +1185,21 @@ def download_image(
         return
 
 
+def normalize_manga_title_case(title):
+    """Force au minimum une majuscule initiale si le titre n'en contient aucune."""
+    normalized_title = repair_mojibake_text(str(title or "").strip())
+    if not normalized_title:
+        return ""
+    if any(char.isalpha() and char.isupper() for char in normalized_title):
+        return normalized_title
+    title_chars = list(normalized_title)
+    for index, char in enumerate(title_chars):
+        if char.isalpha():
+            title_chars[index] = char.upper()
+            break
+    return "".join(title_chars)
+
+
 def extract_manga_title_from_html(url, html_content):
     """Extrait un titre de manga/œuvre depuis le HTML source."""
     html_content = html_content or ""
@@ -1193,17 +1208,17 @@ def extract_manga_title_from_html(url, html_content):
     if title_tag:
         title = title_tag.get_text(" ", strip=True)
         if title:
-            return title
+            return normalize_manga_title_case(title)
     parsed_title = parse_lr(
         html_content, '<h1 class="entry-title" itemprop="name">', "</h1>", False
     )
     title = html.unescape(parsed_title) if parsed_title else ""
     if title:
-        return title
+        return normalize_manga_title_case(title)
 
     path = (urlparse(url).path or "").strip("/")
     if path:
-        return path.split("/")[-1].replace("-", " ").strip() or "Sans titre"
+        return normalize_manga_title_case(path.split("/")[-1].replace("-", " ").strip() or "Sans titre")
     return "Sans titre"
 
 
@@ -5502,7 +5517,7 @@ class MangaApp:
         if not hasattr(self, "source_title_var"):
             return
         raw_title = self.title if title is None else title
-        safe_title = repair_mojibake_text(str(raw_title or "").strip())
+        safe_title = normalize_manga_title_case(raw_title)
         if not safe_title:
             safe_title = "Manga/Manhwa/Comics..."
         self.source_title_var.set(safe_title)
