@@ -131,43 +131,26 @@ Captures d'ecran :
   - `assets/sushi_icon_source.png`
   - `assets/sushidl_icon_preview.png`
 
-### 11.2.11
-- Ajout d'une previsualisation integree des chapitres/tomes:
-  - bouton loupe verte dans la liste dense,
-  - ouverture d'une popup dediee,
-  - chargement de `3 a 5` premieres pages,
-  - navigation `Precedent / Suivant`,
-  - cache memoire leger pour reouvrir rapidement une preview deja chargee.
-- Ajout d'indicateurs de chargement legers:
-  - spinner dans le statut d'analyse,
-  - overlay de chargement au centre de la liste pendant la recuperation / le rendu,
-  - spinner dans la popup de preview pendant le chargement des pages.
-
-### 11.2.10
-- Reorganisation complete de l'interface `CustomTkinter` autour d'une seule barre d'onglets en haut :
-  - `Telechargement`
-  - `Journal`
-  - `Erreurs`
-  - `Authentification`
-  - `Options`
-- Fusion du flux principal dans l'onglet `Telechargement` :
-  - bloc source,
+### Resume des versions precedentes
+- Refonte `CustomTkinter` avec interface plus sobre, plus lisible et barre d'onglets unique.
+- Onglet `Telechargement` unifie:
+  - source,
   - liste tomes / chapitres,
-  - barre d'actions,
+  - actions,
   - progression runtime.
-- Le rendu principal conserve uniquement le mode dense optimise, plus stable et plus rapide sur les gros catalogues.
-- Gros catalogues:
-  - rendu canvas mutualise,
-  - scroll et filtre stabilises,
-  - disparition des sauts visuels et des elements qui disparaissent au scroll.
-- Onglet `Telechargement` retravaille visuellement:
-  - toolbar plus compacte,
-  - progression plus lisible,
-  - bloc source mieux integre.
-
-### 11.2.9
-- Refonte visuelle `CustomTkinter` vers un rendu plus sobre, plus lisible et plus homogene.
-- Onglets `Journal / Authentification / Options` et `Tomes / Chapitres / Erreurs` harmonises avec un vrai comportement de notebook.
+- Rendu dense optimise pour les gros catalogues:
+  - virtualisation,
+  - filtre rapide,
+  - scroll stabilise.
+- Preview integree des chapitres/tomes:
+  - popup dediee,
+  - `3 a 5` premieres pages,
+  - indicateurs de chargement.
+- Stabilisation technique:
+  - timeouts UI mieux geres,
+  - sanitation cookies / headers,
+  - annulation plus reactive,
+  - logs moins bloquants.
 - Toolbar de selection compactee:
   - compteur fusionne (`1/1000 elements`),
   - controle `Auto / Dense / Confort` plus lisible,
