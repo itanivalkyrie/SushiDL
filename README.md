@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.6.0`
+Version actuelle : `11.6.1`
 
 ## Ce qui change sur `main`
 
@@ -106,6 +106,16 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.6.1
+- OrtegaScans :
+  - recuperation de la liste complete des chapitres depuis les donnees embarquees de la page,
+  - plus de limitation a la tranche visible avant clic sur `Charger plus`.
+- Telechargement GUI :
+  - si un cookie expire ou qu'un `HTTP 403` bloque un chapitre, une popup invite a mettre a jour le cookie,
+  - apres validation, le telechargement reprend au meme chapitre sans repartir de zero.
+- Titres :
+  - si un titre source ne contient aucune majuscule, SushiDL applique au moins une majuscule initiale propre.
 
 ### 11.6.0
 - Ajout du support de `https://ortegascans.fr`.

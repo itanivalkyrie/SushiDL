@@ -7,6 +7,18 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.6.1] - 2026-03-01
+
+### Corrections
+- OrtegaScans :
+  - recuperation de la liste complete des chapitres depuis les donnees `initialData` embarquees dans la page,
+  - plus de limitation a la tranche visible avant clic sur `Charger plus`.
+- Telechargement GUI :
+  - ajout d'une popup de relance quand un cookie expire ou qu'un `HTTP 403` bloque un chapitre,
+  - apres mise a jour du cookie, la reprise se fait au meme chapitre sans reinitialiser tout le lot.
+- Titres :
+  - si un titre detecte ne contient aucune majuscule, SushiDL applique au moins une majuscule initiale.
+
 ## [11.6.0] - 2026-03-01
 
 ### Ameliorations
