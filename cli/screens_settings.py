@@ -79,8 +79,8 @@ class SettingsScreen(Screen):
                 "fr": ".fr",
                 "net": ".net",
                 "origines": ".origines",
-                "hentai": ".hentai-origines [18+]",
-                "toonfr": ".toonfr [18+]",
+                "hentai": ".hentai-origines",
+                "toonfr": ".toonfr",
                 "ortega": ".ortegascans",
             }
             status_labels = {

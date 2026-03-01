@@ -6091,8 +6091,8 @@ class MangaApp:
         self.cookie_fr_label_var.set("Cookie (.fr) :")
         self.cookie_net_label_var.set("Cookie (.net) :")
         self.cookie_origines_label_var.set("Cookie (.origines) :")
-        self.cookie_hentai_label_var.set("Cookie (.hentai-origines 🔞) :")
-        self.cookie_toonfr_label_var.set("Cookie (.toonfr 🔞) :")
+        self.cookie_hentai_label_var.set("Cookie (.hentai-origines) :")
+        self.cookie_toonfr_label_var.set("Cookie (.toonfr) :")
         self.cookie_ortega_label_var.set("Cookie (.ortegascans) :")
         self.ua_label_var.set("User-Agent :")
 
@@ -6447,8 +6447,8 @@ class MangaApp:
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
-        self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines 🔞) :")
-        self.cookie_toonfr_label_var = tk.StringVar(value="Cookie (.toonfr 🔞) :")
+        self.cookie_hentai_label_var = tk.StringVar(value="Cookie (.hentai-origines) :")
+        self.cookie_toonfr_label_var = tk.StringVar(value="Cookie (.toonfr) :")
         self.cookie_ortega_label_var = tk.StringVar(value="Cookie (.ortegascans) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
@@ -7985,7 +7985,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞) ou https://ortegascans.fr/serie/slug/",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/",
             None,
         )
 
@@ -8896,13 +8896,13 @@ class MangaApp:
         self._attach_link_placeholder(
             self.cookie_hentai_entry,
             self.cookie_hentai,
-            'Cookie cf_clearance hentai-origines.fr (🔞, cliquer pour ouvrir le site si besoin).',
+            'Cookie cf_clearance hentai-origines.fr (cliquer pour ouvrir le site si besoin).',
             cookie_hentai_link,
         )
         self._attach_link_placeholder(
             self.cookie_toonfr_entry,
             self.cookie_toonfr,
-            'Cookie toonfr.com: cf_clearance seul ou header Cookie complet (🔞).',
+            'Cookie toonfr.com: cf_clearance seul ou header Cookie complet.',
             cookie_toonfr_link,
         )
         cookie_ortega_link = get_manual_link("cookie_ortega", "https://ortegascans.fr")
@@ -9182,7 +9182,7 @@ class MangaApp:
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ (🔞) ou https://toonfr.com/webtoon/slug/ (🔞) ou https://ortegascans.fr/serie/slug/.",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/.",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
