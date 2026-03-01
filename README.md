@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.4.0`
+Version actuelle : `11.5.0`
 
 ## Ce qui change sur `main`
 
@@ -107,6 +107,18 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.5.0
+- Ajout du support de `https://toonfr.com`.
+- Nouveau format d'URL catalogue supporte :
+  - `https://toonfr.com/webtoon/<slug>/`
+- Ajout d'un cookie manuel dedie `.toonfr` dans l'onglet `Authentification`.
+- Le champ `.toonfr` accepte :
+  - un simple `cf_clearance`
+  - ou un header `Cookie` complet
+- Recuperation de la liste des chapitres Toonfr via l'endpoint AJAX Madara du site.
+- Validation du cookie `.toonfr` depuis la GUI et le mode terminal.
+- Prise en charge des pages de lecture Toonfr dans le backend.
+
 ### 11.4.0
 - Ajout d'un mode terminal interactif via `python SushiDL.py --cli`.
 - Ecrans CLI:
@@ -178,17 +190,20 @@ Pour le detail complet des versions : voir `CHANGELOG.md`.
 - `https://sushiscan.net`
 - `https://mangas-origines.fr`
 - `https://hentai-origines.fr`
+- `https://toonfr.com`
 
 Formats d'URL catalogue attendus :
 - `https://sushiscan.fr/catalogue/<slug>/`
 - `https://sushiscan.net/catalogue/<slug>/`
 - `https://mangas-origines.fr/oeuvre/<slug>/`
 - `https://hentai-origines.fr/manga/<slug>/`
+- `https://toonfr.com/webtoon/<slug>/`
 
 ## Fonctionnalites principales
 
 - Authentification manuelle par cookies `cf_clearance` et `User-Agent`.
-- Champs separes par domaine pour `.fr`, `.net`, `.origines` et `.hentai-origines`.
+- Champs separes par domaine pour `.fr`, `.net`, `.origines`, `.hentai-origines` et `.toonfr`.
+- Pour `.toonfr`, tu peux coller soit `cf_clearance`, soit un header `Cookie` complet si le site devient plus strict.
 - Detection automatique du domaine a utiliser pour les pages, images et couvertures.
 - Telechargement multi-thread des images avec retries et classification des erreurs.
 - Annulation possible pendant l'execution.

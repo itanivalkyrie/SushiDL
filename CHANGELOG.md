@@ -7,6 +7,30 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.5.0] - 2026-03-01
+
+### Ameliorations
+- Ajout du support de `https://toonfr.com`.
+- Nouveau format d'URL catalogue supporte :
+  - `https://toonfr.com/webtoon/<slug>/`
+- Ajout d'un cookie manuel dedie `.toonfr` dans l'onglet `Authentification`.
+- Le champ `.toonfr` accepte desormais :
+  - un simple `cf_clearance`
+  - ou un header `Cookie` complet
+- Validation du cookie `.toonfr` depuis la GUI et le mode terminal.
+- Recuperation des chapitres Toonfr via l'endpoint AJAX Madara du site (`base_url + ajax/chapters/`).
+
+### Corrections
+- Analyse catalogue :
+  - detection correcte du domaine `toonfr`,
+  - mapping cookie/URL ajoute dans le backend,
+  - integration du domaine dans les sondes de verification auth.
+- Lecture chapitres :
+  - prise en charge des pages de lecture Toonfr dans le backend.
+
+### Documentation
+- README mis a jour avec le nouveau site supporte et le format d'URL `toonfr.com/webtoon/...`.
+
 ## [11.4.0] - 2026-03-01
 
 ### Ameliorations

@@ -5,6 +5,7 @@
     "cookie_net": "https://sushiscan.net",
     "cookie_origines": "https://mangas-origines.fr",
     "cookie_hentai": "https://hentai-origines.fr",
+    "cookie_toonfr": "https://toonfr.com",
     "user_agent": "https://httpbin.org/user-agent",
     "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
     "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance"

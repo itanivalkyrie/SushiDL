@@ -50,7 +50,7 @@ class SettingsScreen(Screen):
                 yield Checkbox("CBZ", value=True, id="opt-cbz")
                 yield Checkbox("WEBP -> JPG", value=True, id="opt-webp")
                 yield Checkbox("Reprise intelligente", value=True, id="opt-resume")
-                yield Checkbox("Logs détaillés", value=True, id="opt-logs")
+                yield Checkbox("Logs detailles", value=True, id="opt-logs")
                 with Horizontal(classes="button-row"):
                     yield Button("Sauvegarder", id="save-settings", variant="success")
                     yield Button("Retour", id="back")
@@ -74,7 +74,14 @@ class SettingsScreen(Screen):
             state = self.app.cli_state
             previous_index = getattr(self.cookie_list, "index", None)
             self.cookie_list.clear()
-            self._cookie_domains = ["fr", "net", "origines", "hentai"]
+            self._cookie_domains = ["fr", "net", "origines", "hentai", "toonfr"]
+            domain_labels = {
+                "fr": ".fr",
+                "net": ".net",
+                "origines": ".origines",
+                "hentai": ".hentai-origines [18+]",
+                "toonfr": ".toonfr [18+]",
+            }
             status_labels = {
                 "PRESENT": "RENSEIGNE",
                 "VIDE": "VIDE",
@@ -85,7 +92,7 @@ class SettingsScreen(Screen):
             for domain in self._cookie_domains:
                 cookie_value = (state.cookies.get(domain) or "").strip()
                 status = status_labels.get(state.cookie_status.get(domain, "VIDE"), state.cookie_status.get(domain, "VIDE"))
-                label = f".{domain:<16} [{status}] {'renseigné' if cookie_value else 'vide'}"
+                label = f"{domain_labels.get(domain, '.' + domain):<24} [{status}] {'renseigne' if cookie_value else 'vide'}"
                 self.cookie_list.append(ListItem(Label(label)))
             if self._cookie_domains:
                 safe_index = 0 if previous_index is None else max(0, min(int(previous_index), len(self._cookie_domains) - 1))
@@ -226,7 +233,7 @@ class SettingsScreen(Screen):
     def action_edit_selected(self) -> None:
         domain = self._selected_domain()
         if not domain:
-            self.app.cli_state.status_message = "Aucun domaine sélectionné."
+            self.app.cli_state.status_message = "Aucun domaine selectionne."
             self.refresh_from_state()
             return
         current = self.app.cli_state.cookies.get(domain, "")
@@ -248,7 +255,7 @@ class SettingsScreen(Screen):
                 "Aide options / cookies",
                 "Sélectionne un domaine puis utilise E pour éditer ou T pour tester.\n"
                 "Le User-Agent doit correspondre au navigateur qui a obtenu le cookie.\n"
-                "S sauvegarde les paramètres. Shift+T teste tous les domaines.\n"
+                "S sauvegarde les parametres. Shift+T teste tous les domaines.\n"
                 "Fleches/J/K naviguent. C/U/O changent de zone.",
             )
         )
