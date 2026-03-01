@@ -440,14 +440,11 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
                     level="warning",
                     context={"action": "image_integrity"},
                 )
-                last_exc = ImageDownloadError(
+                raise ImageDownloadError(
                     f"Contenu non image: {test_e}",
-                    kind="retryable",
+                    kind="invalid_image",
                     phase="direct",
                 )
-                if interruptible_sleep(cancel_event, delay * attempt):
-                    raise DownloadCancelled("Téléchargement annulé.")
-                continue
 
             # Succès - retourne les données brutes de l'image
             return raw
@@ -503,7 +500,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.7.0"
+APP_VERSION = "11.7.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1220,6 +1217,14 @@ def download_image(
             runtime_log(
                 f"Image absente côté serveur (HTTP {e.status_code}): {normalized_url}",
                 level="info",
+                context={"action": "download", "url": normalized_url},
+            )
+            return
+        if e.kind == "invalid_image":
+            register_failure("invalid_image", str(e), status_code=e.status_code)
+            runtime_log(
+                f"Image ignorée car invalide/non reconnue: {normalized_url}",
+                level="warning",
                 context={"action": "download", "url": normalized_url},
             )
             return
@@ -2364,8 +2369,10 @@ def download_volume(
                     }
                 )
 
-        missing_failures = [f for f in normalized_failures if f["kind"] == "missing"]
-        hard_failures = [f for f in normalized_failures if f["kind"] not in ("missing", "cancelled")]
+        soft_failures = [f for f in normalized_failures if f["kind"] in ("missing", "invalid_image")]
+        missing_failures = [f for f in soft_failures if f["kind"] == "missing"]
+        invalid_image_failures = [f for f in soft_failures if f["kind"] == "invalid_image"]
+        hard_failures = [f for f in normalized_failures if f["kind"] not in ("missing", "invalid_image", "cancelled")]
 
         if missing_failures:
             sample_missing = missing_failures[0].get("url") or "URL inconnue"
@@ -2373,7 +2380,14 @@ def download_volume(
                 f"{len(missing_failures)} page(s) absente(s) (404/410) sur {tome_label}. Exemple: {sample_missing}",
                 level="warning",
             )
-            logger("CBZ maintenu: les pages manquantes sont ignorées.", level="info")
+        if invalid_image_failures:
+            sample_invalid = invalid_image_failures[0].get("url") or "URL inconnue"
+            logger(
+                f"{len(invalid_image_failures)} page(s) invalide(s)/illisible(s) sur {tome_label}. Exemple: {sample_invalid}",
+                level="warning",
+            )
+        if soft_failures:
+            logger("CBZ maintenu: les pages manquantes ou invalides sont ignorées.", level="info")
 
         if hard_failures:
             sample_hard = hard_failures[0]
@@ -2477,6 +2491,11 @@ def download_volume(
             except OSError:
                 size_mb = 0
             logger("", level="info")
+            if soft_failures:
+                logger(
+                    f"CBZ créé malgré {len(soft_failures)} page(s) manquante(s)/invalide(s) pour {tome_label}.",
+                    level="warning",
+                )
             logger(f"CBZ créé : {cbz_path} ({size_mb} MB)", level="cbz")
             return True
         logger(f"Échec de création CBZ pour {clean_tome}", level="warning")

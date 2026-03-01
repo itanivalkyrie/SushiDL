@@ -7,6 +7,17 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.7.1] - 2026-03-01
+
+### Corrections
+- Hentaizone :
+  - un chapitre peut maintenant etre finalise en `.cbz` meme si une ou plusieurs pages sont manquantes ou invalides.
+- Telechargement :
+  - les contenus recus non reconnus comme image sont traites comme pages ignorees au lieu de bloquer tout le chapitre,
+  - la creation du `CBZ` est maintenue si au moins une partie valide du chapitre a ete telechargee.
+- Logs :
+  - ajout d'un message explicite quand un `CBZ` est cree avec des pages manquantes ou invalides.
+
 ## [11.7.0] - 2026-03-01
 
 ### Ameliorations
