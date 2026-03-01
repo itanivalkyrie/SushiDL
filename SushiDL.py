@@ -531,8 +531,8 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "net": "https://sushiscan.net/catalogue/one-piece/",
     "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
     "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
-    "toonfr": "https://toonfr.com/webtoon/un-xy-dans-un-monde-de-xx/",
-    "ortega": "https://ortegascans.fr/serie/love-quest",
+    "toonfr": "https://toonfr.com/webtoon/ma-brute/",
+    "ortega": "https://ortegascans.fr/serie/moby-dick",
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
@@ -954,8 +954,8 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
         "net": "https://sushiscan.net/catalogue/one-piece/",
         "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
         "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
-        "toonfr": "https://toonfr.com/webtoon/un-xy-dans-un-monde-de-xx/",
-        "ortega": "https://ortegascans.fr/serie/love-quest",
+        "toonfr": "https://toonfr.com/webtoon/ma-brute/",
+        "ortega": "https://ortegascans.fr/serie/moby-dick",
     }
     if domain not in probe_urls:
         return result
