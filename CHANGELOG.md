@@ -7,7 +7,7 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
-## [11.2.12] - 2026-02-28
+## [11.3.0] - 2026-02-28
 
 ### Ameliorations
 - Ajout d'une icone de fenetre native `assets/sushidl.ico` en multi-tailles (`16`, `24`, `32`, `48`, `64`, `128`, `256`).
