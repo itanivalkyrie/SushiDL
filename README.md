@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.2.13`
+Version actuelle : `11.4.0`
 
 ## Ce qui change sur `main`
 
@@ -104,7 +104,7 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
-### 11.2.13
+### 11.4.0
 - Branche `tui-cli-mode`:
   - ajout d'un mode terminal interactif via `python SushiDL.py --cli`,
   - ecrans `Options / Cookies`, `URL / Chapitres / Telechargement`, `Telechargement`, `Erreurs`,

@@ -7,7 +7,7 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
-## [11.2.13] - 2026-03-01
+## [11.4.0] - 2026-03-01
 
 ### Ameliorations
 - Branche `tui-cli-mode`:
