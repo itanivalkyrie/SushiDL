@@ -4514,9 +4514,10 @@ class MangaApp:
             corner_radius=6,
             border_width=1,
             border_color=self.palette["panel_shell"],
-            height=34,
+            height=38,
         )
         item.grid_propagate(False)
+        item.grid_rowconfigure(0, minsize=28)
         item.grid_columnconfigure(0, weight=0)
         item.grid_columnconfigure(1, weight=1)
         item.grid_columnconfigure(2, weight=0)
@@ -4532,7 +4533,7 @@ class MangaApp:
             text_color=self.palette["muted"],
             font=("Segoe UI Semibold", 9),
         )
-        index_label.grid(row=0, column=0, padx=(8, 6), pady=6)
+        index_label.grid(row=0, column=0, padx=(8, 6), pady=7)
 
         title_label = ctk.CTkLabel(
             item,
@@ -4558,7 +4559,7 @@ class MangaApp:
             font=("Segoe UI Semibold", 10),
             command=lambda idx=index: self.open_volume_preview_by_index(idx),
         )
-        preview_button.grid(row=0, column=2, padx=(6, 0), pady=6)
+        preview_button.grid(row=0, column=2, padx=(6, 0), pady=5)
 
         checkbox = ctk.CTkCheckBox(
             item,
@@ -4575,7 +4576,7 @@ class MangaApp:
             checkmark_color="#ffffff",
             command=self.update_master_toggle_button,
         )
-        checkbox.grid(row=0, column=3, padx=(6, 8), pady=6)
+        checkbox.grid(row=0, column=3, padx=(6, 8), pady=5)
 
         toggle = lambda _event=None, _widget=item: self._toggle_volume_widget(_widget)
         item.bind("<Button-1>", toggle)
