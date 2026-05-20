@@ -501,7 +501,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.9.0"
+APP_VERSION = "11.9.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1475,6 +1475,71 @@ def collect_metadata_links(soup, selectors):
     return split_metadata_values(", ".join(values))
 
 
+def is_summary_candidate(text):
+    """Filtre les blocs qui ressemblent a une description, pas a une table de details."""
+    cleaned = normalize_metadata_text(text)
+    if len(cleaned) < 80:
+        return False
+    normalized = unicodedata.normalize("NFKD", cleaned.lower()).encode("ascii", "ignore").decode("ascii")
+    metadata_markers = (
+        "statut",
+        "type",
+        "annee",
+        "auteur",
+        "dessinateur",
+        "genre",
+        "chapitre",
+        "tome",
+    )
+    marker_count = sum(1 for marker in metadata_markers if marker in normalized)
+    return marker_count < 3
+
+
+def select_best_summary(soup):
+    """Recupere le resume visible le plus complet sans prendre les tables de metadata."""
+    candidates = []
+    selectors = (
+        ".description-summary .summary__content",
+        ".description-summary",
+        ".manga-excerpt",
+        ".summary-content > p",
+        "div[itemprop='description']",
+        ".entry-content > p",
+        ".post-content > p",
+        ".content > p",
+    )
+    for selector in selectors:
+        for node in soup.select(selector):
+            text = normalize_metadata_text(node.get_text(" ", strip=True))
+            if is_summary_candidate(text):
+                candidates.append(text)
+
+    # Certains templates placent le resume dans une div voisine sans classe explicite.
+    for paragraph in soup.find_all("p"):
+        text = normalize_metadata_text(paragraph.get_text(" ", strip=True))
+        if is_summary_candidate(text):
+            candidates.append(text)
+
+    if not candidates:
+        return ""
+    return max(candidates, key=len)
+
+
+def add_table_fields(fields, soup):
+    """Extrait les paires label/valeur depuis les tables HTML classiques."""
+    for row in soup.select("tr"):
+        cells = [cell for cell in row.find_all(("th", "td"), recursive=False)]
+        if len(cells) < 2:
+            cells = row.find_all(("th", "td"))
+        if len(cells) >= 2:
+            label = cells[0].get_text(" ", strip=True)
+            value = cells[1].get_text(" ", strip=True)
+            clean_label = normalize_metadata_text(label).lower()
+            clean_value = normalize_metadata_text(value)
+            if clean_label and clean_value:
+                fields.setdefault(clean_label, []).append(clean_value)
+
+
 def extract_series_metadata_from_html(url, html_content, title=""):
     """Extrait les metadonnees serie disponibles depuis la fiche catalogue."""
     html_content = html_content or ""
@@ -1499,19 +1564,9 @@ def extract_series_metadata_from_html(url, html_content, title=""):
     }
 
     summary = extract_meta_content(soup, "og:description", "description", "twitter:description")
-    if not summary:
-        for selector in (
-            ".description-summary",
-            ".summary__content",
-            ".manga-excerpt",
-            ".post-content_item .summary-content",
-            "div[itemprop='description']",
-        ):
-            node = soup.select_one(selector)
-            if node:
-                candidate = normalize_metadata_text(node.get_text(" ", strip=True))
-                if candidate and len(candidate) > len(summary):
-                    summary = candidate
+    visible_summary = select_best_summary(soup)
+    if visible_summary and len(visible_summary) > len(summary):
+        summary = visible_summary
     metadata["summary"] = summary
 
     fields = {}
@@ -1533,6 +1588,7 @@ def extract_series_metadata_from_html(url, html_content, title=""):
         dds = row.find_all("dd")
         for dt, dd in zip(dts, dds):
             add_field(dt.get_text(" ", strip=True), dd.get_text(" ", strip=True))
+    add_table_fields(fields, soup)
 
     for label, value in fields.items():
         label_norm = unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode("ascii")
@@ -1556,10 +1612,12 @@ def extract_series_metadata_from_html(url, html_content, title=""):
         soup,
         (
             ".genres-content a",
-            ".genre a",
-            ".genres a",
-            "a[href*='/genre/']",
-            "a[rel='tag']",
+            ".post-content_item .genres a",
+            ".post-content_item a[href*='/genre/']",
+            ".manga-genres a",
+            ".series-genres a",
+            ".genre-list a",
+            ".genres-list a",
         ),
     )
     if genres:

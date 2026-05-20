@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.9.1] - 2026-05-20
+
+### Corrections
+- ComicInfo.xml :
+  - les genres ne sont plus alimentes par les tags globaux de page (`rel=tag`),
+  - le resume visible complet est prefere aux metas HTML tronquees,
+  - ajout de l'extraction depuis les tables HTML classiques pour les champs auteur, dessinateur, annee et genre.
+
 ## [11.9.0] - 2026-05-20
 
 ### Ameliorations
