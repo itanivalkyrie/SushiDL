@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.9.2] - 2026-05-20
+
+### Corrections
+- ComicInfo.xml :
+  - correction de l'extraction du genre sur `.net`,
+  - ajout du selecteur cible `.seriestugenre` pour recuperer le vrai genre sans reprendre les tags globaux de la page.
+
 ## [11.9.1] - 2026-05-20
 
 ### Corrections

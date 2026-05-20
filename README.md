@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.9.1`
+Version actuelle : `11.9.2`
 
 ## Ce qui change sur `main`
 
@@ -107,6 +107,11 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.9.2
+- ComicInfo.xml :
+  - correction de l'extraction du genre sur `.net`,
+  - prise en charge du bloc cible `.seriestugenre` sans reprendre les tags globaux de page.
 
 ### 11.9.1
 - ComicInfo.xml :
