@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.9.2`
+Version actuelle : `11.9.3`
 
 ## Ce qui change sur `main`
 
@@ -107,6 +107,11 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.9.3
+- ComicInfo.xml :
+  - generalisation de l'extraction des genres sur `.fr`, `.net`, Origines, Hentaizone et OrtegaScans,
+  - prise en charge des blocs `genres-content`, `manga-genre` et des liens Ortega `?tags=`.
 
 ### 11.9.2
 - ComicInfo.xml :

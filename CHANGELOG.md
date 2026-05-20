@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.9.3] - 2026-05-20
+
+### Corrections
+- ComicInfo.xml :
+  - generalisation de l'extraction des genres pour `.fr`, `.net`, Origines, Hentaizone et OrtegaScans,
+  - prise en charge des blocs `genres-content`, des URLs `manga-genre` et des liens Ortega `?tags=`.
+
 ## [11.9.2] - 2026-05-20
 
 ### Corrections
