@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.8.0`
+Version actuelle : `11.9.0`
 
 ## Ce qui change sur `main`
 
@@ -107,6 +107,12 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.9.0
+- ComicInfo.xml :
+  - enrichissement automatique avec les metadonnees detectees sur la fiche catalogue,
+  - prise en charge de `Summary`, `Year`, `Month`, `Day`, `Writer`, `Penciller`, `Translator`, `Genre`, `Publisher`, `Tags` et `ScanInformation`,
+  - extraction best effort depuis les metas HTML, les blocs WordPress/Madara, les liens de genre et les donnees embarquees Ortega.
 
 ### 11.8.0
 - Sortie CBZ :

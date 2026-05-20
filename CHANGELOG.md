@@ -7,6 +7,27 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.9.0] - 2026-05-20
+
+### Ameliorations
+- Enrichissement du `ComicInfo.xml` avec les metadonnees disponibles sur les fiches catalogue.
+- Ajout des champs ComicInfo suivants quand ils sont detectes :
+  - `Summary`,
+  - `Year`,
+  - `Month`,
+  - `Day`,
+  - `Writer`,
+  - `Penciller`,
+  - `Translator`,
+  - `Genre`,
+  - `ScanInformation`.
+- Extraction best effort depuis :
+  - les balises HTML `meta`,
+  - les blocs WordPress/Madara de type `post-content_item`,
+  - les liens de genres/tags,
+  - les donnees embarquees Ortega quand elles sont presentes.
+- Propagation des metadonnees en GUI et en mode terminal.
+
 ## [11.8.0] - 2026-05-20
 
 ### Ameliorations

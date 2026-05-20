@@ -9,7 +9,7 @@ class CliBackend(Protocol):
     def load_settings(self) -> CliState: ...
     def save_settings(self, state: CliState) -> None: ...
     def test_cookie(self, domain: str, cookie: str, ua: str) -> bool | None: ...
-    def analyze_url(self, url: str, cookies: dict[str, str], ua: str) -> tuple[str, str, list[tuple[str, str]], dict[str, dict]]: ...
+    def analyze_url(self, url: str, cookies: dict[str, str], ua: str) -> tuple: ...
 
 
 def load_state(backend: CliBackend) -> CliState:
@@ -55,9 +55,12 @@ def analyze_current_url(backend: CliBackend, state: CliState) -> None:
     if not url:
         state.status_message = "Aucune URL fournie."
         return
-    title, domain, pairs, metadata = backend.analyze_url(url, state.cookies, state.user_agent)
+    analysis_result = backend.analyze_url(url, state.cookies, state.user_agent)
+    title, domain, pairs, metadata = analysis_result[:4]
+    series_metadata = analysis_result[4] if len(analysis_result) > 4 else {}
     state.current_title = title
     state.current_domain = domain
+    state.series_metadata = dict(series_metadata or {})
     state.detected_items = [
         CliItem(
             index=idx + 1,

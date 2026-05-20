@@ -226,6 +226,7 @@ class CliDownloadController:
                 webp2jpg_enabled=self.state.webp2jpg_enabled,
                 smart_resume_enabled=self.state.smart_resume_enabled,
                 total_count=len(self.state.detected_items),
+                series_metadata=self.state.series_metadata,
             )
 
             with self._lock:
