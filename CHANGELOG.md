@@ -7,6 +7,15 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.10.0] - 2026-05-20
+
+### Ameliorations
+- Ajout de l'option `Couverture chapitres` dans les options de sortie.
+- La couverture de la fiche catalogue est ajoutee en premiere page des CBZ de chapitres sous le nom `000_cover.jpg`.
+- Les CBZ de tomes complets ne recoivent pas de couverture ajoutee.
+- L'option est persistante dans `cookie_cache.json`.
+- Le mode terminal expose aussi l'option `Couverture chapitres`.
+
 ## [11.9.5] - 2026-05-20
 
 ### Corrections

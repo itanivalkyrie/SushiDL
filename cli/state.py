@@ -46,6 +46,7 @@ class CliState:
     user_agent: str
     cbz_enabled: bool = True
     comicinfo_enabled: bool = True
+    chapter_cover_enabled: bool = True
     webp2jpg_enabled: bool = True
     smart_resume_enabled: bool = True
     verbose_logs: bool = True

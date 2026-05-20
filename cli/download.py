@@ -223,6 +223,7 @@ class CliDownloadController:
                 cancel_event=self.cancel_event,
                 cbz_enabled=self.state.cbz_enabled,
                 comicinfo_enabled=self.state.comicinfo_enabled,
+                chapter_cover_enabled=self.state.chapter_cover_enabled,
                 webp2jpg_enabled=self.state.webp2jpg_enabled,
                 smart_resume_enabled=self.state.smart_resume_enabled,
                 total_count=len(self.state.detected_items),

@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.9.5`
+Version actuelle : `11.10.0`
 
 ## Ce qui change sur `main`
 
@@ -107,6 +107,13 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.10.0
+- Sortie CBZ :
+  - ajout d'une option `Couverture chapitres`,
+  - la couverture de la fiche est ajoutee en page `000_cover.jpg` uniquement pour les CBZ de chapitres,
+  - les CBZ de tomes complets ne sont pas modifies,
+  - l'option est disponible en GUI et en mode terminal.
 
 ### 11.9.5
 - ComicInfo.xml :

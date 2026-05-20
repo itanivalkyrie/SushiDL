@@ -501,7 +501,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.9.5"
+APP_VERSION = "11.10.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1133,6 +1133,11 @@ def count_downloaded_images(folder_path):
     return total
 
 
+def is_chapter_label(label):
+    """Retourne True si le libelle normalise correspond a un chapitre."""
+    return normalize_tome_label(label).lower().startswith("chapitre ")
+
+
 def build_comicinfo_xml(
     series,
     volume_label,
@@ -1218,6 +1223,50 @@ def write_comicinfo_xml(
     )
     tree.write(xml_path, encoding="utf-8", xml_declaration=True)
     return xml_path
+
+
+def write_chapter_cover_page(folder_path, cover_url, cookie, ua, referer_url=None, webp2jpg_enabled=True):
+    """Ajoute la couverture en page 000_cover.jpg pour les CBZ de chapitres."""
+    safe_cover_url = normalize_image_url(cover_url)
+    if not safe_cover_url:
+        return ""
+    cover_path = os.path.join(folder_path, "000_cover.jpg")
+    if os.path.exists(cover_path):
+        try:
+            if os.path.getsize(cover_path) > 1024:
+                return cover_path
+        except OSError:
+            pass
+
+    app = getattr(MangaApp, "current_instance", None)
+    cookie_header = ""
+    if app and hasattr(app, "get_cookie_header_for_url"):
+        try:
+            cookie_header = app.get_cookie_header_for_url(safe_cover_url, fallback_cookie=cookie)
+        except Exception:
+            cookie_header = ""
+    cookie_header = sanitize_cookie_header(cookie_header)
+    if not cookie_header and cookie:
+        cookie_header = build_cf_clearance_cookie_header(cookie)
+
+    headers = {
+        "User-Agent": (ua or DEFAULT_USER_AGENT).strip(),
+        "Referer": referer_url or get_site_root_url(safe_cover_url) or safe_cover_url,
+    }
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+
+    raw = robust_download_image(safe_cover_url, headers, max_try=2, delay=1)
+    image = Image.open(BytesIO(raw))
+    image = ImageOps.exif_transpose(image)
+    if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+        bg = Image.new("RGB", image.size, (255, 255, 255))
+        bg.paste(image.convert("RGBA"), mask=image.convert("RGBA").split()[-1])
+        image = bg
+    else:
+        image = image.convert("RGB")
+    image.save(cover_path, "JPEG", quality=95, optimize=True)
+    return cover_path
 
 
 def download_image(
@@ -1561,6 +1610,7 @@ def extract_series_metadata_from_html(url, html_content, title=""):
         "day": "",
         "status": "",
         "tags": [],
+        "cover_url": "",
     }
 
     summary = extract_meta_content(soup, "og:description", "description", "twitter:description")
@@ -1675,6 +1725,7 @@ def extract_series_metadata_from_html(url, html_content, title=""):
     if metadata["genre"]:
         tags.extend(split_metadata_values(metadata["genre"]))
     metadata["tags"] = split_metadata_values(", ".join(tags))
+    metadata["cover_url"] = extract_cover_url_from_html(url, html_content)
     return metadata
 
 
@@ -2603,6 +2654,7 @@ def download_volume(
     update_progress=None,
     webp2jpg_enabled=True,
     comicinfo_enabled=True,
+    chapter_cover_enabled=True,
     referer_url=None,
     smart_resume_enabled=True,
     error_callback=None,
@@ -2610,6 +2662,7 @@ def download_volume(
     prompt_cookie_retry=True,
     total_count=None,
     series_metadata=None,
+    cover_url=None,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
@@ -2881,6 +2934,27 @@ def download_volume(
             logger(f"CBZ desactive pour {clean_tome}: images conservees.", level="info")
             return True
 
+        effective_cover_url = (cover_url or "").strip()
+        if not effective_cover_url and isinstance(series_metadata, dict):
+            effective_cover_url = (series_metadata.get("cover_url") or "").strip()
+        if chapter_cover_enabled and is_chapter_label(tome_label) and effective_cover_url:
+            try:
+                cover_path = write_chapter_cover_page(
+                    folder,
+                    effective_cover_url,
+                    active_cookie,
+                    ua,
+                    referer_url=referer_url,
+                    webp2jpg_enabled=webp2jpg_enabled,
+                )
+                if cover_path:
+                    logger("Couverture ajoutée en première page du chapitre.", level="info")
+            except Exception as cover_exc:
+                logger(
+                    f"Couverture non ajoutée pour {tome_label}: {cover_exc}",
+                    level="warning",
+                )
+
         if comicinfo_enabled:
             try:
                 page_count = count_downloaded_images(folder)
@@ -3050,6 +3124,7 @@ def save_cookie_cache(
     cookie_user_agents=None,
     cookie_headers=None,
     comicinfo_enabled=True,
+    chapter_cover_enabled=True,
 ):
     """
     Sauvegarde les paramètres dans un fichier JSON
@@ -3117,6 +3192,7 @@ def save_cookie_cache(
         "ua": (ua or DEFAULT_USER_AGENT).strip(),
         "cbz_enabled": bool(cbz),
         "comicinfo_enabled": bool(comicinfo_enabled),
+        "chapter_cover_enabled": bool(chapter_cover_enabled),
         "last_url": MangaApp.last_url_used,
         "timestamp": now_iso,
         "cookie_updated_at": cookie_updated_at,
@@ -3141,6 +3217,7 @@ def load_cookie_cache():
     """Charge les paramètres depuis le fichier cache"""
     default_cbz = True
     default_comicinfo = True
+    default_chapter_cover = True
     default_webp2jpg = True
     default_smart_resume = True
     default_verbose_logs = True
@@ -3151,6 +3228,7 @@ def load_cookie_cache():
             DEFAULT_USER_AGENT,
             default_cbz,
             default_comicinfo,
+            default_chapter_cover,
             "",
             default_webp2jpg,
             default_smart_resume,
@@ -3209,6 +3287,7 @@ def load_cookie_cache():
             (data.get("ua") or DEFAULT_USER_AGENT).strip(),
             data.get("cbz_enabled", default_cbz),
             data.get("comicinfo_enabled", default_comicinfo),
+            data.get("chapter_cover_enabled", default_chapter_cover),
             (data.get("last_url") or "").strip(),
             data.get("webp2jpg_enabled", default_webp2jpg),
             bool(data.get("smart_resume_enabled", default_smart_resume)),
@@ -3226,6 +3305,7 @@ def load_cookie_cache():
         DEFAULT_USER_AGENT,
         default_cbz,
         default_comicinfo,
+        default_chapter_cover,
         "",
         default_webp2jpg,
         default_smart_resume,
@@ -3237,18 +3317,13 @@ def load_cookie_cache():
     )
 
 
-def get_cover_image(r_text):
-    """Récupère et affiche l'image de couverture d'un manga."""
-    runtime_log("Analyse de la couverture en cours.", level="debug", context={"action": "cover"})
-    soup = BeautifulSoup(r_text, "html.parser")
-    app = getattr(MangaApp, "current_instance", None)
-    page_url = ""
-    if app is not None:
-        page_url = app.run_on_ui(app.url.get, wait=True, default="").strip()
+def extract_cover_url_from_html(page_url, html_content):
+    """Extrait l'URL de couverture sans effectuer de telechargement."""
+    soup = BeautifulSoup(html_content or "", "html.parser")
+    page_url = (page_url or "").strip()
     if not page_url:
         og_url = soup.find("meta", attrs={"property": "og:url"})
         page_url = (og_url.get("content") or "").strip() if og_url else ""
-
     def resolve_cover_candidate(raw_candidate):
         candidate = normalize_image_url((raw_candidate or "").strip().strip("\"'"))
         if not candidate or candidate.startswith("data:"):
@@ -3333,6 +3408,19 @@ def get_cover_image(r_text):
                     img_url = candidate
                     break
 
+    if not img_url:
+        return ""
+    return img_url
+
+
+def get_cover_image(r_text):
+    """Récupère et affiche l'image de couverture d'un manga."""
+    runtime_log("Analyse de la couverture en cours.", level="debug", context={"action": "cover"})
+    app = getattr(MangaApp, "current_instance", None)
+    page_url = ""
+    if app is not None:
+        page_url = app.run_on_ui(app.url.get, wait=True, default="").strip()
+    img_url = extract_cover_url_from_html(page_url, r_text)
     if not img_url:
         return None
 
@@ -6915,6 +7003,7 @@ class MangaApp:
         # Variables Tkinter
         self.cbz_enabled = tk.BooleanVar(value=True)
         self.comicinfo_enabled = tk.BooleanVar(value=True)
+        self.chapter_cover_enabled = tk.BooleanVar(value=True)
         self.webp2jpg_enabled = tk.BooleanVar(value=True)
         self.smart_resume_enabled = tk.BooleanVar(value=True)
         self.verbose_logs = tk.BooleanVar(value=True)
@@ -6985,6 +7074,7 @@ class MangaApp:
             ua,
             cbz,
             comicinfo_enabled,
+            chapter_cover_enabled,
             last_url,
             webp2jpg_enabled,
             smart_resume_enabled,
@@ -7032,6 +7122,7 @@ class MangaApp:
         self.last_known_cookies = {domain: (cookies.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
         self.cbz_enabled.set(str(cbz).lower() in ("1", "true", "yes"))
         self.comicinfo_enabled.set(str(comicinfo_enabled).lower() in ("1", "true", "yes"))
+        self.chapter_cover_enabled.set(str(chapter_cover_enabled).lower() in ("1", "true", "yes"))
         self.webp2jpg_enabled.set(str(webp2jpg_enabled).lower() in ("1", "true", "yes"))
         self.smart_resume_enabled.set(str(smart_resume_enabled).lower() in ("1", "true", "yes"))
         self.verbose_logs.set(str(verbose_logs_enabled).lower() in ("1", "true", "yes"))
@@ -7048,6 +7139,7 @@ class MangaApp:
         self.source_title_var = tk.StringVar(value="Manga/Manhwa/Comics...")
         self.cancel_event = threading.Event()
         self.cover_preview = None
+        self.cover_url = ""
         self.volume_meta_by_url = {}
         self.series_metadata = {}
         self.preview_window = None
@@ -8391,6 +8483,13 @@ class MangaApp:
         )
         add_option_line(
             output_inner,
+            "Couverture chapitres",
+            self.chapter_cover_enabled,
+            "Ajoute la couverture en première page des CBZ de chapitres uniquement.",
+            bottom=6,
+        )
+        add_option_line(
+            output_inner,
             "WEBP en JPG",
             self.webp2jpg_enabled,
             "Convertit les images WEBP en JPG pour une compatibilité maximale.",
@@ -9649,6 +9748,7 @@ class MangaApp:
 
         cbz_enabled = bool(self.run_on_ui(self.cbz_enabled.get, wait=True, default=True))
         comicinfo_enabled = bool(self.run_on_ui(self.comicinfo_enabled.get, wait=True, default=True))
+        chapter_cover_enabled = bool(self.run_on_ui(self.chapter_cover_enabled.get, wait=True, default=True))
         webp2jpg_enabled = bool(self.run_on_ui(self.webp2jpg_enabled.get, wait=True, default=True))
         smart_resume_enabled = bool(self.run_on_ui(self.smart_resume_enabled.get, wait=True, default=True))
         verbose_logs_enabled = bool(self.run_on_ui(self.verbose_logs.get, wait=True, default=True))
@@ -9663,6 +9763,7 @@ class MangaApp:
             cookie_user_agents=self.cookie_user_agents,
             cookie_headers=self.cookie_headers,
             comicinfo_enabled=comicinfo_enabled,
+            chapter_cover_enabled=chapter_cover_enabled,
         )
         if isinstance(updated_at, dict):
             self.cookie_updated_at = {domain: (updated_at.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
@@ -9716,6 +9817,7 @@ class MangaApp:
         self._refresh_source_title_label("")
         self.volume_meta_by_url = {}
         self.series_metadata = {}
+        self.cover_url = ""
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
@@ -10144,6 +10246,7 @@ class MangaApp:
 
         cbz_enabled = self.cbz_enabled.get()
         comicinfo_enabled = self.comicinfo_enabled.get()
+        chapter_cover_enabled = self.chapter_cover_enabled.get()
         webp2jpg_enabled = self.webp2jpg_enabled.get()
         smart_resume_enabled = self.smart_resume_enabled.get()
 
@@ -10325,12 +10428,14 @@ class MangaApp:
                         update_progress=per_image_progress,
                         webp2jpg_enabled=webp2jpg_enabled,
                         comicinfo_enabled=comicinfo_enabled,
+                        chapter_cover_enabled=chapter_cover_enabled,
                         referer_url=link,
                         smart_resume_enabled=smart_resume_enabled,
                         error_callback=volume_error_callback,
                         output_root=output_root,
                         total_count=len(self.pairs),
                         series_metadata=getattr(self, "series_metadata", {}),
+                        cover_url=getattr(self, "cover_url", ""),
                     )
                     if dl_result is None and self.cancel_event.is_set():
                         break
@@ -10444,12 +10549,14 @@ class MangaApp:
                             update_progress=None,
                             webp2jpg_enabled=webp2jpg_enabled,
                             comicinfo_enabled=comicinfo_enabled,
+                            chapter_cover_enabled=chapter_cover_enabled,
                             referer_url=link,
                             smart_resume_enabled=smart_resume_enabled,
                             error_callback=retry_error_callback,
                             output_root=output_root,
                             total_count=len(self.pairs),
                             series_metadata=getattr(self, "series_metadata", {}),
+                            cover_url=getattr(self, "cover_url", ""),
                         )
                         if retry_result is False:
                             if not retry_error_state["reported"]:
@@ -10507,7 +10614,7 @@ class MangaApp:
         """Sauvegarde les paramètres actuels dans le cache"""
         try:
             self.persist_settings()
-            self.log("Cookies, UA, sorties CBZ/ComicInfo/WEBP et préférences logs sauvegardées !", level="success")
+            self.log("Cookies, UA, sorties CBZ/ComicInfo/couverture/WEBP et préférences logs sauvegardées !", level="success")
             self.update_cookie_status()
             self.update_runtime_status()
         except Exception as e:
@@ -10525,6 +10632,7 @@ class SushiCliBackend:
             ua,
             cbz_enabled,
             comicinfo_enabled,
+            chapter_cover_enabled,
             last_url,
             webp2jpg_enabled,
             smart_resume_enabled,
@@ -10544,6 +10652,7 @@ class SushiCliBackend:
             user_agent=(ua or DEFAULT_USER_AGENT).strip(),
             cbz_enabled=bool(cbz_enabled),
             comicinfo_enabled=bool(comicinfo_enabled),
+            chapter_cover_enabled=bool(chapter_cover_enabled),
             webp2jpg_enabled=bool(webp2jpg_enabled),
             smart_resume_enabled=bool(smart_resume_enabled),
             verbose_logs=bool(verbose_logs),
@@ -10561,6 +10670,7 @@ class SushiCliBackend:
             smart_resume_enabled=bool(state.smart_resume_enabled),
             verbose_logs=bool(state.verbose_logs),
             comicinfo_enabled=bool(state.comicinfo_enabled),
+            chapter_cover_enabled=bool(state.chapter_cover_enabled),
         )
 
     def test_cookie(self, domain, cookie, ua):
@@ -10630,6 +10740,7 @@ class SushiCliBackend:
         cancel_event,
         cbz_enabled,
         comicinfo_enabled,
+        chapter_cover_enabled,
         webp2jpg_enabled,
         smart_resume_enabled,
         total_count=None,
@@ -10647,6 +10758,7 @@ class SushiCliBackend:
             update_progress=update_progress,
             webp2jpg_enabled=bool(webp2jpg_enabled),
             comicinfo_enabled=bool(comicinfo_enabled),
+            chapter_cover_enabled=bool(chapter_cover_enabled),
             referer_url=(item.url or "").strip(),
             smart_resume_enabled=bool(smart_resume_enabled),
             error_callback=error_callback,
@@ -10654,6 +10766,7 @@ class SushiCliBackend:
             prompt_cookie_retry=False,
             total_count=total_count,
             series_metadata=series_metadata,
+            cover_url=(series_metadata or {}).get("cover_url", "") if isinstance(series_metadata, dict) else "",
         )
 
 
