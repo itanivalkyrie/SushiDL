@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.7.1`
+Version actuelle : `11.7.2`
 
 ## Ce qui change sur `main`
 
@@ -106,6 +106,14 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.7.2
+- Telechargement :
+  - correction d'un retry inutile sur les pages renvoyant un contenu non image,
+  - ces pages sont maintenant marquees comme invalides/ignorees immediatement.
+- Hentaizone :
+  - evite les tentatives repetees sur une URL parsee mais invalide cote serveur,
+  - la finalisation du `CBZ` conserve le chapitre telecharge avec les pages valides.
 
 ### 11.7.1
 - Hentaizone :

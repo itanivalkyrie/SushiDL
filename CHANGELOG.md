@@ -9,6 +9,18 @@ Le format de version suit la regle `X.Y.Z` :
 
 ## [11.7.1] - 2026-03-01
 
+## [11.7.2] - 2026-03-01
+
+### Corrections
+- Telechargement :
+  - les contenus non image (`invalid_image`) ne sont plus retentes en boucle,
+  - ils sont marques comme pages ignorees des la premiere detection.
+- Hentaizone :
+  - evite les tentatives repetees sur des URLs parsees mais invalides cote serveur,
+  - le `CBZ` reste genere avec les pages valides quand le reste est incomplet.
+
+## [11.7.1] - 2026-03-01
+
 ### Corrections
 - Hentaizone :
   - un chapitre peut maintenant etre finalise en `.cbz` meme si une ou plusieurs pages sont manquantes ou invalides.
