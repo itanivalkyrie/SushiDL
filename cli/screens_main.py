@@ -46,9 +46,10 @@ class MainMenuScreen(Screen):
         app_state = self.app.cli_state
         auth_ready = sum(1 for value in app_state.cookies.values() if (value or "").strip())
         cbz = "ON" if app_state.cbz_enabled else "OFF"
+        comicinfo = "ON" if app_state.comicinfo_enabled else "OFF"
         resume = "ON" if app_state.smart_resume_enabled else "OFF"
         self.query_one("#main-status", Label).update(
-            f"État rapide : Auth {auth_ready}/4 | User-Agent {'renseigné' if app_state.user_agent else 'vide'} | CBZ {cbz} | Reprise {resume}"
+            f"Etat rapide : Auth {auth_ready}/{len(app_state.cookies)} | User-Agent {'renseigne' if app_state.user_agent else 'vide'} | CBZ {cbz} | ComicInfo {comicinfo} | Reprise {resume}"
         )
 
     def apply_terminal_mode(self) -> None:

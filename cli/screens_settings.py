@@ -48,6 +48,7 @@ class SettingsScreen(Screen):
             with Vertical(id="options-panel", classes="panel"):
                 yield Label("Options", classes="panel-title")
                 yield Checkbox("CBZ", value=True, id="opt-cbz")
+                yield Checkbox("ComicInfo.xml", value=True, id="opt-comicinfo")
                 yield Checkbox("WEBP -> JPG", value=True, id="opt-webp")
                 yield Checkbox("Reprise intelligente", value=True, id="opt-resume")
                 yield Checkbox("Logs detailles", value=True, id="opt-logs")
@@ -101,6 +102,7 @@ class SettingsScreen(Screen):
                 self.cookie_list.index = safe_index
             self.query_one("#user-agent", Input).value = state.user_agent
             self.query_one("#opt-cbz", Checkbox).value = bool(state.cbz_enabled)
+            self.query_one("#opt-comicinfo", Checkbox).value = bool(state.comicinfo_enabled)
             self.query_one("#opt-webp", Checkbox).value = bool(state.webp2jpg_enabled)
             self.query_one("#opt-resume", Checkbox).value = bool(state.smart_resume_enabled)
             self.query_one("#opt-logs", Checkbox).value = bool(state.verbose_logs)
@@ -146,6 +148,7 @@ class SettingsScreen(Screen):
             self.query_one("#edit-ua", Button),
             self.query_one("#clear-ua", Button),
             self.query_one("#opt-cbz", Checkbox),
+            self.query_one("#opt-comicinfo", Checkbox),
             self.query_one("#opt-webp", Checkbox),
             self.query_one("#opt-resume", Checkbox),
             self.query_one("#opt-logs", Checkbox),
@@ -174,6 +177,7 @@ class SettingsScreen(Screen):
         state = self.app.cli_state
         state.user_agent = self.query_one("#user-agent", Input).value.strip()
         state.cbz_enabled = bool(self.query_one("#opt-cbz", Checkbox).value)
+        state.comicinfo_enabled = bool(self.query_one("#opt-comicinfo", Checkbox).value)
         state.webp2jpg_enabled = bool(self.query_one("#opt-webp", Checkbox).value)
         state.smart_resume_enabled = bool(self.query_one("#opt-resume", Checkbox).value)
         state.verbose_logs = bool(self.query_one("#opt-logs", Checkbox).value)

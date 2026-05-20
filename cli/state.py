@@ -45,6 +45,7 @@ class CliState:
     cookies: dict[str, str]
     user_agent: str
     cbz_enabled: bool = True
+    comicinfo_enabled: bool = True
     webp2jpg_enabled: bool = True
     smart_resume_enabled: bool = True
     verbose_logs: bool = True

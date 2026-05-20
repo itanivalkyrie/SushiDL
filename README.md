@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.7.2`
+Version actuelle : `11.8.0`
 
 ## Ce qui change sur `main`
 
@@ -36,6 +36,7 @@ Concretement :
 - rendu dense optimise et virtualise pour les gros catalogues
 - popup de preview rapide `3 a 5` pages depuis le listing
 - indicateurs de chargement pendant l'analyse, le rendu de liste et la preview
+- generation optionnelle de `ComicInfo.xml` dans les archives CBZ pour Komga
 - `requirements.txt` inclut maintenant :
   - `customtkinter>=5.2.2`
   - `textual>=0.82.0`
@@ -107,136 +108,30 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.8.0
+- Sortie CBZ :
+  - ajout d'une option `ComicInfo.xml` dans l'onglet `Options`,
+  - generation de metadonnees compatibles Komga dans chaque archive CBZ,
+  - champs inclus selon les donnees disponibles : serie, titre, numero, nombre de pages, URL source, langue et tags.
+- Mode terminal :
+  - l'option `ComicInfo.xml` est aussi disponible dans `Options / Cookies`.
+
 ### 11.7.2
 - Telechargement :
   - correction d'un retry inutile sur les pages renvoyant un contenu non image,
-  - ces pages sont maintenant marquees comme invalides/ignorees immediatement.
+  - ces pages sont maintenant marquees comme invalides/ignorees immediatement,
+  - la finalisation du `CBZ` conserve les chapitres avec pages valides.
 - Hentaizone :
-  - evite les tentatives repetees sur une URL parsee mais invalide cote serveur,
-  - la finalisation du `CBZ` conserve le chapitre telecharge avec les pages valides.
-
-### 11.7.1
-- Hentaizone :
-  - un chapitre peut maintenant etre archive en `.cbz` meme si une ou plusieurs pages sont manquantes ou invalides.
-- Telechargement :
-  - les faux fichiers image ou pages corrompues sont journalises comme pages ignorees,
-  - ils ne bloquent plus la finalisation du chapitre si des pages valides ont bien ete telechargees.
-- Logs :
-  - SushiDL indique explicitement quand un `CBZ` a ete cree avec des pages manquantes ou invalides.
-
-### 11.7.0
-- Ajout du support de `https://hentaizone.xyz`.
-- Nouveau format d'URL catalogue supporte :
-  - `https://hentaizone.xyz/manga/<slug>/`
-- Ajout d'un cookie manuel dedie `.hentaizone` dans l'onglet `Authentification` et dans le mode terminal.
-- Validation du cookie `.hentaizone` sur :
-  - `https://hentaizone.xyz/manga/stepmothers-friends/`
-- Recuperation de la liste complete des chapitres directement depuis le HTML de la fiche.
-- Prise en charge des pages de lecture `.../chapitre-146/` et des images servies depuis `scanscloud.xyz`.
-- Correction des probes automatiques de l'onglet `Authentification` :
-  - chaque domaine teste maintenant son lien avec son User-Agent effectif,
-  - Toonfr ne depend plus d'une analyse de lien pour passer en valide si le cookie est deja bon.
-
-### 11.6.1
-- OrtegaScans :
-  - recuperation de la liste complete des chapitres depuis les donnees embarquees de la page,
-  - plus de limitation a la tranche visible avant clic sur `Charger plus`.
-- Telechargement GUI :
-  - si un cookie expire ou qu'un `HTTP 403` bloque un chapitre, une popup invite a mettre a jour le cookie,
-  - apres validation, le telechargement reprend au meme chapitre sans repartir de zero.
-- Titres :
-  - si un titre source ne contient aucune majuscule, SushiDL applique au moins une majuscule initiale propre.
-
-### 11.6.0
-- Ajout du support de `https://ortegascans.fr`.
-- Nouveau format d'URL catalogue supporte :
-  - `https://ortegascans.fr/serie/<slug>/`
-- Ajout d'un cookie manuel dedie `.ortegascans` dans l'onglet `Authentification`.
-- Le champ `.ortegascans` accepte :
-  - un simple `cf_clearance`
-  - ou un header `Cookie` complet
-- Detection des chapitres premium Ortega :
-  - badge `$` dore dans le listing,
-  - preview desactivee,
-  - telechargement ignore automatiquement meme si l'element est coche.
-- Normalisation des libelles de chapitres :
-  - `Ep 221 - Ma brute` devient `Chapitre 221`
-  - le nom d'archive devient donc `Ma brute - Chapitre 221.cbz`
-
-### 11.5.0
-- Ajout du support de `https://toonfr.com`.
-- Nouveau format d'URL catalogue supporte :
-  - `https://toonfr.com/webtoon/<slug>/`
-- Ajout d'un cookie manuel dedie `.toonfr` dans l'onglet `Authentification`.
-- Le champ `.toonfr` accepte :
-  - un simple `cf_clearance`
-  - ou un header `Cookie` complet
-- Recuperation de la liste des chapitres Toonfr via l'endpoint AJAX Madara du site.
-- Validation du cookie `.toonfr` depuis la GUI et le mode terminal.
-- Prise en charge des pages de lecture Toonfr dans le backend.
-
-### 11.4.0
-- Ajout d'un mode terminal interactif via `python SushiDL.py --cli`.
-- Ecrans CLI:
-  - `Options / Cookies`
-  - `URL / Chapitres / Telechargement`
-  - `Telechargement`
-  - `Erreurs`
-- Navigation clavier + souris dans la liste.
-- Selection par plage et filtre texte.
-- Telechargement reel avec progression, annulation et resume de fin.
-- Copie / export des erreurs.
-- Mode compact automatique et avertissement si le terminal est trop petit.
-- Correction de la preview GUI pour limiter l'extraction aux `4/5` premieres pages utiles.
-- Utilisation de `CTkImage` dans la preview pour eviter le warning `CustomTkinter` sur les ecrans HiDPI.
-
-### 11.3.0
-- Ajout d'une icone de fenetre native `assets/sushidl.ico` multi-tailles.
-- Chargement durci selon l'OS:
-  - Windows: chemin principal via `iconbitmap(.ico)`,
-  - Linux / macOS: fallback via `iconphoto(...)`.
-- Fichiers de travail de creation d'icone gardes hors Git:
-  - `assets/sushi_icon_source.png`
-  - `assets/sushidl_icon_preview.png`
+  - support complet du catalogue, des chapitres et des images `scanscloud.xyz`,
+  - validation cookie dediee depuis la GUI et le mode terminal.
 
 ### Resume des versions precedentes
-- Refonte `CustomTkinter` avec interface plus sobre, plus lisible et barre d'onglets unique.
-- Onglet `Telechargement` unifie:
-  - source,
-  - liste tomes / chapitres,
-  - actions,
-  - progression runtime.
-- Rendu dense optimise pour les gros catalogues:
-  - virtualisation,
-  - filtre rapide,
-  - scroll stabilise.
-- Preview integree des chapitres/tomes:
-  - popup dediee,
-  - `3 a 5` premieres pages,
-  - indicateurs de chargement.
-- Stabilisation technique:
-  - timeouts UI mieux geres,
-  - sanitation cookies / headers,
-  - annulation plus reactive,
-  - logs moins bloquants.
-- Toolbar de selection compactee:
-  - compteur fusionne (`1/1000 elements`),
-  - controle `Auto / Dense / Confort` plus lisible,
-  - meilleure integration du filtre, des actions et du bloc telechargement.
-- Support optimise des gros catalogues:
-  - mode liste legere automatique sur tres grandes listes,
-  - virtualisation des widgets visibles,
-  - filtres quasi instantanes,
-  - switches de vue plus fluides.
-- Analyse decouplee du rendu UI pour eviter les timeouts quand la liste contient un tres grand nombre d'elements.
-
-### 11.2.8
-- Acceleration du flux de telechargement par suppression des attentes artificielles dans les boucles workers.
-- Annulation plus reactive pendant les retries d'extraction des images.
-- Timeout de securite ajoute sur les appels UI synchrones (`run_on_ui(wait=True)`).
-- Reduction de la contention entre threads dans les logs.
-- Sanitation stricte des valeurs de cookies et du header `Cookie` avant les requetes HTTP.
-- Probe de validation cookie force sur des URLs fixes de demarrage par domaine.
+- Interface `CustomTkinter` par defaut avec onglet `Telechargement` unifie.
+- Mode terminal interactif via `python SushiDL.py --cli`.
+- Support recent de Toonfr, OrtegaScans et Hentaizone.
+- Preview rapide des chapitres/tomes avec popup dediee.
+- Rendu dense virtualise pour gros catalogues et filtre rapide.
+- Reprise intelligente, erreurs detaillees, relance cookie sur blocage et logs plus lisibles.
 
 Pour le detail complet des versions : voir `CHANGELOG.md`.
 
@@ -257,11 +152,12 @@ Formats d'URL catalogue attendus :
 - `https://hentai-origines.fr/manga/<slug>/`
 - `https://toonfr.com/webtoon/<slug>/`
 - `https://ortegascans.fr/serie/<slug>/`
+- `https://hentaizone.xyz/manga/<slug>/`
 
 ## Fonctionnalites principales
 
 - Authentification manuelle par cookies `cf_clearance` et `User-Agent`.
-- Champs separes par domaine pour `.fr`, `.net`, `.origines`, `.hentai-origines`, `.toonfr` et `.ortegascans`.
+- Champs separes par domaine pour `.fr`, `.net`, `.origines`, `.hentai-origines`, `.toonfr`, `.ortegascans` et `.hentaizone`.
 - Pour `.toonfr`, tu peux coller soit `cf_clearance`, soit un header `Cookie` complet si le site devient plus strict.
 - Pour `.ortegascans`, tu peux coller soit `cf_clearance`, soit un header `Cookie` complet.
 - Detection automatique du domaine a utiliser pour les pages, images et couvertures.
@@ -270,6 +166,7 @@ Formats d'URL catalogue attendus :
 - Reprise intelligente sur les pages deja presentes.
 - Conversion optionnelle WebP vers JPG.
 - Creation optionnelle d'archives CBZ.
+- Generation optionnelle de `ComicInfo.xml` compatible Komga dans les archives CBZ.
 - Journal unifie GUI + terminal avec filtres.
 - Tableau d'erreurs par tome avec raison technique et action recommande.
 - Interface `CustomTkinter` avec onglet `Telechargement` unifie et rendu dense optimise.

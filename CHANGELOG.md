@@ -7,7 +7,25 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
-## [11.7.1] - 2026-03-01
+## [11.8.0] - 2026-05-20
+
+### Ameliorations
+- Ajout d'une option `ComicInfo.xml` dans l'onglet `Options > Sortie`.
+- Generation automatique d'un `ComicInfo.xml` dans chaque archive CBZ quand l'option est activee.
+- Metadonnees compatibles Komga / ComicRack :
+  - `Series`,
+  - `Title`,
+  - `Number`,
+  - `Count`,
+  - `PageCount`,
+  - `LanguageISO`,
+  - `Manga`,
+  - `Web`,
+  - `Publisher`,
+  - `Tags`,
+  - `Notes`.
+- L'option est persistante dans `cookie_cache.json`.
+- Le mode terminal expose aussi l'option `ComicInfo.xml`.
 
 ## [11.7.2] - 2026-03-01
 

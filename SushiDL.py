@@ -25,6 +25,7 @@ import queue
 import sys
 import unicodedata
 import webbrowser
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
@@ -500,7 +501,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.7.2"
+APP_VERSION = "11.8.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1112,6 +1113,88 @@ def archive_cbz(folder_path, title, volume, remove_source=True):
     except Exception:
         return False
     return False
+
+
+COMICINFO_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".avif")
+
+
+def extract_comic_number(label):
+    """Extrait le premier numero exploitable depuis un libelle de tome/chapitre."""
+    value = repair_mojibake_text(label or "")
+    match = re.search(r"(\d+(?:[.,]\d+)?)", value)
+    return match.group(1).replace(",", ".") if match else ""
+
+
+def count_downloaded_images(folder_path):
+    """Compte uniquement les fichiers images presents dans le dossier telecharge."""
+    total = 0
+    for _, _, files in os.walk(folder_path):
+        total += sum(1 for name in files if name.lower().endswith(COMICINFO_IMAGE_EXTENSIONS))
+    return total
+
+
+def build_comicinfo_xml(
+    series,
+    volume_label,
+    page_count=0,
+    total_count=None,
+    web_url="",
+    source_domain="",
+    notes="",
+):
+    """Construit un ComicInfo.xml compatible Komga/ComicRack avec les metadonnees disponibles."""
+    series_name = repair_mojibake_text(series or "").strip() or APP_NAME
+    chapter_title = repair_mojibake_text(normalize_tome_label(volume_label) or "").strip()
+    source_domain = (source_domain or "").strip()
+    root = ET.Element("ComicInfo")
+
+    fields = {
+        "Series": series_name,
+        "Title": chapter_title,
+        "Number": extract_comic_number(chapter_title),
+        "Count": str(total_count) if total_count else "",
+        "PageCount": str(page_count) if page_count else "",
+        "LanguageISO": "fr",
+        "Manga": "YesAndRightToLeft",
+        "Web": (web_url or "").strip(),
+        "Publisher": source_domain,
+        "Tags": ", ".join(filter(None, [source_domain, APP_NAME])),
+        "Notes": (notes or "").strip(),
+    }
+    for tag, value in fields.items():
+        if value:
+            ET.SubElement(root, tag).text = str(value)
+
+    try:
+        ET.indent(root, space="  ")
+    except Exception:
+        pass
+    return ET.ElementTree(root)
+
+
+def write_comicinfo_xml(
+    folder_path,
+    series,
+    volume_label,
+    page_count=0,
+    total_count=None,
+    web_url="",
+    source_domain="",
+    notes="",
+):
+    """Ecrit ComicInfo.xml dans le dossier qui sera archive en CBZ."""
+    xml_path = os.path.join(folder_path, "ComicInfo.xml")
+    tree = build_comicinfo_xml(
+        series=series,
+        volume_label=volume_label,
+        page_count=page_count,
+        total_count=total_count,
+        web_url=web_url,
+        source_domain=source_domain,
+        notes=notes,
+    )
+    tree.write(xml_path, encoding="utf-8", xml_declaration=True)
+    return xml_path
 
 
 def download_image(
@@ -2206,11 +2289,13 @@ def download_volume(
     cbz_enabled=True,
     update_progress=None,
     webp2jpg_enabled=True,
+    comicinfo_enabled=True,
     referer_url=None,
     smart_resume_enabled=True,
     error_callback=None,
     output_root=ROOT_FOLDER,
     prompt_cookie_retry=True,
+    total_count=None,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
@@ -2482,6 +2567,32 @@ def download_volume(
             logger(f"CBZ desactive pour {clean_tome}: images conservees.", level="info")
             return True
 
+        if comicinfo_enabled:
+            try:
+                page_count = count_downloaded_images(folder)
+                source_domain = get_cookie_domain_from_url(referer_url or "")
+                notes = ""
+                if soft_failures:
+                    notes = (
+                        f"Archive generee par {APP_NAME} avec "
+                        f"{len(soft_failures)} page(s) manquante(s) ou invalide(s)."
+                    )
+                write_comicinfo_xml(
+                    folder,
+                    title,
+                    tome_label,
+                    page_count=page_count,
+                    total_count=total_count,
+                    web_url=referer_url,
+                    source_domain=source_domain,
+                    notes=notes,
+                )
+            except Exception as comicinfo_exc:
+                logger(
+                    f"ComicInfo.xml non genere pour {tome_label}: {comicinfo_exc}",
+                    level="warning",
+                )
+
         if archive_cbz(folder, title, tome_label, remove_source=True):
             cbz_path = os.path.join(
                 base_output_dir, clean_title, f"{clean_title} - {clean_tome}.cbz"
@@ -2623,6 +2734,7 @@ def save_cookie_cache(
     cookie_sources=None,
     cookie_user_agents=None,
     cookie_headers=None,
+    comicinfo_enabled=True,
 ):
     """
     Sauvegarde les paramètres dans un fichier JSON
@@ -2689,6 +2801,7 @@ def save_cookie_cache(
         "cookies_encrypted": encrypted_cookies,
         "ua": (ua or DEFAULT_USER_AGENT).strip(),
         "cbz_enabled": bool(cbz),
+        "comicinfo_enabled": bool(comicinfo_enabled),
         "last_url": MangaApp.last_url_used,
         "timestamp": now_iso,
         "cookie_updated_at": cookie_updated_at,
@@ -2712,6 +2825,7 @@ def save_cookie_cache(
 def load_cookie_cache():
     """Charge les paramètres depuis le fichier cache"""
     default_cbz = True
+    default_comicinfo = True
     default_webp2jpg = True
     default_smart_resume = True
     default_verbose_logs = True
@@ -2721,6 +2835,7 @@ def load_cookie_cache():
             {domain: "" for domain in COOKIE_DOMAINS},
             DEFAULT_USER_AGENT,
             default_cbz,
+            default_comicinfo,
             "",
             default_webp2jpg,
             default_smart_resume,
@@ -2778,6 +2893,7 @@ def load_cookie_cache():
             {domain: (cookies.get(domain) or "").strip() for domain in COOKIE_DOMAINS},
             (data.get("ua") or DEFAULT_USER_AGENT).strip(),
             data.get("cbz_enabled", default_cbz),
+            data.get("comicinfo_enabled", default_comicinfo),
             (data.get("last_url") or "").strip(),
             data.get("webp2jpg_enabled", default_webp2jpg),
             bool(data.get("smart_resume_enabled", default_smart_resume)),
@@ -2794,6 +2910,7 @@ def load_cookie_cache():
         {domain: "" for domain in COOKIE_DOMAINS},
         DEFAULT_USER_AGENT,
         default_cbz,
+        default_comicinfo,
         "",
         default_webp2jpg,
         default_smart_resume,
@@ -6482,6 +6599,7 @@ class MangaApp:
         
         # Variables Tkinter
         self.cbz_enabled = tk.BooleanVar(value=True)
+        self.comicinfo_enabled = tk.BooleanVar(value=True)
         self.webp2jpg_enabled = tk.BooleanVar(value=True)
         self.smart_resume_enabled = tk.BooleanVar(value=True)
         self.verbose_logs = tk.BooleanVar(value=True)
@@ -6551,6 +6669,7 @@ class MangaApp:
             cookies,
             ua,
             cbz,
+            comicinfo_enabled,
             last_url,
             webp2jpg_enabled,
             smart_resume_enabled,
@@ -6597,6 +6716,7 @@ class MangaApp:
 
         self.last_known_cookies = {domain: (cookies.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
         self.cbz_enabled.set(str(cbz).lower() in ("1", "true", "yes"))
+        self.comicinfo_enabled.set(str(comicinfo_enabled).lower() in ("1", "true", "yes"))
         self.webp2jpg_enabled.set(str(webp2jpg_enabled).lower() in ("1", "true", "yes"))
         self.smart_resume_enabled.set(str(smart_resume_enabled).lower() in ("1", "true", "yes"))
         self.verbose_logs.set(str(verbose_logs_enabled).lower() in ("1", "true", "yes"))
@@ -7948,6 +8068,13 @@ class MangaApp:
         )
         add_option_line(
             output_inner,
+            "ComicInfo.xml",
+            self.comicinfo_enabled,
+            "Ajoute les métadonnées Komga dans chaque archive CBZ.",
+            bottom=6,
+        )
+        add_option_line(
+            output_inner,
             "WEBP en JPG",
             self.webp2jpg_enabled,
             "Convertit les images WEBP en JPG pour une compatibilité maximale.",
@@ -9205,6 +9332,7 @@ class MangaApp:
                 self._mark_cookie_updated(domain, "")
 
         cbz_enabled = bool(self.run_on_ui(self.cbz_enabled.get, wait=True, default=True))
+        comicinfo_enabled = bool(self.run_on_ui(self.comicinfo_enabled.get, wait=True, default=True))
         webp2jpg_enabled = bool(self.run_on_ui(self.webp2jpg_enabled.get, wait=True, default=True))
         smart_resume_enabled = bool(self.run_on_ui(self.smart_resume_enabled.get, wait=True, default=True))
         verbose_logs_enabled = bool(self.run_on_ui(self.verbose_logs.get, wait=True, default=True))
@@ -9218,6 +9346,7 @@ class MangaApp:
             cookie_sources=self.cookie_sources,
             cookie_user_agents=self.cookie_user_agents,
             cookie_headers=self.cookie_headers,
+            comicinfo_enabled=comicinfo_enabled,
         )
         if isinstance(updated_at, dict):
             self.cookie_updated_at = {domain: (updated_at.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
@@ -9695,6 +9824,7 @@ class MangaApp:
         self._set_progress_detail_ui(None, None)
 
         cbz_enabled = self.cbz_enabled.get()
+        comicinfo_enabled = self.comicinfo_enabled.get()
         webp2jpg_enabled = self.webp2jpg_enabled.get()
         smart_resume_enabled = self.smart_resume_enabled.get()
 
@@ -9875,10 +10005,12 @@ class MangaApp:
                         cbz_enabled,
                         update_progress=per_image_progress,
                         webp2jpg_enabled=webp2jpg_enabled,
+                        comicinfo_enabled=comicinfo_enabled,
                         referer_url=link,
                         smart_resume_enabled=smart_resume_enabled,
                         error_callback=volume_error_callback,
                         output_root=output_root,
+                        total_count=len(self.pairs),
                     )
                     if dl_result is None and self.cancel_event.is_set():
                         break
@@ -9991,10 +10123,12 @@ class MangaApp:
                             cbz_enabled,
                             update_progress=None,
                             webp2jpg_enabled=webp2jpg_enabled,
+                            comicinfo_enabled=comicinfo_enabled,
                             referer_url=link,
                             smart_resume_enabled=smart_resume_enabled,
                             error_callback=retry_error_callback,
                             output_root=output_root,
+                            total_count=len(self.pairs),
                         )
                         if retry_result is False:
                             if not retry_error_state["reported"]:
@@ -10052,7 +10186,7 @@ class MangaApp:
         """Sauvegarde les paramètres actuels dans le cache"""
         try:
             self.persist_settings()
-            self.log("Cookies, UA, CBZ, WEBP->JPG et préférences logs sauvegardées !", level="success")
+            self.log("Cookies, UA, sorties CBZ/ComicInfo/WEBP et préférences logs sauvegardées !", level="success")
             self.update_cookie_status()
             self.update_runtime_status()
         except Exception as e:
@@ -10069,6 +10203,7 @@ class SushiCliBackend:
             cookies,
             ua,
             cbz_enabled,
+            comicinfo_enabled,
             last_url,
             webp2jpg_enabled,
             smart_resume_enabled,
@@ -10087,6 +10222,7 @@ class SushiCliBackend:
             cookies=dict(cookies),
             user_agent=(ua or DEFAULT_USER_AGENT).strip(),
             cbz_enabled=bool(cbz_enabled),
+            comicinfo_enabled=bool(comicinfo_enabled),
             webp2jpg_enabled=bool(webp2jpg_enabled),
             smart_resume_enabled=bool(smart_resume_enabled),
             verbose_logs=bool(verbose_logs),
@@ -10103,6 +10239,7 @@ class SushiCliBackend:
             webp2jpg_enabled=bool(state.webp2jpg_enabled),
             smart_resume_enabled=bool(state.smart_resume_enabled),
             verbose_logs=bool(state.verbose_logs),
+            comicinfo_enabled=bool(state.comicinfo_enabled),
         )
 
     def test_cookie(self, domain, cookie, ua):
@@ -10170,8 +10307,10 @@ class SushiCliBackend:
         error_callback,
         cancel_event,
         cbz_enabled,
+        comicinfo_enabled,
         webp2jpg_enabled,
         smart_resume_enabled,
+        total_count=None,
     ):
         return download_volume(
             item.label,
@@ -10184,11 +10323,13 @@ class SushiCliBackend:
             cbz_enabled=bool(cbz_enabled),
             update_progress=update_progress,
             webp2jpg_enabled=bool(webp2jpg_enabled),
+            comicinfo_enabled=bool(comicinfo_enabled),
             referer_url=(item.url or "").strip(),
             smart_resume_enabled=bool(smart_resume_enabled),
             error_callback=error_callback,
             output_root=output_dir,
             prompt_cookie_retry=False,
+            total_count=total_count,
         )
 
 
