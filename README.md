@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.9.3`
+Version actuelle : `11.9.4`
 
 ## Ce qui change sur `main`
 
@@ -107,6 +107,10 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.9.4
+- ComicInfo.xml :
+  - ajout de l'extraction des genres ToonFR via les liens `/webtoon-genre/`.
 
 ### 11.9.3
 - ComicInfo.xml :

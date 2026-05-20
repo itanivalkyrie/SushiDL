@@ -501,7 +501,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.9.3"
+APP_VERSION = "11.9.4"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1617,6 +1617,7 @@ def extract_series_metadata_from_html(url, html_content, title=""):
             ".post-content_item .genres a",
             ".post-content_item a[href*='/genre/']",
             ".post-content_item a[href*='/manga-genre/']",
+            ".post-content_item a[href*='/webtoon-genre/']",
             ".manga-genres a",
             ".series-genres a",
             ".genre-list a",

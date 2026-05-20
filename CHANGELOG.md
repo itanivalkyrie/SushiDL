@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.9.4] - 2026-05-20
+
+### Corrections
+- ComicInfo.xml :
+  - ajout du selecteur ToonFR `/webtoon-genre/` pour recuperer les genres depuis les fiches webtoon.
+
 ## [11.9.3] - 2026-05-20
 
 ### Corrections
