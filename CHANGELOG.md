@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.9.5] - 2026-05-20
+
+### Corrections
+- ComicInfo.xml :
+  - ajout de la variante Manga-Origines `/manga-genres/` pour recuperer les genres des fiches catalogue.
+
 ## [11.9.4] - 2026-05-20
 
 ### Corrections
