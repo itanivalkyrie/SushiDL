@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.11.1] - 2026-05-22
+
+### Corrections
+- ComicInfo.xml :
+  - le telechargement GUI propose maintenant une verification/modification des metadonnees avant la creation des CBZ quand l'option `ComicInfo.xml` est activee.
+
 ## [11.11.0] - 2026-05-22
 
 ### Ameliorations

@@ -502,7 +502,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.11.0"
+APP_VERSION = "11.11.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -9780,25 +9780,30 @@ class MangaApp:
                         continue
                 raise
 
-    def open_metadata_editor(self):
+    def open_metadata_editor(self, wait=False, prompt_before_download=False):
         """Permet de corriger les métadonnées ComicInfo avant téléchargement."""
         metadata = dict(getattr(self, "series_metadata", {}) or {})
         if not metadata and not getattr(self, "title", ""):
             self.toast("Analyse d'abord une source")
             self.log("Aucune métadonnée à éditer: lance une analyse avant.", level="info")
-            return
+            return False if wait else None
 
         window = ctk.CTkToplevel(self.root)
-        window.title("Métadonnées ComicInfo")
+        window.title("Vérifier ComicInfo.xml" if prompt_before_download else "Métadonnées ComicInfo")
         window.geometry("760x620")
         window.transient(self.root)
         window.grab_set()
         window.grid_columnconfigure(0, weight=1)
         window.grid_rowconfigure(1, weight=1)
+        result = {"saved": False}
 
         header = ctk.CTkLabel(
             window,
-            text="Métadonnées utilisées dans ComicInfo.xml",
+            text=(
+                "Vérifie les métadonnées avant création des CBZ"
+                if prompt_before_download
+                else "Métadonnées utilisées dans ComicInfo.xml"
+            ),
             text_color=self.palette["text"],
             font=("Segoe UI Semibold", 15),
         )
@@ -9888,13 +9893,21 @@ class MangaApp:
                 updated["tags"] = split_metadata_values(", ".join(filter(None, [updated.get("status", ""), updated.get("genre", "")])))
             self.series_metadata = updated
             self.log("Métadonnées ComicInfo mises à jour pour les prochains téléchargements.", level="success")
-            self.toast("Métadonnées sauvegardées")
+            if not prompt_before_download:
+                self.toast("Métadonnées sauvegardées")
+            result["saved"] = True
             window.destroy()
+
+        def cancel_metadata():
+            result["saved"] = False
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", cancel_metadata)
 
         ctk.CTkButton(
             actions,
             text="Annuler",
-            command=window.destroy,
+            command=cancel_metadata,
             width=120,
             height=34,
             corner_radius=6,
@@ -9906,15 +9919,19 @@ class MangaApp:
         ).grid(row=0, column=1, padx=(0, 8))
         ctk.CTkButton(
             actions,
-            text="Sauvegarder",
+            text="Continuer le téléchargement" if prompt_before_download else "Sauvegarder",
             command=save_metadata,
-            width=140,
+            width=210 if prompt_before_download else 140,
             height=34,
             corner_radius=6,
             fg_color=self.palette["accent"],
             hover_color=self.palette["accent_hover"],
             text_color="#ffffff",
         ).grid(row=0, column=2)
+        if wait:
+            window.wait_window()
+            return bool(result["saved"])
+        return None
 
     def open_download_queue_dialog(self):
         """Ouvre une file d'attente simple: une URL catalogue par ligne."""
@@ -10640,6 +10657,12 @@ class MangaApp:
             else:
                 self.log("Aucun tome sélectionné.", level="info")
             return
+
+        if self.comicinfo_enabled.get():
+            confirmed_metadata = self.open_metadata_editor(wait=True, prompt_before_download=True)
+            if not confirmed_metadata:
+                self.log("Téléchargement annulé: validation ComicInfo.xml interrompue.", level="info")
+                return
 
         initial_output_root = (getattr(self, "download_output_root", "") or os.path.abspath(ROOT_FOLDER)).strip()
         if not initial_output_root:
