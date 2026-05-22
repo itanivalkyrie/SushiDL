@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.11.2] - 2026-05-22
+
+### Corrections
+- ComicInfo.xml :
+  - le champ `Publisher` conserve l'editeur detecte quand il existe,
+  - en absence d'editeur, la source est maintenant le domaine complet (`sushiscan.fr`, `sushiscan.net`, etc.) au lieu de l'alias cookie (`fr`, `net`).
+
 ## [11.11.1] - 2026-05-22
 
 ### Corrections

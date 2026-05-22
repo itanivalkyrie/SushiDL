@@ -502,7 +502,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.11.1"
+APP_VERSION = "11.11.2"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1139,6 +1139,36 @@ def is_chapter_label(label):
     return normalize_tome_label(label).lower().startswith("chapitre ")
 
 
+COMICINFO_SOURCE_LABELS = {
+    "fr": "sushiscan.fr",
+    "net": "sushiscan.net",
+    "origines": "mangas-origines.fr",
+    "hentai": "hentai-origines.fr",
+    "toonfr": "toonfr.com",
+    "ortega": "ortegascans.fr",
+    "hentaizone": "hentaizone.xyz",
+}
+
+
+def comicinfo_source_label(value):
+    """Retourne une source lisible pour ComicInfo, jamais un simple alias cookie."""
+    raw = normalize_metadata_text(value)
+    if not raw:
+        return ""
+    raw = raw.strip()
+    lowered = raw.lower().lstrip(".")
+    return COMICINFO_SOURCE_LABELS.get(lowered, lowered if "." in lowered else raw)
+
+
+def comicinfo_source_label_from_url(url):
+    """Deduit le domaine complet a stocker comme source ComicInfo."""
+    safe_url = (url or "").strip()
+    cookie_domain = get_cookie_domain_from_url(safe_url)
+    if cookie_domain:
+        return comicinfo_source_label(cookie_domain)
+    return comicinfo_source_label(normalize_hostname(urlparse(safe_url).hostname))
+
+
 def build_comicinfo_xml(
     series,
     volume_label,
@@ -1154,8 +1184,10 @@ def build_comicinfo_xml(
     series_name = repair_mojibake_text(series or "").strip() or APP_NAME
     series_name = first_metadata_value(series_metadata.get("series")) or series_name
     chapter_title = repair_mojibake_text(normalize_tome_label(volume_label) or "").strip()
-    source_domain = (source_domain or "").strip()
-    publisher = first_metadata_value(series_metadata.get("publisher")) or source_domain
+    source_domain = comicinfo_source_label(source_domain)
+    publisher = first_metadata_value(series_metadata.get("publisher"))
+    publisher = publisher if publisher and publisher not in COMICINFO_SOURCE_LABELS else comicinfo_source_label(publisher)
+    publisher = publisher or source_domain
     tags = metadata_join(series_metadata.get("tags") or [source_domain, APP_NAME])
     if not tags:
         tags = ", ".join(filter(None, [source_domain, APP_NAME]))
@@ -1628,7 +1660,7 @@ def extract_series_metadata_from_html(url, html_content, title=""):
     """Extrait les metadonnees serie disponibles depuis la fiche catalogue."""
     html_content = html_content or ""
     soup = BeautifulSoup(html_content, "html.parser")
-    source_domain = get_cookie_domain_from_url(url) or normalize_hostname(urlparse(url).hostname)
+    source_domain = comicinfo_source_label_from_url(url)
     metadata = {
         "series": normalize_metadata_text(title) or extract_manga_title_from_html(url, html_content),
         "web": (url or "").strip(),
@@ -3004,7 +3036,7 @@ def download_volume(
         if comicinfo_enabled:
             try:
                 page_count = count_downloaded_images(folder)
-                source_domain = get_cookie_domain_from_url(referer_url or "")
+                source_domain = comicinfo_source_label_from_url(referer_url or "")
                 notes = ""
                 if soft_failures:
                     notes = (
