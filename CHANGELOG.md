@@ -7,6 +7,16 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.14.0] - 2026-05-22
+
+### Ameliorations
+- Telechargement adaptatif :
+  - reduction automatique du nombre de threads sur erreurs serveur, timeout ou rate-limit,
+  - reprise intelligente au point d'arret apres ralentissement,
+  - relance apres renouvellement cookie avec 1 thread de securite.
+- Diagnostic performance :
+  - ajout de logs `[perf]` pour l'analyse catalogue, la couverture, l'extraction images, le telechargement images, l'archive CBZ et le temps volume complet.
+
 ## [11.13.0] - 2026-05-22
 
 ### Ameliorations

@@ -570,6 +570,33 @@ def store_cached_image_urls(link, images, max_images=None):
             IMAGE_URL_CACHE.pop(old_key, None)
 
 
+def log_perf(logger, label, started_at, **context):
+    """Journalise un temps d'etape si le logger est disponible."""
+    if not callable(logger):
+        return
+    elapsed = max(0.0, time.perf_counter() - float(started_at or time.perf_counter()))
+    if elapsed < PERF_LOG_MIN_SECONDS:
+        return
+    details = " | ".join(f"{key}={value}" for key, value in context.items() if value not in (None, ""))
+    suffix = f" ({details})" if details else ""
+    try:
+        logger(f"[perf] {label}: {elapsed:.2f}s{suffix}", level="debug")
+    except TypeError:
+        logger(f"[perf] {label}: {elapsed:.2f}s{suffix}")
+
+
+def should_reduce_threads_for_failures(failures):
+    """Detecte les erreurs qui meritent de ralentir plutot que demander un cookie."""
+    for failure in failures or []:
+        status_code = failure.get("status_code") if isinstance(failure, dict) else None
+        if status_code in ADAPTIVE_THREAD_FAILURE_CODES:
+            return True
+        reason = (failure.get("reason") if isinstance(failure, dict) else str(failure or "")).lower()
+        if "429" in reason or "too many" in reason or "rate limit" in reason or "timeout" in reason:
+            return True
+    return False
+
+
 def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cancel_event=None):
     """
     Telecharge une image vers un fichier .part puis renomme atomiquement.
@@ -737,7 +764,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.13.0"
+APP_VERSION = "11.14.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -765,6 +792,8 @@ COVER_ANIMATION_MAX_FRAMES = 24
 IMAGE_URL_CACHE_MAX_ITEMS = 512
 PROGRESS_UI_MIN_INTERVAL = 0.18
 PROGRESS_UI_MIN_DELTA = 3
+ADAPTIVE_THREAD_FAILURE_CODES = {429, 500, 502, 503, 504}
+PERF_LOG_MIN_SECONDS = 0.05
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
 COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone")
@@ -3031,11 +3060,14 @@ def download_volume(
     active_cookie = (cookie or "").strip()
     can_prompt_cookie_retry = True
     force_resume_after_cookie_refresh = False
+    current_download_threads = clamp_download_threads(download_threads)
+    volume_started_at = time.perf_counter()
 
     while True:
         if cancel_event.is_set():
             return None
 
+        attempt_started_at = time.perf_counter()
         try:
             os.makedirs(folder, exist_ok=True)
         except OSError as e:
@@ -3070,8 +3102,12 @@ def download_volume(
                 f"Reprise intelligente: {existing_count}/{len(images)} page(s) déjà présentes pour {tome_label}.",
                 level="info",
             )
+        log_perf(logger, "scan reprise", attempt_started_at, tome=tome_label, existantes=existing_count)
 
-        worker_count = clamp_download_threads(download_threads)
+        download_started_at = time.perf_counter()
+        worker_count = clamp_download_threads(current_download_threads)
+        if worker_count != clamp_download_threads(download_threads):
+            logger(f"Mode adaptatif: {worker_count} téléchargement(s) parallèle(s) pour {tome_label}.", level="info")
         with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = []
             progress_counter = {"done": existing_count}
@@ -3128,6 +3164,7 @@ def download_volume(
         if cancel_event.is_set():
             logger(f"Téléchargement annulé pour {tome_label}.", level="warning")
             return None
+        log_perf(logger, "telechargement images", download_started_at, tome=tome_label, threads=worker_count, images=len(images))
 
         normalized_failures = []
         for fail in failed_downloads:
@@ -3182,6 +3219,15 @@ def download_volume(
             if cancel_event.is_set():
                 return None
 
+            if should_reduce_threads_for_failures(hard_failures) and current_download_threads > 1:
+                current_download_threads = max(1, current_download_threads // 2)
+                force_resume_after_cookie_refresh = True
+                logger(
+                    f"Ralentissement automatique: relance de {tome_label} avec {current_download_threads} thread(s) après erreurs serveur/rate-limit.",
+                    level="warning",
+                )
+                continue
+
             should_prompt_cookie = any(
                 should_offer_cookie_refresh(f.get("status_code"), f.get("reason"))
                 for f in hard_failures
@@ -3235,9 +3281,10 @@ def download_volume(
                     refreshed_cookie = (refreshed_cookie or "").strip()
                     if refreshed_cookie:
                         active_cookie = refreshed_cookie
+                        current_download_threads = 1
                         force_resume_after_cookie_refresh = True
                         logger(
-                            "Cookie mis à jour. Relance du tome avec reprise intelligente au point d'arrêt...",
+                            "Cookie mis à jour. Relance du tome avec reprise intelligente au point d'arrêt et 1 thread de sécurité...",
                             level="info",
                         )
                         continue
@@ -3261,8 +3308,10 @@ def download_volume(
 
         if not cbz_enabled:
             logger(f"CBZ desactive pour {clean_tome}: images conservees.", level="info")
+            log_perf(logger, "volume termine", volume_started_at, tome=tome_label, cbz=False)
             return True
 
+        archive_started_at = time.perf_counter()
         effective_cover_url = (cover_url or "").strip()
         if not effective_cover_url and isinstance(series_metadata, dict):
             effective_cover_url = (series_metadata.get("cover_url") or "").strip()
@@ -3337,6 +3386,8 @@ def download_volume(
                     level="warning",
                 )
             logger(f"CBZ créé : {cbz_path} ({size_mb} MB)", level="cbz")
+            log_perf(logger, "archive cbz", archive_started_at, tome=tome_label, taille=f"{size_mb} MB")
+            log_perf(logger, "volume termine", volume_started_at, tome=tome_label, cbz=True)
             return True
         logger(f"Échec de création CBZ pour {clean_tome}", level="warning")
         report_error("archive_cbz", f"Échec de création CBZ pour {clean_tome}")
@@ -10106,12 +10157,14 @@ class MangaApp:
             cookie = self.get_cookie(safe_link)
             ua = self.get_request_user_agent_for_url(safe_link)
             try:
+                extraction_started_at = time.perf_counter()
                 images = get_images(
                     safe_link,
                     cookie,
                     ua,
                     cancel_event=cancel_event,
                 )
+                log_perf(self.log, "extraction images", extraction_started_at, tome=safe_volume, images=len(images))
                 return cookie, ua, images
             except DownloadCancelled:
                 raise
@@ -10743,6 +10796,7 @@ class MangaApp:
             set_analysis_step(step)
 
         def worker():
+            analysis_started_at = time.perf_counter()
             try:
                 set_analysis_step("fetch")
                 title, pairs, html_content = fetch_manga_data(
@@ -10756,6 +10810,7 @@ class MangaApp:
                 self.pairs = pairs
                 self.volume_meta_by_url = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
                 self.series_metadata = dict(getattr(fetch_manga_data, "last_series_metadata", {}) or {})
+                log_perf(self.log, "analyse catalogue", analysis_started_at, domaine=domain, elements=len(pairs))
                 self.ua_runtime_validity = bool((ua_for_url or "").strip())
                 self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
 
@@ -10786,8 +10841,10 @@ class MangaApp:
                 return
 
             try:
+                cover_started_at = time.perf_counter()
                 set_analysis_step("cover")
                 get_cover_image(html_content)
+                log_perf(self.log, "couverture", cover_started_at, domaine=domain)
             except Exception as cover_exc:
                 self.log(f"Erreur chargement couverture: {cover_exc}", level="error")
 

@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.13.0`
+Version actuelle : `11.14.0`
 
 ## Ce qui change sur `main`
 
@@ -40,6 +40,8 @@ Concretement :
 - telechargement plus sobre en memoire avec ecriture directe sur disque
 - cache session des URLs d'images pour eviter les extractions repetees
 - progression GUI moins bavarde pour garder l'interface fluide
+- ralentissement automatique des threads sur erreurs serveur/rate-limit
+- logs `[perf]` pour mesurer analyse, extraction, telechargement et archive
 - nombre de telechargements paralleles configurable dans `Options`
 - `requirements.txt` inclut maintenant :
   - `customtkinter>=5.2.2`
@@ -126,6 +128,14 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.14.0
+- Robustesse / rapidite :
+  - reduction automatique du nombre de telechargements paralleles en cas d'erreurs serveur, timeout ou rate-limit,
+  - reprise intelligente au point d'arret apres ralentissement automatique,
+  - relance cookie plus prudente avec 1 thread de securite apres mise a jour du cookie.
+- Diagnostic :
+  - ajout de logs `[perf]` pour mesurer les etapes analyse catalogue, couverture, extraction images, telechargement images, archive CBZ et volume complet.
 
 ### 11.13.0
 - Rapidite :
