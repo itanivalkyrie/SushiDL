@@ -784,7 +784,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.2"
+APP_VERSION = "11.15.3"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -6564,6 +6564,26 @@ class MangaApp:
         except Exception:
             pass
 
+        def apply_cookie_from_prompt(cookie_text, status_var):
+            if domain not in COOKIE_DOMAINS:
+                return True
+            new_cookie = repair_mojibake_text(cookie_text or "").strip()
+            if not new_cookie:
+                status_var.set("Colle le nouveau cookie avant de relancer.")
+                return False
+            cookie_var = self._get_cookie_var_for_domain(domain)
+            if cookie_var is None:
+                status_var.set("Domaine cookie inconnu.")
+                return False
+            cookie_var.set(new_cookie)
+            self.sync_cookie_source_for_domain(domain)
+            self.persist_settings()
+            self.update_cookie_status(validate=False)
+            self.update_runtime_status()
+            self._schedule_cookie_listing_probe(domains=(domain,), delay_ms=250)
+            self.log(f"Cookie .{domain} mis à jour depuis la popup. Relance demandée.", level="success")
+            return True
+
         def finalize(result):
             window = holder.get("window")
             try:
@@ -6580,8 +6600,8 @@ class MangaApp:
         subtitle = f"{volume_label} a rencontré un accès refusé."
         detail = (
             f"Le cookie {domain_label} semble expiré ou refusé.\n"
-            "Mets à jour le cookie dans l'onglet Authentification,\n"
-            "puis clique sur OK et relancer pour reprendre au même endroit."
+            "Colle le nouveau cookie ci-dessous, puis clique sur OK et relancer.\n"
+            "SushiDL mettra à jour le domaine et reprendra au même endroit."
         )
         if domain in COOKIE_DOMAINS:
             probe_url = STARTUP_COOKIE_LISTING_PROBE_URLS.get(domain) or "n/a"
@@ -6642,10 +6662,80 @@ class MangaApp:
             justify="left",
         ).pack(fill="x", padx=14, pady=(8, 12))
 
+        cookie_box = ctk.CTkFrame(
+            outer,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=8,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        cookie_box.pack(fill="x", padx=14, pady=(0, 12))
+        cookie_box.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            cookie_box,
+            text=f"Nouveau cookie {domain_label}",
+            font=("Segoe UI Semibold", 12),
+            text_color=self.palette["text"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 4))
+
+        cookie_input = ctk.CTkTextbox(
+            cookie_box,
+            height=78,
+            corner_radius=6,
+            border_width=1,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            font=("Segoe UI", 11),
+            wrap="none",
+        )
+        cookie_input.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+
+        status_var = tk.StringVar(value="Accepte cf_clearance seul ou un header Cookie complet.")
+        ctk.CTkLabel(
+            cookie_box,
+            textvariable=status_var,
+            font=("Segoe UI", 10),
+            text_color=self.palette["muted"],
+            anchor="w",
+        ).grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
+
+        def paste_cookie():
+            try:
+                value = self.root.clipboard_get()
+            except Exception:
+                status_var.set("Presse-papiers sans texte exploitable.")
+                return
+            cookie_input.delete("1.0", "end")
+            cookie_input.insert("1.0", repair_mojibake_text(value or "").strip())
+            status_var.set("Cookie collé. Clique sur OK et relancer.")
+
+        def confirm_and_retry():
+            cookie_text = cookie_input.get("1.0", "end").strip()
+            if apply_cookie_from_prompt(cookie_text, status_var):
+                finalize(True)
+
         actions = ctk.CTkFrame(outer, fg_color="transparent")
         actions.pack(fill="x", padx=14, pady=(0, 14))
         actions.grid_columnconfigure(0, weight=1)
         actions.grid_columnconfigure(1, weight=0)
+        actions.grid_columnconfigure(2, weight=0)
+
+        ctk.CTkButton(
+            actions,
+            text="Coller",
+            command=paste_cookie,
+            height=32,
+            width=90,
+            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            text_color=self.palette["text"],
+            border_width=1,
+            border_color=self.palette["border"],
+        ).grid(row=0, column=0, sticky="w")
 
         ctk.CTkButton(
             actions,
@@ -6659,12 +6749,12 @@ class MangaApp:
             text_color=self.palette["danger_text"],
             border_width=1,
             border_color=self.palette["danger_border"],
-        ).grid(row=0, column=0, sticky="e", padx=(0, 8))
+        ).grid(row=0, column=1, sticky="e", padx=(0, 8))
 
         ok_button = ctk.CTkButton(
             actions,
             text="OK et relancer",
-            command=lambda: finalize(True),
+            command=confirm_and_retry,
             height=32,
             width=120,
             corner_radius=6,
@@ -6674,24 +6764,23 @@ class MangaApp:
             border_width=1,
             border_color=self.palette["success_border"],
         )
-        ok_button.grid(row=0, column=1)
+        ok_button.grid(row=0, column=2)
 
         holder["window"] = win
         self.cookie_refresh_prompt_window = win
 
         try:
             win.update_idletasks()
-            width = max(420, win.winfo_reqwidth())
-            height = max(220, win.winfo_reqheight())
+            width = max(620, win.winfo_reqwidth())
+            height = max(360, win.winfo_reqheight())
             x = self.root.winfo_rootx() + max(20, (self.root.winfo_width() - width) // 2)
             y = self.root.winfo_rooty() + max(20, (self.root.winfo_height() - height) // 3)
             win.geometry(f"{width}x{height}+{x}+{y}")
         except Exception:
             pass
 
-        self._focus_cookie_editor_for_domain(domain)
         try:
-            ok_button.focus_set()
+            cookie_input.focus_set()
         except Exception:
             pass
 

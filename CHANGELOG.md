@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.3] - 2026-05-22
+
+### Ameliorations
+- Popup `Cookie à renouveler` :
+  - ajout d'un champ de saisie/collage du nouveau cookie directement dans la popup,
+  - mise à jour et sauvegarde automatique du cookie au clic sur `OK et relancer`,
+  - relance de l'analyse ou du téléchargement sans basculer vers l'onglet Authentification.
+
 ## [11.15.2] - 2026-05-22
 
 ### Corrections
