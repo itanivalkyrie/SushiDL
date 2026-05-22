@@ -2,6 +2,7 @@ __pycache__/
 .ruff_cache/
 *.py[cod]
 cookie_cache.json
+analysis_cache.json
 DL SushiScan/
 *.log
 debug_sushiscan_*.log

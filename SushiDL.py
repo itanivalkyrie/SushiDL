@@ -18,6 +18,7 @@ import json
 import csv
 import math
 import base64
+import hashlib
 import shutil
 import threading
 import time
@@ -764,7 +765,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.14.1"
+APP_VERSION = "11.15.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -804,6 +805,7 @@ BASE_DIR = Path(__file__).resolve().parent
 APP_ICON_PATH = BASE_DIR / "assets" / "sushidl.ico"
 COOKIE_CACHE_PATH = BASE_DIR / "cookie_cache.json"  # Fichier de cache pour les cookies
 CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
+ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -815,6 +817,12 @@ DEFAULT_USER_AGENT = (
 DIRECT_USER_AGENT_DEFAULT = DEFAULT_USER_AGENT
 DEFAULT_APP_CONFIG = {
     "auth_mode": "manual",
+    "analysis_cache_ttl_seconds": 21600,
+    "fragile_sites": {
+        "toonfr": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.4},
+        "ortega": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.4},
+        "hentaizone": {"enabled": True, "max_threads": 2, "delay_between_volumes": 0.25},
+    },
     "manual_links": {
         "cookie_fr": "https://sushiscan.fr",
         "cookie_net": "https://sushiscan.net",
@@ -919,6 +927,81 @@ def load_app_config():
 
 
 APP_CONFIG = load_app_config()
+
+
+def get_analysis_cache_ttl_seconds():
+    try:
+        return max(0, int((APP_CONFIG or {}).get("analysis_cache_ttl_seconds", 21600)))
+    except (TypeError, ValueError):
+        return 21600
+
+
+def _read_analysis_cache():
+    if not ANALYSIS_CACHE_PATH.exists():
+        return {}
+    try:
+        with ANALYSIS_CACHE_PATH.open("r", encoding="utf-8-sig") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        runtime_log(f"Cache analyse illisible: {exc}", level="debug")
+        return {}
+
+
+def _analysis_cache_key(url, ua):
+    return hashlib.sha256(f"{(url or '').strip()}|{(ua or '').strip()}".encode("utf-8", errors="ignore")).hexdigest()
+
+
+def get_cached_analysis(url, ua):
+    ttl = get_analysis_cache_ttl_seconds()
+    if ttl <= 0:
+        return None
+    cache = _read_analysis_cache()
+    entry = cache.get(_analysis_cache_key(url, ua))
+    if not isinstance(entry, dict):
+        return None
+    try:
+        age = time.time() - float(entry.get("timestamp") or 0)
+    except (TypeError, ValueError):
+        return None
+    if age < 0 or age > ttl:
+        return None
+    pairs = entry.get("pairs")
+    if not isinstance(pairs, list):
+        return None
+    return {
+        "title": entry.get("title") or "",
+        "pairs": [(str(item[0]), str(item[1])) for item in pairs if isinstance(item, list) and len(item) >= 2],
+        "volume_metadata": entry.get("volume_metadata") if isinstance(entry.get("volume_metadata"), dict) else {},
+        "series_metadata": entry.get("series_metadata") if isinstance(entry.get("series_metadata"), dict) else {},
+        "html_content": entry.get("html_content") or "",
+        "age_seconds": age,
+    }
+
+
+def store_cached_analysis(url, ua, title, pairs, volume_metadata=None, series_metadata=None, html_content=""):
+    cache = _read_analysis_cache()
+    cache[_analysis_cache_key(url, ua)] = {
+        "url": (url or "").strip(),
+        "timestamp": time.time(),
+        "title": title or "",
+        "pairs": [[a, b] for a, b in (pairs or [])],
+        "volume_metadata": volume_metadata or {},
+        "series_metadata": series_metadata or {},
+        "html_content": html_content or "",
+    }
+    if len(cache) > 80:
+        ordered = sorted(cache.items(), key=lambda item: float((item[1] or {}).get("timestamp") or 0), reverse=True)
+        cache = dict(ordered[:80])
+    _write_json_file(ANALYSIS_CACHE_PATH, cache)
+
+
+def get_fragile_site_settings(domain):
+    fragile = (APP_CONFIG or {}).get("fragile_sites", {})
+    if not isinstance(fragile, dict):
+        return {}
+    settings = fragile.get(domain) or {}
+    return settings if isinstance(settings, dict) and settings.get("enabled", False) else {}
 
 
 def get_manual_link(config_key, default_value):
@@ -6481,6 +6564,17 @@ class MangaApp:
             "Mets à jour le cookie dans l'onglet Authentification,\n"
             "puis clique sur OK et relancer pour reprendre au même endroit."
         )
+        if domain in COOKIE_DOMAINS:
+            probe_url = STARTUP_COOKIE_LISTING_PROBE_URLS.get(domain) or "n/a"
+            ua_used = self.get_request_user_agent_for_domain(domain)
+            cookie_present = "oui" if self.get_cookie_header_for_domain(domain) else "non"
+            detail += (
+                "\n\nDiagnostic :"
+                f"\n- Domaine : {domain_label}"
+                f"\n- URL test : {probe_url}"
+                f"\n- User-Agent : {ua_used[:120]}"
+                f"\n- Cookie présent : {cookie_present}"
+            )
         if reason:
             detail = f"{detail}\n\nCause détectée : {reason}"
 
@@ -7572,6 +7666,7 @@ class MangaApp:
         self.preview_spinner_message = ""
         self.preview_cache = {}
         self.preview_cache_order = []
+        self.perf_records = []
         self.analysis_spinner_after_id = None
         self.analysis_spinner_running = False
         self.analysis_spinner_index = 0
@@ -7621,6 +7716,8 @@ class MangaApp:
         self.root.bind("<Control-D>", self._shortcut_download)
         self.root.bind("<Control-f>", self._shortcut_focus_filter)
         self.root.bind("<Control-F>", self._shortcut_focus_filter)
+        self.root.bind("<Control-r>", lambda _e: self.load_volumes(use_analysis_cache=False))
+        self.root.bind("<Control-R>", lambda _e: self.load_volumes(use_analysis_cache=False))
         self.root.bind("<Control-l>", self._shortcut_focus_logs)
         self.root.bind("<Control-L>", self._shortcut_focus_logs)
         self.root.bind("<Control-s>", lambda _e: self.save_current_cookie())
@@ -7639,6 +7736,8 @@ class MangaApp:
         text = repair_mojibake_text(str(message or "").strip())
         if not text:
             return
+        if text.startswith("[perf]"):
+            self._record_perf_log(text)
 
         normalized_level = normalize_log_level(level)
         verbose_enabled = bool(getattr(self, "verbose_logs_cached", True))
@@ -7671,6 +7770,26 @@ class MangaApp:
                 timestamp=timestamp,
                 with_emoji=CONSOLE_USE_EMOJI,
             )
+
+    def _record_perf_log(self, text):
+        match = re.match(r"\[perf\]\s*(.+?):\s*([0-9]+(?:\.[0-9]+)?)s", text or "")
+        if not match:
+            return
+        self.perf_records.append((match.group(1).strip(), float(match.group(2))))
+        if len(self.perf_records) > 200:
+            self.perf_records = self.perf_records[-200:]
+
+    def summarize_perf_records(self):
+        records = list(getattr(self, "perf_records", []) or [])
+        if not records:
+            return "Aucune mesure performance disponible."
+        grouped = {}
+        for label, value in records:
+            grouped.setdefault(label, []).append(value)
+        return " | ".join(
+            f"{label}: {sum(values):.2f}s total / {sum(values)/len(values):.2f}s moy."
+            for label, values in sorted(grouped.items())
+        )
 
     def _should_display_log_entry(self, entry):
         """Filtre d'affichage du journal GUI."""
@@ -10525,6 +10644,10 @@ class MangaApp:
                                 payload.get("action"),
                             )
 
+                        queue_threads = download_threads
+                        fragile = get_fragile_site_settings(self.get_domain_from_url(link))
+                        if fragile:
+                            queue_threads = min(queue_threads, clamp_download_threads(fragile.get("max_threads", queue_threads)))
                         result = download_volume(
                             vol,
                             images,
@@ -10546,7 +10669,7 @@ class MangaApp:
                             total_count=len(pairs),
                             series_metadata=series_metadata,
                             cover_url=(series_metadata or {}).get("cover_url", ""),
-                            download_threads=download_threads,
+                            download_threads=queue_threads,
                         )
                         if result is False:
                             self.log(f"File: élément non finalisé: {vol}", level="warning")
@@ -10670,7 +10793,7 @@ class MangaApp:
             return self.get_cookie(url)
         return self.ensure_cookie_for_domain(domain, force_refresh=force_refresh, probe_url=url)
 
-    def load_volumes(self, allow_cookie_retry=True):
+    def load_volumes(self, allow_cookie_retry=True, use_analysis_cache=True):
         """Charge la liste des tomes/chapitres pour l'URL donnée."""
         if getattr(self, "analysis_in_progress", False):
             self.log("Analyse déjà en cours, patiente quelques secondes.", level="warning")
@@ -10826,13 +10949,34 @@ class MangaApp:
             analysis_started_at = time.perf_counter()
             try:
                 set_analysis_step("fetch")
-                title, pairs, html_content = fetch_manga_data(
-                    url,
-                    cookie,
-                    ua_for_url,
-                    return_html=True,
-                    progress_callback=fetch_progress_callback,
-                )
+                cached_analysis = get_cached_analysis(url, ua_for_url) if use_analysis_cache else None
+                if cached_analysis:
+                    title = cached_analysis["title"]
+                    pairs = cached_analysis["pairs"]
+                    html_content = cached_analysis.get("html_content", "")
+                    fetch_manga_data.last_volume_metadata = dict(cached_analysis.get("volume_metadata") or {})
+                    fetch_manga_data.last_series_metadata = dict(cached_analysis.get("series_metadata") or {})
+                    self.log(
+                        f"Analyse chargée depuis le cache disque ({int(cached_analysis.get('age_seconds') or 0)}s).",
+                        level="info",
+                    )
+                else:
+                    title, pairs, html_content = fetch_manga_data(
+                        url,
+                        cookie,
+                        ua_for_url,
+                        return_html=True,
+                        progress_callback=fetch_progress_callback,
+                    )
+                    store_cached_analysis(
+                        url,
+                        ua_for_url,
+                        title,
+                        pairs,
+                        getattr(fetch_manga_data, "last_volume_metadata", {}) or {},
+                        getattr(fetch_manga_data, "last_series_metadata", {}) or {},
+                        html_content,
+                    )
                 self.title = title
                 self.pairs = pairs
                 self.volume_meta_by_url = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
@@ -11078,6 +11222,45 @@ class MangaApp:
             return
         self._style_clear_filter_button(hovered=False)
 
+    def _build_download_plan_text(self, selected, premium_skipped, output_root):
+        domain_counts = {}
+        for _vol, link in selected:
+            domain_counts[self.get_domain_from_url(link) or "inconnu"] = domain_counts.get(self.get_domain_from_url(link) or "inconnu", 0) + 1
+        domain = next(iter(domain_counts), self.get_domain_from_url(self.url.get()))
+        fragile = get_fragile_site_settings(domain)
+        requested_threads = clamp_download_threads(self.download_threads.get())
+        effective_threads = requested_threads
+        if fragile:
+            effective_threads = min(effective_threads, clamp_download_threads(fragile.get("max_threads", effective_threads)))
+        free_gb = "?"
+        try:
+            free_gb = f"{shutil.disk_usage(output_root).free / (1024 ** 3):.1f} Go"
+        except Exception:
+            pass
+        existing_cbz = 0
+        clean_title = sanitize_folder_name(self.title)
+        for vol, _link in selected:
+            clean_tome = sanitize_folder_name(normalize_tome_label(vol))
+            cbz_path = os.path.join(output_root, clean_title, f"{clean_title} - {clean_tome}.cbz")
+            if os.path.exists(cbz_path) and os.path.getsize(cbz_path) > 10_000:
+                existing_cbz += 1
+        return (
+            "Plan de téléchargement\n\n"
+            f"- Titre : {self.title or '--'}\n"
+            f"- Sélection : {len(selected)} élément(s)\n"
+            f"- Déjà présents : {existing_cbz} CBZ\n"
+            f"- Premium ignorés : {len(premium_skipped)}\n"
+            f"- Dossier : {output_root}\n"
+            f"- Espace libre : {free_gb}\n"
+            f"- Sortie : CBZ={'oui' if self.cbz_enabled.get() else 'non'}, ComicInfo={'oui' if self.comicinfo_enabled.get() else 'non'}, Couverture chapitres={'oui' if self.chapter_cover_enabled.get() else 'non'}\n"
+            f"- Threads : {effective_threads} ({'site fragile' if fragile else 'standard'})\n\n"
+            "Lancer maintenant ?"
+        )
+
+    def _confirm_download_plan(self, selected, premium_skipped, output_root):
+        text = self._build_download_plan_text(selected, premium_skipped, output_root)
+        return messagebox.askyesno("Préflight téléchargement", text, parent=self.root)
+
     def download_selected(self):
         """Lance le téléchargement des tomes sélectionnés."""
         self.cancel_event.clear()
@@ -11140,6 +11323,9 @@ class MangaApp:
         output_root = os.path.abspath(output_root)
         self.download_output_root = output_root
         self.log(f"Dossier de destination: {output_root}", level="info")
+        if not self._confirm_download_plan(selected, premium_skipped, output_root):
+            self.log("Téléchargement annulé au préflight.", level="info")
+            return
 
         self._set_workflow_step("download", "Préparation du téléchargement...")
         self._set_download_controls(True)
@@ -11154,6 +11340,16 @@ class MangaApp:
         webp2jpg_enabled = self.webp2jpg_enabled.get()
         smart_resume_enabled = self.smart_resume_enabled.get()
         download_threads = clamp_download_threads(self.download_threads.get())
+        active_domain = self.get_domain_from_url(selected[0][1]) if selected else self.get_domain_from_url(self.url.get())
+        fragile_settings = get_fragile_site_settings(active_domain)
+        delay_between_volumes = 0.0
+        if fragile_settings:
+            download_threads = min(download_threads, clamp_download_threads(fragile_settings.get("max_threads", download_threads)))
+            try:
+                delay_between_volumes = max(0.0, float(fragile_settings.get("delay_between_volumes", 0.0)))
+            except (TypeError, ValueError):
+                delay_between_volumes = 0.0
+            self.log(f"Profil site fragile actif pour .{active_domain}: threads={download_threads}, délai={delay_between_volumes}s.", level="info")
 
         def task():
             failed = []
@@ -11181,6 +11377,8 @@ class MangaApp:
             for vol, link in selected:
                 if self.cancel_event.is_set():
                     break
+                if delay_between_volumes and completed_volumes > 0:
+                    interruptible_sleep(self.cancel_event, delay_between_volumes)
 
                 volume_start = time.time()
                 domain = self.get_domain_from_url(link)
@@ -11509,6 +11707,7 @@ class MangaApp:
                 self.run_on_ui(self._set_workflow_step, "logs", "Téléchargement annulé. Consulte le journal.")
             else:
                 self.log("Tous les tomes ont été traités.", level="success")
+                self.log(f"Résumé performance: {self.summarize_perf_records()}", level="info")
                 self.run_on_ui(self._set_workflow_step, "logs", "Traitement terminé. Vérifie le journal final.")
 
             self.cancel_event.clear()

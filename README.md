@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.14.1`
+Version actuelle : `11.15.0`
 
 ## Ce qui change sur `main`
 
@@ -42,6 +42,10 @@ Concretement :
 - progression GUI moins bavarde pour garder l'interface fluide
 - ralentissement automatique des threads sur erreurs serveur/rate-limit
 - logs `[perf]` pour mesurer analyse, extraction, telechargement et archive
+- cache disque des analyses catalogue avec raccourci `Ctrl+R` pour forcer le rafraîchissement
+- préflight avec plan de téléchargement avant lancement
+- diagnostic cookie plus détaillé dans les popups de renouvellement
+- profils “site fragile” configurables via `config.json`
 - nombre de telechargements paralleles configurable dans `Options`
 - `requirements.txt` inclut maintenant :
   - `customtkinter>=5.2.2`
@@ -128,6 +132,17 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.0
+- Analyse :
+  - ajout d'un cache disque des catalogues analyses avec TTL configurable (`analysis_cache_ttl_seconds`),
+  - `Ctrl+R` force une analyse fraîche sans utiliser le cache.
+- Téléchargement :
+  - ajout d'un préflight avant lancement avec sélection, CBZ déjà présents, premium ignorés, espace disque, sorties et threads,
+  - ajout de profils `fragile_sites` dans `config.json` pour limiter automatiquement threads et délai entre volumes.
+- Diagnostic :
+  - les popups cookie affichent maintenant domaine, URL de test, User-Agent et présence du cookie,
+  - le journal affiche un résumé performance après traitement.
 
 ### 11.14.1
 - Correction :

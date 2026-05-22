@@ -1,5 +1,23 @@
 {
   "auth_mode": "manual",
+  "analysis_cache_ttl_seconds": 21600,
+  "fragile_sites": {
+    "toonfr": {
+      "enabled": true,
+      "max_threads": 1,
+      "delay_between_volumes": 0.4
+    },
+    "ortega": {
+      "enabled": true,
+      "max_threads": 1,
+      "delay_between_volumes": 0.4
+    },
+    "hentaizone": {
+      "enabled": true,
+      "max_threads": 2,
+      "delay_between_volumes": 0.25
+    }
+  },
   "manual_links": {
     "cookie_fr": "https://sushiscan.fr",
     "cookie_net": "https://sushiscan.net",

@@ -7,6 +7,22 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.0] - 2026-05-22
+
+### Ameliorations
+- Ajout d'un cache disque des analyses catalogue avec TTL configurable via `config.json`.
+- Ajout du raccourci `Ctrl+R` pour forcer une analyse sans cache.
+- Ajout d'un préflight avant téléchargement :
+  - sélection,
+  - CBZ déjà présents,
+  - premium ignorés,
+  - espace disque,
+  - sorties actives,
+  - threads effectifs.
+- Ajout de diagnostics cookie plus détaillés dans la popup de renouvellement.
+- Ajout de profils `fragile_sites` configurables pour limiter automatiquement threads et délai entre volumes.
+- Ajout d'un résumé performance en fin de traitement.
+
 ## [11.14.1] - 2026-05-22
 
 ### Corrections
