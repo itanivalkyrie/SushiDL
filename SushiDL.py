@@ -526,6 +526,50 @@ def validate_image_file(path):
         image.verify()
 
 
+def _image_url_cache_key(link, max_images=None):
+    safe_link = (link or "").strip()
+    try:
+        limit = int(max_images or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    return (safe_link, max(0, limit))
+
+
+def get_cached_image_urls(link, max_images=None):
+    key = _image_url_cache_key(link, max_images)
+    with IMAGE_URL_CACHE_LOCK:
+        cached = IMAGE_URL_CACHE.get(key)
+        if cached is not None:
+            if key in IMAGE_URL_CACHE_ORDER:
+                IMAGE_URL_CACHE_ORDER.remove(key)
+            IMAGE_URL_CACHE_ORDER.append(key)
+            return list(cached)
+        if key[1]:
+            full_key = _image_url_cache_key(link, None)
+            full_cached = IMAGE_URL_CACHE.get(full_key)
+            if full_cached is not None:
+                if full_key in IMAGE_URL_CACHE_ORDER:
+                    IMAGE_URL_CACHE_ORDER.remove(full_key)
+                IMAGE_URL_CACHE_ORDER.append(full_key)
+                return list(full_cached[:key[1]])
+    return None
+
+
+def store_cached_image_urls(link, images, max_images=None):
+    clean_images = [item for item in (images or []) if item]
+    if not link or not clean_images:
+        return
+    key = _image_url_cache_key(link, max_images)
+    with IMAGE_URL_CACHE_LOCK:
+        IMAGE_URL_CACHE[key] = list(clean_images)
+        if key in IMAGE_URL_CACHE_ORDER:
+            IMAGE_URL_CACHE_ORDER.remove(key)
+        IMAGE_URL_CACHE_ORDER.append(key)
+        while len(IMAGE_URL_CACHE_ORDER) > IMAGE_URL_CACHE_MAX_ITEMS:
+            old_key = IMAGE_URL_CACHE_ORDER.pop(0)
+            IMAGE_URL_CACHE.pop(old_key, None)
+
+
 def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cancel_event=None):
     """
     Telecharge une image vers un fichier .part puis renomme atomiquement.
@@ -693,7 +737,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.12.0"
+APP_VERSION = "11.13.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -718,6 +762,9 @@ PREVIEW_PAGE_LIMIT = 5
 PREVIEW_CACHE_MAX_ITEMS = 3
 PREVIEW_MAX_IMAGE_DIMENSION = 1600
 COVER_ANIMATION_MAX_FRAMES = 24
+IMAGE_URL_CACHE_MAX_ITEMS = 512
+PROGRESS_UI_MIN_INTERVAL = 0.18
+PROGRESS_UI_MIN_DELTA = 3
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
 COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone")
@@ -728,6 +775,9 @@ BASE_DIR = Path(__file__).resolve().parent
 APP_ICON_PATH = BASE_DIR / "assets" / "sushidl.ico"
 COOKIE_CACHE_PATH = BASE_DIR / "cookie_cache.json"  # Fichier de cache pour les cookies
 CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
+IMAGE_URL_CACHE = {}
+IMAGE_URL_CACHE_ORDER = []
+IMAGE_URL_CACHE_LOCK = threading.Lock()
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -2537,6 +2587,15 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         list: Liste des URLs d'images
     """
     max_images = max(0, int(max_images or 0)) or None
+    cached_images = get_cached_image_urls(link, max_images=max_images)
+    if cached_images is not None:
+        if emit_logs:
+            runtime_log(
+                f"{len(cached_images)} image(s) récupérée(s) depuis le cache session.",
+                level="debug",
+                context={"action": "get_images_cache", "domain": get_cookie_domain_from_url(link)},
+            )
+        return cached_images
 
     def clean_parasites(images, domain):
         """Filtre les images parasites (logos, pubs) pour sushiscan.fr"""
@@ -2581,6 +2640,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                         level="info",
                         context={"action": "extract_images", "domain": domain},
                     )
+            store_cached_image_urls(link, limited_images, max_images=max_images)
             return limited_images
 
         def dedupe_images(items):
@@ -10384,7 +10444,19 @@ class MangaApp:
                             self.add_volume_error(vol, "images", str(exc), None, recommend_action_for_failure(None, str(exc)))
                             continue
 
+                        progress_state = {"last_done": -1, "last_ts": 0.0}
+
                         def progress(done, total_images, base=item_index - 1, count=max(1, len(selected_pairs))):
+                            now = time.time()
+                            should_update = (
+                                done in (0, total_images)
+                                or now - progress_state["last_ts"] >= PROGRESS_UI_MIN_INTERVAL
+                                or abs(int(done or 0) - int(progress_state["last_done"] or 0)) >= PROGRESS_UI_MIN_DELTA
+                            )
+                            if not should_update:
+                                return
+                            progress_state["last_done"] = int(done or 0)
+                            progress_state["last_ts"] = now
                             item_percent = (float(done or 0) / float(total_images or 1)) if total_images else 0.0
                             self.run_on_ui(self._set_progress_ui, ((base + item_percent) / count) * 100.0)
                             self.run_on_ui(self._set_progress_detail_ui, done, total_images)
@@ -11094,7 +11166,7 @@ class MangaApp:
 
                 if images:
                     self.run_on_ui(self._set_progress_detail_ui, 0, len(images))
-                    progress_state = {"last_done": 0, "last_ts": 0.0}
+                    progress_state = {"last_done": 0, "last_ts": 0.0, "last_ui_done": -1, "last_ui_ts": 0.0}
                     volume_error_state = {"reported": False, "stage": "", "reason": ""}
 
                     def volume_error_callback(payload):
@@ -11115,10 +11187,18 @@ class MangaApp:
 
                     def per_image_progress(done, total_images):
                         percent = round((done / total_images) * 100, 1) if total_images else 0
-                        self.run_on_ui(self._set_progress_ui, percent)
-                        self.run_on_ui(self._set_progress_detail_ui, done, total_images)
-
                         now = time.time()
+                        should_update_ui = (
+                            done in (0, total_images)
+                            or now - progress_state["last_ui_ts"] >= PROGRESS_UI_MIN_INTERVAL
+                            or done - progress_state["last_ui_done"] >= PROGRESS_UI_MIN_DELTA
+                        )
+                        if should_update_ui:
+                            progress_state["last_ui_done"] = done
+                            progress_state["last_ui_ts"] = now
+                            self.run_on_ui(self._set_progress_ui, percent)
+                            self.run_on_ui(self._set_progress_detail_ui, done, total_images)
+
                         if (
                             done == total_images
                             or now - progress_state["last_ts"] >= 1.5

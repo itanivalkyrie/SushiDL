@@ -7,6 +7,19 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.13.0] - 2026-05-22
+
+### Ameliorations
+- Ajout d'un cache session des URLs d'images :
+  - evite de reparser plusieurs fois le meme chapitre/tome,
+  - reutilise une extraction complete pour les previews limitees.
+- Preview plus rapide :
+  - conservation stricte de la limite des premieres pages utiles,
+  - reutilisation immediate des URLs deja connues en session.
+- Interface plus fluide pendant les telechargements :
+  - regroupement des mises a jour de progression,
+  - reduction des appels au thread UI sur les gros lots.
+
 ## [11.12.0] - 2026-05-22
 
 ### Ameliorations

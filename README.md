@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.12.0`
+Version actuelle : `11.13.0`
 
 ## Ce qui change sur `main`
 
@@ -38,6 +38,8 @@ Concretement :
 - indicateurs de chargement pendant l'analyse, le rendu de liste et la preview
 - generation optionnelle de `ComicInfo.xml` dans les archives CBZ pour Komga
 - telechargement plus sobre en memoire avec ecriture directe sur disque
+- cache session des URLs d'images pour eviter les extractions repetees
+- progression GUI moins bavarde pour garder l'interface fluide
 - nombre de telechargements paralleles configurable dans `Options`
 - `requirements.txt` inclut maintenant :
   - `customtkinter>=5.2.2`
@@ -124,6 +126,12 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.13.0
+- Rapidite :
+  - ajout d'un cache session pour les URLs d'images par chapitre/tome,
+  - les previews reutilisent le cache quand disponible et ne demandent que les premieres pages utiles,
+  - les mises a jour de progression GUI sont regroupees pour soulager le thread interface pendant les gros telechargements.
 
 ### 11.12.0
 - Performance :
