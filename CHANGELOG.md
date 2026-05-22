@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.14.1] - 2026-05-22
+
+### Corrections
+- Analyse catalogue :
+  - en cas d'erreur compatible avec un cookie expire ou invalide, SushiDL propose maintenant la mise a jour du cookie,
+  - apres confirmation, l'analyse est relancee automatiquement une seule fois.
+
 ## [11.14.0] - 2026-05-22
 
 ### Ameliorations

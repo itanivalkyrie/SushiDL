@@ -764,7 +764,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.14.0"
+APP_VERSION = "11.14.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -10670,7 +10670,7 @@ class MangaApp:
             return self.get_cookie(url)
         return self.ensure_cookie_for_domain(domain, force_refresh=force_refresh, probe_url=url)
 
-    def load_volumes(self):
+    def load_volumes(self, allow_cookie_retry=True):
         """Charge la liste des tomes/chapitres pour l'URL donnée."""
         if getattr(self, "analysis_in_progress", False):
             self.log("Analyse déjà en cours, patiente quelques secondes.", level="warning")
@@ -10741,6 +10741,33 @@ class MangaApp:
             if hasattr(self, "analyze_button"):
                 self.analyze_button.configure(state="normal")
             self.update_master_toggle_button()
+
+        def retry_analysis_after_cookie_update(reason):
+            if not allow_cookie_retry or domain not in COOKIE_DOMAINS:
+                return False
+            if not should_offer_cookie_refresh(None, reason):
+                return False
+            self.log(
+                f"Analyse bloquée pour .{domain}: proposition de renouvellement du cookie.",
+                level="warning",
+            )
+            confirmed = self.prompt_cookie_refresh(
+                domain,
+                f"Analyse .{domain}",
+                reason,
+                cancel_event=None,
+            )
+            if not confirmed:
+                self.log("Relance analyse abandonnée: cookie non mis à jour.", level="warning")
+                return False
+            try:
+                self.sync_cookie_source_for_domain(domain)
+                self.persist_settings()
+            except Exception as sync_exc:
+                self.log(f"Impossible de sauvegarder le cookie avant relance analyse: {sync_exc}", level="warning")
+            self.log("Cookie mis à jour. Relance automatique de l'analyse...", level="info")
+            self.run_on_ui(lambda: self.load_volumes(allow_cookie_retry=False))
+            return True
 
         def handle_error(error_text):
             error_text = repair_mojibake_text(error_text)
@@ -10837,7 +10864,9 @@ class MangaApp:
                         )
                 self.run_on_ui(lambda: self.update_cookie_status(validate=True))
             except Exception as exc:
-                self.run_on_ui(lambda err=exc: handle_error(str(err)))
+                error_text = str(exc)
+                self.run_on_ui(lambda err=error_text: handle_error(err), wait=True, default=None)
+                retry_analysis_after_cookie_update(error_text)
                 return
 
             try:

@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.14.0`
+Version actuelle : `11.14.1`
 
 ## Ce qui change sur `main`
 
@@ -128,6 +128,11 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.14.1
+- Correction :
+  - une analyse catalogue bloquée par un cookie expiré propose maintenant la mise à jour du cookie,
+  - après confirmation, SushiDL relance automatiquement l'analyse une seule fois pour éviter les boucles.
 
 ### 11.14.0
 - Robustesse / rapidite :
