@@ -7,6 +7,23 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.12.0] - 2026-05-22
+
+### Ameliorations
+- Optimisation du telechargement image :
+  - ecriture en flux dans un fichier temporaire `.part`,
+  - validation image avant renommage final,
+  - reduction des copies memoire pendant les gros lots.
+- Ajout d'un reglage `Telechargements paralleles` dans l'onglet `Options` :
+  - valeur persistante dans `cookie_cache.json`,
+  - bornage entre 1 et 8 threads,
+  - valeur par defaut conservee a 3.
+- Ajout de `--threads 1-8` au mode CLI non interactif.
+- Reduction de la memoire utilisee par les previews :
+  - cache limite,
+  - redimensionnement des images de preview.
+- Plafonnement des animations GIF de couverture pour eviter les pics memoire.
+
 ## [11.11.2] - 2026-05-22
 
 ### Corrections

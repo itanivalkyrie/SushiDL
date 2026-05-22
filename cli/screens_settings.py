@@ -53,6 +53,8 @@ class SettingsScreen(Screen):
                 yield Checkbox("WEBP -> JPG", value=True, id="opt-webp")
                 yield Checkbox("Reprise intelligente", value=True, id="opt-resume")
                 yield Checkbox("Logs detailles", value=True, id="opt-logs")
+                yield Label("Telechargements paralleles (1-8)", classes="field-label")
+                yield Input(value="3", id="opt-threads")
                 with Horizontal(classes="button-row"):
                     yield Button("Sauvegarder", id="save-settings", variant="success")
                     yield Button("Retour", id="back")
@@ -108,6 +110,7 @@ class SettingsScreen(Screen):
             self.query_one("#opt-webp", Checkbox).value = bool(state.webp2jpg_enabled)
             self.query_one("#opt-resume", Checkbox).value = bool(state.smart_resume_enabled)
             self.query_one("#opt-logs", Checkbox).value = bool(state.verbose_logs)
+            self.query_one("#opt-threads", Input).value = str(self._clamp_threads(getattr(state, "download_threads", 3)))
             self.query_one("#settings-status", Label).update(state.status_message)
             self.apply_terminal_mode()
         finally:
@@ -155,9 +158,17 @@ class SettingsScreen(Screen):
             self.query_one("#opt-webp", Checkbox),
             self.query_one("#opt-resume", Checkbox),
             self.query_one("#opt-logs", Checkbox),
+            self.query_one("#opt-threads", Input),
             self.query_one("#save-settings", Button),
             self.query_one("#back", Button),
         ]
+
+    def _clamp_threads(self, value) -> int:
+        try:
+            count = int(value)
+        except (TypeError, ValueError):
+            count = 3
+        return max(1, min(8, count))
 
     def _focused_index(self) -> int:
         focused = self.app.focused
@@ -185,6 +196,7 @@ class SettingsScreen(Screen):
         state.webp2jpg_enabled = bool(self.query_one("#opt-webp", Checkbox).value)
         state.smart_resume_enabled = bool(self.query_one("#opt-resume", Checkbox).value)
         state.verbose_logs = bool(self.query_one("#opt-logs", Checkbox).value)
+        state.download_threads = self._clamp_threads(self.query_one("#opt-threads", Input).value)
         state.unsaved_changes = True
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -215,7 +227,7 @@ class SettingsScreen(Screen):
     def on_input_changed(self, event: Input.Changed) -> None:
         if self._refreshing:
             return
-        if event.input.id == "user-agent":
+        if event.input.id in {"user-agent", "opt-threads"}:
             self._sync_state_from_widgets()
 
     def action_save(self) -> None:

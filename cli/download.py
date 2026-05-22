@@ -226,6 +226,7 @@ class CliDownloadController:
                 chapter_cover_enabled=self.state.chapter_cover_enabled,
                 webp2jpg_enabled=self.state.webp2jpg_enabled,
                 smart_resume_enabled=self.state.smart_resume_enabled,
+                download_threads=getattr(self.state, "download_threads", 3),
                 total_count=len(self.state.detected_items),
                 series_metadata=self.state.series_metadata,
             )

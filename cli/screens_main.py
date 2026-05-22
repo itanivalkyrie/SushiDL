@@ -49,8 +49,9 @@ class MainMenuScreen(Screen):
         comicinfo = "ON" if app_state.comicinfo_enabled else "OFF"
         cover = "ON" if app_state.chapter_cover_enabled else "OFF"
         resume = "ON" if app_state.smart_resume_enabled else "OFF"
+        threads = getattr(app_state, "download_threads", 3)
         self.query_one("#main-status", Label).update(
-            f"Etat rapide : Auth {auth_ready}/{len(app_state.cookies)} | User-Agent {'renseigne' if app_state.user_agent else 'vide'} | CBZ {cbz} | ComicInfo {comicinfo} | Cover {cover} | Reprise {resume}"
+            f"Etat rapide : Auth {auth_ready}/{len(app_state.cookies)} | User-Agent {'renseigne' if app_state.user_agent else 'vide'} | CBZ {cbz} | ComicInfo {comicinfo} | Cover {cover} | Reprise {resume} | Threads {threads}"
         )
 
     def apply_terminal_mode(self) -> None:

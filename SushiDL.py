@@ -241,6 +241,12 @@ def normalize_image_url(url):
         return ""
     if raw.startswith("//"):
         return f"https:{raw}"
+    try:
+        parsed = urlparse(raw)
+        if parsed.scheme == "http" and (parsed.hostname or "").lower() in {"127.0.0.1", "localhost"}:
+            return raw
+    except Exception:
+        pass
     return raw.replace("http://", "https://")
 
 
@@ -500,12 +506,200 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
     )
 
 
+def clamp_download_threads(value):
+    """Normalise le nombre de telechargements paralleles autorises."""
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = DEFAULT_DOWNLOAD_THREADS
+    return max(MIN_DOWNLOAD_THREADS, min(MAX_DOWNLOAD_THREADS, count))
+
+
+def _is_html_payload_start(payload):
+    snippet = bytes(payload or b"")[:1024].lower()
+    return snippet.startswith(b"<html") or b"<html" in snippet or b"<!doctype html" in snippet
+
+
+def validate_image_file(path):
+    """Verifie qu'un fichier disque est bien lisible comme image."""
+    with Image.open(path) as image:
+        image.verify()
+
+
+def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cancel_event=None):
+    """
+    Telecharge une image vers un fichier .part puis renomme atomiquement.
+    Evite de conserver les images completes en memoire pendant les gros lots.
+    """
+    normalized_url = normalize_image_url(img_url)
+    tmp_filename = f"{filename}.part-{threading.get_ident()}"
+    last_exc = None
+
+    for attempt in range(1, max_try + 1):
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("Téléchargement annulé.")
+        try:
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            session = _get_http_session()
+            try:
+                response = session.get(
+                    normalized_url,
+                    headers=headers,
+                    impersonate="chrome",
+                    timeout=20,
+                    stream=True,
+                )
+            except TypeError:
+                response = session.get(
+                    normalized_url,
+                    headers=headers,
+                    impersonate="chrome",
+                    timeout=20,
+                )
+            except Exception:
+                try:
+                    response = requests.get(
+                        normalized_url,
+                        headers=headers,
+                        impersonate="chrome",
+                        timeout=20,
+                        stream=True,
+                    )
+                except TypeError:
+                    response = requests.get(
+                        normalized_url,
+                        headers=headers,
+                        impersonate="chrome",
+                        timeout=20,
+                    )
+
+            status_code = getattr(response, "status_code", None)
+            if status_code and status_code >= 400:
+                kind = classify_download_failure(status_code, f"HTTP Error {status_code}")
+                raise ImageDownloadError(
+                    f"HTTP Error {status_code}",
+                    status_code=status_code,
+                    kind=kind,
+                    phase="direct",
+                )
+            response.raise_for_status()
+
+            first_bytes = bytearray()
+            bytes_written = 0
+            iter_content = getattr(response, "iter_content", None)
+            with open(tmp_filename, "wb") as out:
+                if callable(iter_content):
+                    for chunk in iter_content(chunk_size=256 * 1024):
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise DownloadCancelled("Téléchargement annulé.")
+                        if not chunk:
+                            continue
+                        if len(first_bytes) < 1024:
+                            missing = 1024 - len(first_bytes)
+                            first_bytes.extend(chunk[:missing])
+                        out.write(chunk)
+                        bytes_written += len(chunk)
+                else:
+                    raw = response.content
+                    first_bytes.extend(raw[:1024])
+                    out.write(raw)
+                    bytes_written = len(raw)
+
+            if bytes_written <= 0:
+                raise ImageDownloadError(
+                    "Réponse vide",
+                    kind="retryable",
+                    phase="direct",
+                )
+            if _is_html_payload_start(first_bytes):
+                raise ImageDownloadError(
+                    "Réponse HTML (protection serveur ou Cloudflare)",
+                    kind="blocked_or_retryable",
+                    phase="direct",
+                )
+
+            try:
+                validate_image_file(tmp_filename)
+            except Exception as test_e:
+                runtime_log(
+                    f"Tentative {attempt}: contenu non reconnu comme image: {test_e}",
+                    level="warning",
+                    context={"action": "image_integrity"},
+                )
+                raise ImageDownloadError(
+                    f"Contenu non image: {test_e}",
+                    kind="invalid_image",
+                    phase="direct",
+                )
+
+            os.replace(tmp_filename, filename)
+            return filename
+
+        except DownloadCancelled:
+            try:
+                os.remove(tmp_filename)
+            except OSError:
+                pass
+            raise
+        except ImageDownloadError as exc:
+            try:
+                os.remove(tmp_filename)
+            except OSError:
+                pass
+            runtime_log(
+                f"Tentative {attempt} échouée pour {normalized_url}: {exc}",
+                level="warning",
+                context={"action": "image_retry"},
+            )
+            last_exc = exc
+            if exc.kind in ("missing", "invalid_image"):
+                raise exc
+            sleep_time = min(delay * (2 ** attempt), 60) if exc.status_code in (403, 429) else (delay * attempt)
+            if interruptible_sleep(cancel_event, sleep_time):
+                raise DownloadCancelled("Téléchargement annulé.")
+        except Exception as exc:
+            try:
+                os.remove(tmp_filename)
+            except OSError:
+                pass
+            runtime_log(
+                f"Tentative {attempt} échouée pour {normalized_url}: {exc}",
+                level="warning",
+                context={"action": "image_retry"},
+            )
+            status_code = get_status_code_from_exception(exc)
+            kind = classify_download_failure(status_code, str(exc))
+            wrapped = ImageDownloadError(
+                str(exc),
+                status_code=status_code,
+                kind=kind,
+                phase="direct",
+            )
+            last_exc = wrapped
+            if kind == "missing":
+                raise wrapped
+            sleep_time = min(delay * (2 ** attempt), 60) if status_code in (403, 429) else (delay * attempt)
+            if interruptible_sleep(cancel_event, sleep_time):
+                raise DownloadCancelled("Téléchargement annulé.")
+
+    if isinstance(last_exc, Exception):
+        raise last_exc
+    raise ImageDownloadError(
+        f"Impossible de télécharger l'image {normalized_url} après {max_try} tentatives.",
+        kind="retryable",
+        phase="direct",
+    )
+
+
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.11.2"
+APP_VERSION = "11.12.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
-THREADS = 3  # Nombre de threads pour le téléchargement parallèle
+DEFAULT_DOWNLOAD_THREADS = 3
+MIN_DOWNLOAD_THREADS = 1
+MAX_DOWNLOAD_THREADS = 8
+THREADS = DEFAULT_DOWNLOAD_THREADS  # Compatibilite interne historique.
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
 VOLUME_RENDER_BATCH_SIZE = 36  # Rendu progressif des gros listings pour eviter les timeouts UI
 VOLUME_COMPACT_MODE_THRESHOLD = 180  # Au-dela, bascule vers un rendu compact plus rapide
@@ -521,7 +715,9 @@ VOLUME_CARD_COLUMN_WIDTH = 300
 VOLUME_COMPACT_COLUMN_WIDTH = 236
 VOLUME_FAST_COLUMN_WIDTH = 236
 PREVIEW_PAGE_LIMIT = 5
-PREVIEW_CACHE_MAX_ITEMS = 12
+PREVIEW_CACHE_MAX_ITEMS = 3
+PREVIEW_MAX_IMAGE_DIMENSION = 1600
+COVER_ANIMATION_MAX_FRAMES = 24
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
 COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone")
@@ -1408,16 +1604,20 @@ def download_image(
         ext = "jpg"
     filename = os.path.join(folder, f"{str(i + 1).zfill(number_len)}.{ext}")
 
-    # Téléchargement direct prioritaire
+    # Téléchargement direct prioritaire, en flux disque pour limiter la memoire.
     try:
-        raw = robust_download_image(normalized_url, headers, cancel_event=cancel_event)
-        with open(filename, "wb") as f:
-            f.write(raw)
+        download_image_to_file(
+            normalized_url,
+            filename,
+            headers,
+            cancel_event=cancel_event,
+        )
 
         # Conversion WebP vers JPG si activée
         if webp2jpg_enabled and filename.lower().endswith(".webp"):
             try:
-                img = Image.open(filename).convert("RGB")
+                with Image.open(filename) as source_image:
+                    img = source_image.convert("RGB")
                 new_path = filename[:-5] + ".jpg"
                 img.save(new_path, "JPEG", quality=90)
                 os.remove(filename)
@@ -2730,6 +2930,7 @@ def download_volume(
     total_count=None,
     series_metadata=None,
     cover_url=None,
+    download_threads=None,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
@@ -2810,7 +3011,8 @@ def download_volume(
                 level="info",
             )
 
-        with ThreadPoolExecutor(max_workers=THREADS) as executor:
+        worker_count = clamp_download_threads(download_threads)
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
             futures = []
             progress_counter = {"done": existing_count}
             lock = threading.Lock()
@@ -3203,6 +3405,7 @@ def save_cookie_cache(
     cookie_headers=None,
     comicinfo_enabled=True,
     chapter_cover_enabled=True,
+    download_threads=DEFAULT_DOWNLOAD_THREADS,
 ):
     """
     Sauvegarde les paramètres dans un fichier JSON
@@ -3280,6 +3483,7 @@ def save_cookie_cache(
         "webp2jpg_enabled": bool(webp2jpg_enabled),
         "smart_resume_enabled": bool(smart_resume_enabled),
         "verbose_logs": bool(verbose_logs),
+        "download_threads": clamp_download_threads(download_threads),
     }
     COOKIE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = COOKIE_CACHE_PATH.with_suffix(".tmp")
@@ -3299,6 +3503,7 @@ def load_cookie_cache():
     default_webp2jpg = True
     default_smart_resume = True
     default_verbose_logs = True
+    default_download_threads = DEFAULT_DOWNLOAD_THREADS
     
     if not COOKIE_CACHE_PATH.exists():
         return (
@@ -3311,6 +3516,7 @@ def load_cookie_cache():
             default_webp2jpg,
             default_smart_resume,
             default_verbose_logs,
+            default_download_threads,
             {domain: "" for domain in COOKIE_DOMAINS},
             {domain: "" for domain in COOKIE_DOMAINS},
             {domain: "" for domain in COOKIE_DOMAINS},
@@ -3370,6 +3576,7 @@ def load_cookie_cache():
             data.get("webp2jpg_enabled", default_webp2jpg),
             bool(data.get("smart_resume_enabled", default_smart_resume)),
             bool(data.get("verbose_logs", default_verbose_logs)),
+            clamp_download_threads(data.get("download_threads", default_download_threads)),
             {domain: (cookie_sources.get(domain) or "").strip() for domain in COOKIE_DOMAINS},
             {domain: (cookie_user_agents.get(domain) or "").strip() for domain in COOKIE_DOMAINS},
             {domain: rebuilt_cookie_headers.get(domain, "") for domain in COOKIE_DOMAINS},
@@ -3388,6 +3595,7 @@ def load_cookie_cache():
         default_webp2jpg,
         default_smart_resume,
         default_verbose_logs,
+        default_download_threads,
         {domain: "" for domain in COOKIE_DOMAINS},
         {domain: "" for domain in COOKIE_DOMAINS},
         {domain: "" for domain in COOKIE_DOMAINS},
@@ -3539,7 +3747,7 @@ def get_cover_image(r_text):
         if is_animated:
             frames = []
             durations = []
-            max_frames = 120
+            max_frames = COVER_ANIMATION_MAX_FRAMES
             for idx, frame in enumerate(ImageSequence.Iterator(image)):
                 if idx >= max_frames:
                     break
@@ -3835,7 +4043,13 @@ class MangaApp:
             image.load()
             if image.mode not in ("RGB", "RGBA"):
                 image = image.convert("RGB")
-            return image.copy()
+            preview = image.copy()
+        if max(preview.size or (0, 0)) > PREVIEW_MAX_IMAGE_DIMENSION:
+            preview.thumbnail(
+                (PREVIEW_MAX_IMAGE_DIMENSION, PREVIEW_MAX_IMAGE_DIMENSION),
+                Image.LANCZOS,
+            )
+        return preview
 
     def _touch_preview_cache_key(self, key):
         cache_key = str(key or "").strip()
@@ -7089,6 +7303,7 @@ class MangaApp:
         self.webp2jpg_enabled = tk.BooleanVar(value=True)
         self.smart_resume_enabled = tk.BooleanVar(value=True)
         self.verbose_logs = tk.BooleanVar(value=True)
+        self.download_threads = tk.IntVar(value=DEFAULT_DOWNLOAD_THREADS)
         self.url = tk.StringVar()
         self.ua = tk.StringVar()
         self.cookie_fr = tk.StringVar()
@@ -7161,6 +7376,7 @@ class MangaApp:
             webp2jpg_enabled,
             smart_resume_enabled,
             verbose_logs_enabled,
+            download_threads,
             cookie_sources,
             cookie_user_agents,
             cookie_headers,
@@ -7208,6 +7424,7 @@ class MangaApp:
         self.webp2jpg_enabled.set(str(webp2jpg_enabled).lower() in ("1", "true", "yes"))
         self.smart_resume_enabled.set(str(smart_resume_enabled).lower() in ("1", "true", "yes"))
         self.verbose_logs.set(str(verbose_logs_enabled).lower() in ("1", "true", "yes"))
+        self.download_threads.set(clamp_download_threads(download_threads))
         self.url.set(last_url)  
         MangaApp.last_url_used = last_url
         
@@ -8575,8 +8792,53 @@ class MangaApp:
             "WEBP en JPG",
             self.webp2jpg_enabled,
             "Convertit les images WEBP en JPG pour une compatibilité maximale.",
-            bottom=0,
+            bottom=6,
         )
+        threads_line = ctk.CTkFrame(
+            output_inner,
+            fg_color=self.palette["card_bg"],
+            corner_radius=8,
+            border_width=1,
+            border_color=self.palette["panel_shell"],
+        )
+        threads_line.pack(fill="x", anchor="w", pady=(0, 0))
+        threads_header = ctk.CTkFrame(threads_line, fg_color="transparent")
+        threads_header.pack(fill="x", padx=12, pady=(8, 1))
+        ctk.CTkLabel(
+            threads_header,
+            text="Téléchargements parallèles",
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI", 11, "bold"),
+            anchor="w",
+        ).pack(side="left", fill="x", expand=True)
+        self.download_threads_menu = ctk.CTkOptionMenu(
+            threads_header,
+            values=[str(value) for value in (1, 2, 3, 4, 6, 8)],
+            command=lambda value: self.download_threads.set(clamp_download_threads(value)),
+            width=78,
+            height=28,
+            fg_color=self.palette["panel_bg"],
+            button_color=self.palette["accent"],
+            button_hover_color=self.palette["accent_hover"],
+            text_color=self.palette["text"],
+            dropdown_fg_color=self.palette["panel_bg"],
+            dropdown_hover_color=self.palette["card_alt"],
+            dropdown_text_color=self.palette["text"],
+            font=("Segoe UI", 10),
+        )
+        self.download_threads_menu.set(str(clamp_download_threads(self.download_threads.get())))
+        self.download_threads_menu.pack(side="right")
+        ctk.CTkLabel(
+            threads_line,
+            text="Ajuste la rapidité sans saturer les sites protégés. 3 reste le réglage conseillé.",
+            fg_color="transparent",
+            text_color=self.palette["muted_strong"],
+            font=("Segoe UI", 9),
+            justify="left",
+            anchor="w",
+            wraplength=440,
+        ).pack(anchor="w", fill="x", padx=12, pady=(0, 8))
         add_option_line(
             logs_inner,
             "Reprise intelligente",
@@ -10081,6 +10343,7 @@ class MangaApp:
         chapter_cover_enabled = self.chapter_cover_enabled.get()
         webp2jpg_enabled = self.webp2jpg_enabled.get()
         smart_resume_enabled = self.smart_resume_enabled.get()
+        download_threads = clamp_download_threads(self.download_threads.get())
 
         def task():
             try:
@@ -10158,6 +10421,7 @@ class MangaApp:
                             total_count=len(pairs),
                             series_metadata=series_metadata,
                             cover_url=(series_metadata or {}).get("cover_url", ""),
+                            download_threads=download_threads,
                         )
                         if result is False:
                             self.log(f"File: élément non finalisé: {vol}", level="warning")
@@ -10226,6 +10490,7 @@ class MangaApp:
         webp2jpg_enabled = bool(self.run_on_ui(self.webp2jpg_enabled.get, wait=True, default=True))
         smart_resume_enabled = bool(self.run_on_ui(self.smart_resume_enabled.get, wait=True, default=True))
         verbose_logs_enabled = bool(self.run_on_ui(self.verbose_logs.get, wait=True, default=True))
+        download_threads = clamp_download_threads(self.run_on_ui(self.download_threads.get, wait=True, default=DEFAULT_DOWNLOAD_THREADS))
         updated_at = save_cookie_cache(
             cookies,
             direct_ua,
@@ -10238,6 +10503,7 @@ class MangaApp:
             cookie_headers=self.cookie_headers,
             comicinfo_enabled=comicinfo_enabled,
             chapter_cover_enabled=chapter_cover_enabled,
+            download_threads=download_threads,
         )
         if isinstance(updated_at, dict):
             self.cookie_updated_at = {domain: (updated_at.get(domain) or "").strip() for domain in COOKIE_DOMAINS}
@@ -10729,6 +10995,7 @@ class MangaApp:
         chapter_cover_enabled = self.chapter_cover_enabled.get()
         webp2jpg_enabled = self.webp2jpg_enabled.get()
         smart_resume_enabled = self.smart_resume_enabled.get()
+        download_threads = clamp_download_threads(self.download_threads.get())
 
         def task():
             failed = []
@@ -10916,6 +11183,7 @@ class MangaApp:
                         total_count=len(self.pairs),
                         series_metadata=getattr(self, "series_metadata", {}),
                         cover_url=getattr(self, "cover_url", ""),
+                        download_threads=download_threads,
                     )
                     if dl_result is None and self.cancel_event.is_set():
                         break
@@ -11037,6 +11305,7 @@ class MangaApp:
                             total_count=len(self.pairs),
                             series_metadata=getattr(self, "series_metadata", {}),
                             cover_url=getattr(self, "cover_url", ""),
+                            download_threads=download_threads,
                         )
                         if retry_result is False:
                             if not retry_error_state["reported"]:
@@ -11094,7 +11363,7 @@ class MangaApp:
         """Sauvegarde les paramètres actuels dans le cache"""
         try:
             self.persist_settings()
-            self.log("Cookies, UA, sorties CBZ/ComicInfo/couverture/WEBP et préférences logs sauvegardées !", level="success")
+            self.log("Cookies, UA, sorties, threads et préférences logs sauvegardés !", level="success")
             self.update_cookie_status()
             self.update_runtime_status()
         except Exception as e:
@@ -11117,6 +11386,7 @@ class SushiCliBackend:
             webp2jpg_enabled,
             smart_resume_enabled,
             verbose_logs,
+            download_threads,
             _cookie_sources,
             _cookie_user_agents,
             _cookie_headers,
@@ -11136,6 +11406,7 @@ class SushiCliBackend:
             webp2jpg_enabled=bool(webp2jpg_enabled),
             smart_resume_enabled=bool(smart_resume_enabled),
             verbose_logs=bool(verbose_logs),
+            download_threads=clamp_download_threads(download_threads),
             current_url=(last_url or "").strip(),
             cookie_status=cookie_status,
         )
@@ -11151,6 +11422,7 @@ class SushiCliBackend:
             verbose_logs=bool(state.verbose_logs),
             comicinfo_enabled=bool(state.comicinfo_enabled),
             chapter_cover_enabled=bool(state.chapter_cover_enabled),
+            download_threads=clamp_download_threads(getattr(state, "download_threads", DEFAULT_DOWNLOAD_THREADS)),
         )
 
     def test_cookie(self, domain, cookie, ua):
@@ -11223,6 +11495,7 @@ class SushiCliBackend:
         chapter_cover_enabled,
         webp2jpg_enabled,
         smart_resume_enabled,
+        download_threads=None,
         total_count=None,
         series_metadata=None,
     ):
@@ -11247,6 +11520,7 @@ class SushiCliBackend:
             total_count=total_count,
             series_metadata=series_metadata,
             cover_url=(series_metadata or {}).get("cover_url", "") if isinstance(series_metadata, dict) else "",
+            download_threads=download_threads,
         )
 
 
@@ -11267,6 +11541,7 @@ def run_batch_cli(argv, backend=None):
     parser.add_argument("--no-cover", action="store_true", help="Desactive la couverture en premiere page des chapitres.")
     parser.add_argument("--no-webp2jpg", action="store_true", help="Desactive la conversion WEBP en JPG.")
     parser.add_argument("--no-resume", action="store_true", help="Desactive la reprise intelligente.")
+    parser.add_argument("--threads", type=int, default=None, help="Nombre de telechargements paralleles (1-8).")
     args = parser.parse_args([arg for arg in argv if arg != "--cli"])
 
     urls = [url.strip() for url in args.url if (url or "").strip()]
@@ -11292,6 +11567,8 @@ def run_batch_cli(argv, backend=None):
     state.chapter_cover_enabled = not args.no_cover
     state.webp2jpg_enabled = not args.no_webp2jpg
     state.smart_resume_enabled = not args.no_resume
+    if args.threads is not None:
+        state.download_threads = clamp_download_threads(args.threads)
     output_dir = os.path.abspath(args.output or ROOT_FOLDER)
     os.makedirs(output_dir, exist_ok=True)
 

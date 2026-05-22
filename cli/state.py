@@ -50,6 +50,7 @@ class CliState:
     webp2jpg_enabled: bool = True
     smart_resume_enabled: bool = True
     verbose_logs: bool = True
+    download_threads: int = 3
     current_url: str = ""
     current_title: str = ""
     current_domain: str = ""

@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.11.2`
+Version actuelle : `11.12.0`
 
 ## Ce qui change sur `main`
 
@@ -37,6 +37,8 @@ Concretement :
 - popup de preview rapide `3 a 5` pages depuis le listing
 - indicateurs de chargement pendant l'analyse, le rendu de liste et la preview
 - generation optionnelle de `ComicInfo.xml` dans les archives CBZ pour Komga
+- telechargement plus sobre en memoire avec ecriture directe sur disque
+- nombre de telechargements paralleles configurable dans `Options`
 - `requirements.txt` inclut maintenant :
   - `customtkinter>=5.2.2`
   - `textual>=0.82.0`
@@ -87,6 +89,7 @@ Options utiles :
 - `--download` : lance le telechargement
 - `--dry-run` : analyse et affiche la selection sans telecharger
 - `--no-comicinfo`, `--no-cover`, `--no-cbz`, `--no-webp2jpg`, `--no-resume` : desactive une option de sortie
+- `--threads 1-8` : ajuste le nombre de telechargements paralleles
 
 Navigation terminal :
 - `Tab` / `Shift+Tab` : changer de zone
@@ -121,6 +124,15 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.12.0
+- Performance :
+  - les images sont maintenant ecrites en flux vers des fichiers temporaires `.part`, puis validees avant renommage,
+  - le cache de preview est limite et les images de preview sont redimensionnees pour reduire l'usage memoire,
+  - les GIF de couverture sont plafonnes en nombre de frames pour eviter les pics memoire.
+- Options :
+  - ajout du reglage `Telechargements paralleles` dans l'onglet `Options`,
+  - ajout de l'option CLI batch `--threads 1-8`.
 
 ### 11.11.2
 - ComicInfo.xml :
