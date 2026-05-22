@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.2] - 2026-05-22
+
+### Corrections
+- Champ URL catalogue :
+  - interception des collages clavier et clic droit,
+  - extraction automatique d'une URL supportée depuis un texte multi-lignes,
+  - rejet propre des contenus non texte ou sans URL exploitable pour éviter un champ bloqué.
+
 ## [11.15.1] - 2026-05-22
 
 ### Corrections

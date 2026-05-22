@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.1`
+Version actuelle : `11.15.2`
 
 ## Ce qui change sur `main`
 
@@ -45,6 +45,7 @@ Concretement :
 - cache disque des analyses catalogue avec raccourci `Ctrl+R` pour forcer le rafraîchissement
 - préflight avec plan de téléchargement avant lancement
 - diagnostic cookie plus détaillé dans les popups de renouvellement
+- collage sécurisé dans le champ URL : SushiDL extrait l'URL catalogue depuis un texte bruité et refuse les contenus non texte
 - profils “site fragile” configurables via `config.json`
 - nombre de telechargements paralleles configurable dans `Options`
 - `requirements.txt` inclut maintenant :

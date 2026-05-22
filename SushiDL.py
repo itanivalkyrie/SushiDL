@@ -376,6 +376,25 @@ def is_valid_catalogue_url(url):
     return bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug, flags=re.IGNORECASE))
 
 
+def extract_supported_catalogue_url(text):
+    """Extrait la première URL catalogue supportée depuis un collage bruité."""
+    value = repair_mojibake_text(text or "")
+    if not value:
+        return ""
+
+    candidates = []
+    if len(value) <= 2048 and is_valid_catalogue_url(value.strip()):
+        candidates.append(value.strip())
+    candidates.extend(re.findall(r"https?://[^\s<>'\"\\)\]]+", value, flags=re.IGNORECASE))
+
+    for candidate in candidates:
+        cleaned = repair_mojibake_text(candidate).strip()
+        cleaned = cleaned.rstrip(".,;:)]}\"'")
+        if is_valid_catalogue_url(cleaned):
+            return cleaned
+    return ""
+
+
 _HTTP_THREAD_LOCAL = threading.local()
 
 
@@ -765,7 +784,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.1"
+APP_VERSION = "11.15.2"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -9177,6 +9196,7 @@ class MangaApp:
             text_color=self.palette["text"],
         )
         self.url_entry.pack(fill="x", pady=(8, 0))
+        self._bind_catalogue_url_paste(self.url_entry)
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
@@ -9929,6 +9949,8 @@ class MangaApp:
         """Colle le contenu du presse-papiers dans un Entry cible."""
         if entry_widget is None:
             return
+        if hasattr(self, "url_entry") and entry_widget is self.url_entry:
+            return self._paste_catalogue_url_from_clipboard()
         try:
             if str(entry_widget.cget("state")) == "disabled":
                 return
@@ -9955,6 +9977,55 @@ class MangaApp:
             entry_widget.icursor("end")
         except Exception:
             pass
+
+    def _paste_catalogue_url_from_clipboard(self, _event=None):
+        """Colle uniquement une URL catalogue exploitable dans le champ Source."""
+        entry_widget = getattr(self, "url_entry", None)
+        if entry_widget is None:
+            return "break"
+        try:
+            if str(entry_widget.cget("state")) == "disabled":
+                return "break"
+        except Exception:
+            pass
+
+        try:
+            clip_text = self.root.clipboard_get()
+        except Exception:
+            self.toast("Presse-papiers sans texte exploitable.")
+            self.log("Collage URL ignoré: le presse-papiers ne contient pas de texte.", level="warning")
+            return "break"
+
+        clip_text = repair_mojibake_text(str(clip_text or ""))
+        extracted_url = extract_supported_catalogue_url(clip_text)
+        if not extracted_url:
+            compact = re.sub(r"\s+", "", clip_text.strip())
+            if len(compact) <= 2048 and compact.startswith(("https://", "http://")):
+                extracted_url = compact
+            else:
+                self.toast("Aucune URL catalogue valide détectée.")
+                self.log("Collage URL ignoré: aucune URL catalogue supportée détectée.", level="warning")
+                return "break"
+
+        try:
+            entry_widget.focus_set()
+        except Exception:
+            pass
+        self.url.set(extracted_url)
+        try:
+            entry_widget.icursor("end")
+        except Exception:
+            pass
+        if extracted_url != clip_text.strip():
+            self.log(f"URL extraite du presse-papiers: {extracted_url}", level="info")
+        return "break"
+
+    def _bind_catalogue_url_paste(self, entry_widget):
+        """Intercepte les collages clavier pour éviter les contenus non URL."""
+        if entry_widget is None:
+            return
+        for sequence in ("<Control-v>", "<Control-V>", "<<Paste>>"):
+            entry_widget.bind(sequence, self._paste_catalogue_url_from_clipboard)
 
     def _show_entry_context_menu(self, event, entry_widget):
         """Affiche un menu contextuel minimal avec action Coller."""
