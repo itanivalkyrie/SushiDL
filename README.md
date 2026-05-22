@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.10.0`
+Version actuelle : `11.11.0`
 
 ## Ce qui change sur `main`
 
@@ -74,6 +74,20 @@ Fonctionnalites CLI disponibles :
 - aides contextuelles et modales de confirmation
 - adaptation partielle aux terminaux plus petits avec mode compact et avertissement de taille
 
+Mode terminal non interactif :
+
+```bash
+python SushiDL.py --cli --url "https://sushiscan.net/catalogue/one-piece/" --range 1-10 --download --output "D:\Mangas"
+```
+
+Options utiles :
+- `--url` : ajoute une URL catalogue a traiter, repetable
+- `--url-file` : charge une liste d'URLs depuis un fichier texte
+- `--range` : selectionne une plage (`all`, `1-20`, `50+`, `1,4,7`)
+- `--download` : lance le telechargement
+- `--dry-run` : analyse et affiche la selection sans telecharger
+- `--no-comicinfo`, `--no-cover`, `--no-cbz`, `--no-webp2jpg`, `--no-resume` : desactive une option de sortie
+
 Navigation terminal :
 - `Tab` / `Shift+Tab` : changer de zone
 - `Fleches` ou `J/K` : naviguer
@@ -107,6 +121,15 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.11.0
+- Workflow :
+  - ajout d'une file d'attente GUI pour traiter plusieurs URLs catalogue a la suite,
+  - ajout d'un mode CLI non interactif pour automatiser analyse et telechargement.
+- ComicInfo.xml :
+  - ajout d'un editeur de metadonnees en GUI avant telechargement.
+- Robustesse :
+  - generation d'un `SushiDL_report.txt` dans les CBZ finalises avec pages manquantes ou invalides.
 
 ### 11.10.0
 - Sortie CBZ :

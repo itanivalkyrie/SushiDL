@@ -12,6 +12,7 @@ Fonctionnalités principales :
 
 import os
 import re
+import argparse
 import html
 import json
 import csv
@@ -501,7 +502,7 @@ def robust_download_image(img_url, headers, max_try=4, delay=2, cancel_event=Non
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.10.0"
+APP_VERSION = "11.11.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 THREADS = 3  # Nombre de threads pour le téléchargement parallèle
@@ -1223,6 +1224,40 @@ def write_comicinfo_xml(
     )
     tree.write(xml_path, encoding="utf-8", xml_declaration=True)
     return xml_path
+
+
+def write_download_report(folder_path, tome_label, image_urls, failed_downloads):
+    """Ecrit un rapport lisible dans le dossier archive quand des pages manquent."""
+    failures = list(failed_downloads or [])
+    if not failures:
+        return None
+    report_path = os.path.join(folder_path, "SushiDL_report.txt")
+    lines = [
+        f"Rapport SushiDL - {tome_label}",
+        f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Images attendues: {len(image_urls or [])}",
+        f"Images manquantes ou invalides: {len(failures)}",
+        "",
+        "Le CBZ a ete genere avec les pages disponibles.",
+        "Les entrees ci-dessous indiquent les images que SushiDL n'a pas pu recuperer.",
+        "",
+    ]
+    for idx, failure in enumerate(failures, start=1):
+        if isinstance(failure, dict):
+            url = failure.get("url") or failure.get("image_url") or ""
+            reason = failure.get("reason") or failure.get("error") or "Erreur inconnue"
+            status_code = failure.get("status_code")
+        else:
+            url = ""
+            reason = str(failure or "Erreur inconnue")
+            status_code = None
+        http_part = f"HTTP {status_code} - " if status_code not in (None, "") else ""
+        lines.append(f"{idx}. {http_part}{reason}")
+        if url:
+            lines.append(f"   URL: {url}")
+    with open(report_path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write("\n".join(lines).rstrip() + "\n")
+    return report_path
 
 
 def write_chapter_cover_page(folder_path, cover_url, cookie, ua, referer_url=None, webp2jpg_enabled=True):
@@ -2955,6 +2990,17 @@ def download_volume(
                     level="warning",
                 )
 
+        if failed_downloads:
+            try:
+                report_path = write_download_report(folder, tome_label, image_urls, failed_downloads)
+                if report_path:
+                    logger(
+                        f"Rapport pages manquantes ajoute au CBZ: {os.path.basename(report_path)}",
+                        level="warning",
+                    )
+            except Exception as report_exc:
+                logger(f"Rapport pages manquantes non genere: {report_exc}", level="warning")
+
         if comicinfo_enabled:
             try:
                 page_count = count_downloaded_images(folder)
@@ -3590,6 +3636,8 @@ class MangaApp:
                 self.url_entry.configure(state="disabled")
             if hasattr(self, "analyze_button"):
                 self.analyze_button.configure(state="disabled")
+            if hasattr(self, "queue_button"):
+                self.queue_button.configure(state="disabled")
             if hasattr(self, "invert_button"):
                 self.invert_button.configure(state="disabled")
             if hasattr(self, "master_toggle_button"):
@@ -3607,6 +3655,8 @@ class MangaApp:
                 self.analyze_button.configure(
                     state="disabled" if getattr(self, "analysis_in_progress", False) else "normal"
                 )
+            if hasattr(self, "queue_button"):
+                self.queue_button.configure(state="normal")
             if hasattr(self, "invert_button"):
                 self.invert_button.configure(state="normal")
             if hasattr(self, "master_toggle_button"):
@@ -8585,6 +8635,21 @@ class MangaApp:
             font=button_font,
         )
         self.source_ready_badge.pack(side="right")
+        self.metadata_button = ctk.CTkButton(
+            source_meta_row,
+            text="Métadonnées",
+            command=self.open_metadata_editor,
+            width=110,
+            height=28,
+            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["muted_strong"],
+            font=button_font,
+        )
+        self.metadata_button.pack(side="right", padx=(0, 8))
         ctk.CTkLabel(
             url_frame,
             text="Analyse le lien, valide la source et prépare la sélection de tomes.",
@@ -8624,6 +8689,21 @@ class MangaApp:
             font=button_font_lg,
         )
         self.analyze_button.pack(side="left")
+        self.queue_button = ctk.CTkButton(
+            analyze_frame,
+            text="File d'attente",
+            command=self.open_download_queue_dialog,
+            width=130,
+            height=button_h,
+            corner_radius=8,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+            font=button_font,
+        )
+        self.queue_button.pack(side="left", padx=(8, 0))
         self.status_container = ctk.CTkFrame(
             analyze_frame,
             width=320,
@@ -9700,6 +9780,351 @@ class MangaApp:
                         continue
                 raise
 
+    def open_metadata_editor(self):
+        """Permet de corriger les métadonnées ComicInfo avant téléchargement."""
+        metadata = dict(getattr(self, "series_metadata", {}) or {})
+        if not metadata and not getattr(self, "title", ""):
+            self.toast("Analyse d'abord une source")
+            self.log("Aucune métadonnée à éditer: lance une analyse avant.", level="info")
+            return
+
+        window = ctk.CTkToplevel(self.root)
+        window.title("Métadonnées ComicInfo")
+        window.geometry("760x620")
+        window.transient(self.root)
+        window.grab_set()
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkLabel(
+            window,
+            text="Métadonnées utilisées dans ComicInfo.xml",
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 15),
+        )
+        header.grid(row=0, column=0, sticky="w", padx=18, pady=(16, 8))
+
+        body = ctk.CTkScrollableFrame(window, fg_color=self.palette["panel_bg"], corner_radius=8)
+        body.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 12))
+        body.grid_columnconfigure(1, weight=1)
+
+        fields = [
+            ("series", "Série"),
+            ("year", "Année"),
+            ("writer", "Auteur"),
+            ("penciller", "Dessinateur"),
+            ("genre", "Genres"),
+            ("status", "Statut"),
+            ("publisher", "Source / éditeur"),
+            ("web", "URL source"),
+            ("cover_url", "URL couverture"),
+        ]
+        entries = {}
+        for row, (key, label) in enumerate(fields):
+            ctk.CTkLabel(
+                body,
+                text=label,
+                text_color=self.palette["muted_strong"],
+                font=("Segoe UI Semibold", 10),
+                anchor="w",
+            ).grid(row=row, column=0, sticky="w", padx=(12, 10), pady=6)
+            value = metadata.get(key)
+            if isinstance(value, (list, tuple, set)):
+                value = metadata_join(value)
+            entry = ctk.CTkEntry(
+                body,
+                height=34,
+                corner_radius=6,
+                border_color=self.palette["border"],
+                fg_color=self.palette["input_bg"],
+                text_color=self.palette["text"],
+                font=("Segoe UI", 10),
+            )
+            entry.insert(0, str(value or ""))
+            entry.grid(row=row, column=1, sticky="ew", padx=(0, 12), pady=6)
+            entries[key] = entry
+
+        summary_row = len(fields)
+        ctk.CTkLabel(
+            body,
+            text="Résumé",
+            text_color=self.palette["muted_strong"],
+            font=("Segoe UI Semibold", 10),
+            anchor="nw",
+        ).grid(row=summary_row, column=0, sticky="nw", padx=(12, 10), pady=6)
+        summary_box = ctk.CTkTextbox(
+            body,
+            height=150,
+            corner_radius=6,
+            border_width=1,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            font=("Segoe UI", 10),
+        )
+        summary_box.insert("1.0", str(metadata.get("summary") or ""))
+        summary_box.grid(row=summary_row, column=1, sticky="ew", padx=(0, 12), pady=6)
+
+        actions = ctk.CTkFrame(window, fg_color="transparent")
+        actions.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 16))
+        actions.grid_columnconfigure(0, weight=1)
+
+        def save_metadata():
+            updated = dict(getattr(self, "series_metadata", {}) or {})
+            for key, entry in entries.items():
+                value = normalize_metadata_text(entry.get())
+                if value:
+                    updated[key] = value
+                else:
+                    updated.pop(key, None)
+            summary = normalize_metadata_text(summary_box.get("1.0", "end-1c"))
+            if summary:
+                updated["summary"] = summary
+            else:
+                updated.pop("summary", None)
+            if not updated.get("series"):
+                updated["series"] = self.title or self.source_title_var.get()
+            if updated.get("genre"):
+                updated["tags"] = split_metadata_values(", ".join(filter(None, [updated.get("status", ""), updated.get("genre", "")])))
+            self.series_metadata = updated
+            self.log("Métadonnées ComicInfo mises à jour pour les prochains téléchargements.", level="success")
+            self.toast("Métadonnées sauvegardées")
+            window.destroy()
+
+        ctk.CTkButton(
+            actions,
+            text="Annuler",
+            command=window.destroy,
+            width=120,
+            height=34,
+            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+        ).grid(row=0, column=1, padx=(0, 8))
+        ctk.CTkButton(
+            actions,
+            text="Sauvegarder",
+            command=save_metadata,
+            width=140,
+            height=34,
+            corner_radius=6,
+            fg_color=self.palette["accent"],
+            hover_color=self.palette["accent_hover"],
+            text_color="#ffffff",
+        ).grid(row=0, column=2)
+
+    def open_download_queue_dialog(self):
+        """Ouvre une file d'attente simple: une URL catalogue par ligne."""
+        window = ctk.CTkToplevel(self.root)
+        window.title("File d'attente")
+        window.geometry("760x520")
+        window.transient(self.root)
+        window.grab_set()
+        window.grid_columnconfigure(0, weight=1)
+        window.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            window,
+            text="File d'attente de téléchargements",
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 15),
+        ).grid(row=0, column=0, sticky="w", padx=18, pady=(16, 4))
+        ctk.CTkLabel(
+            window,
+            text="Une URL catalogue par ligne. SushiDL analysera chaque source et téléchargera tous les éléments non premium.",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+        ).grid(row=0, column=0, sticky="sw", padx=18, pady=(42, 8))
+
+        urls_box = ctk.CTkTextbox(
+            window,
+            corner_radius=8,
+            border_width=1,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            font=("Consolas", 11),
+        )
+        urls_box.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 10))
+        current_url = self.url.get().strip()
+        if current_url:
+            urls_box.insert("1.0", current_url + "\n")
+
+        output_var = tk.StringVar(value=getattr(self, "download_output_root", "") or os.path.abspath(ROOT_FOLDER))
+        output_row = ctk.CTkFrame(window, fg_color="transparent")
+        output_row.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 10))
+        output_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(output_row, text="Destination", text_color=self.palette["muted_strong"]).grid(row=0, column=0, padx=(0, 8))
+        output_entry = ctk.CTkEntry(output_row, textvariable=output_var, height=34)
+        output_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+
+        def choose_output():
+            selected = filedialog.askdirectory(
+                parent=window,
+                title="Choisir le dossier de destination",
+                initialdir=output_var.get() or os.path.abspath(ROOT_FOLDER),
+                mustexist=False,
+            )
+            if selected:
+                output_var.set(os.path.abspath(selected))
+
+        ctk.CTkButton(output_row, text="Parcourir", command=choose_output, width=100, height=34).grid(row=0, column=2)
+
+        actions = ctk.CTkFrame(window, fg_color="transparent")
+        actions.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 16))
+        actions.grid_columnconfigure(0, weight=1)
+
+        def launch_queue():
+            raw_urls = [line.strip() for line in urls_box.get("1.0", "end-1c").splitlines()]
+            urls = [line for line in raw_urls if line and not line.startswith("#")]
+            if not urls:
+                self.toast("Aucune URL")
+                return
+            output_root = os.path.abspath(output_var.get().strip() or ROOT_FOLDER)
+            self.download_output_root = output_root
+            window.destroy()
+            self.start_download_queue(urls, output_root)
+
+        ctk.CTkButton(
+            actions,
+            text="Annuler",
+            command=window.destroy,
+            width=120,
+            height=34,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+        ).grid(row=0, column=1, padx=(0, 8))
+        ctk.CTkButton(
+            actions,
+            text="Lancer la file",
+            command=launch_queue,
+            width=150,
+            height=34,
+            fg_color=self.palette["accent"],
+            hover_color=self.palette["accent_hover"],
+            text_color="#ffffff",
+        ).grid(row=0, column=2)
+
+    def start_download_queue(self, urls, output_root):
+        """Télécharge plusieurs catalogues à la suite en sélection totale."""
+        clean_urls = [url.strip() for url in urls if is_valid_catalogue_url(url.strip())]
+        if not clean_urls:
+            self.log("File d'attente vide ou URL non supportées.", level="warning")
+            return
+        if getattr(self, "download_in_progress", False):
+            self.log("Téléchargement déjà en cours: impossible de lancer une file maintenant.", level="warning")
+            return
+        self.cancel_event.clear()
+        self.download_in_progress = True
+        self._set_download_controls(True)
+        self._set_progress_ui(0)
+        self._set_current_volume_ui(None)
+        os.makedirs(output_root, exist_ok=True)
+
+        cbz_enabled = self.cbz_enabled.get()
+        comicinfo_enabled = self.comicinfo_enabled.get()
+        chapter_cover_enabled = self.chapter_cover_enabled.get()
+        webp2jpg_enabled = self.webp2jpg_enabled.get()
+        smart_resume_enabled = self.smart_resume_enabled.get()
+
+        def task():
+            try:
+                queue_total = len(clean_urls)
+                for queue_index, source_url in enumerate(clean_urls, start=1):
+                    if self.cancel_event.is_set():
+                        break
+                    domain = self.get_domain_from_url(source_url)
+                    cookie = self.get_cookie(source_url)
+                    ua_for_url = self.get_request_user_agent_for_url(source_url)
+                    self.run_on_ui(self.url.set, source_url)
+                    self.log(f"File {queue_index}/{queue_total}: analyse {source_url}", level="info")
+                    try:
+                        title, pairs = fetch_manga_data(source_url, cookie, ua_for_url, emit_logs=False)
+                        metadata_by_url = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
+                        series_metadata = dict(getattr(fetch_manga_data, "last_series_metadata", {}) or {})
+                    except Exception as exc:
+                        self.log(f"File: analyse échouée pour {source_url}: {exc}", level="error")
+                        continue
+                    self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
+                    self.log(f"File: {len(pairs)} élément(s) détecté(s) pour {title}", level="success")
+                    selected_pairs = [
+                        (vol, link)
+                        for vol, link in pairs
+                        if not bool((metadata_by_url.get((link or "").strip()) or {}).get("premium"))
+                    ]
+                    for item_index, (vol, link) in enumerate(selected_pairs, start=1):
+                        if self.cancel_event.is_set():
+                            break
+                        self.run_on_ui(self._set_current_volume_ui, vol)
+                        self.log(f"File {queue_index}/{queue_total} - {item_index}/{len(selected_pairs)}: {vol}", level="info")
+                        try:
+                            cookie_item = self.get_cookie(link)
+                            ua_item = self.get_request_user_agent_for_url(link)
+                            images = get_images(link, cookie_item, ua_item, cancel_event=self.cancel_event, emit_logs=False)
+                        except Exception as exc:
+                            self.log(f"File: échec images {vol}: {exc}", level="error")
+                            self.add_volume_error(vol, "images", str(exc), None, recommend_action_for_failure(None, str(exc)))
+                            continue
+
+                        def progress(done, total_images, base=item_index - 1, count=max(1, len(selected_pairs))):
+                            item_percent = (float(done or 0) / float(total_images or 1)) if total_images else 0.0
+                            self.run_on_ui(self._set_progress_ui, ((base + item_percent) / count) * 100.0)
+                            self.run_on_ui(self._set_progress_detail_ui, done, total_images)
+
+                        def error_callback(payload, fallback_vol=vol):
+                            if not isinstance(payload, dict):
+                                return
+                            self.add_volume_error(
+                                payload.get("tome") or fallback_vol,
+                                payload.get("stage") or "download",
+                                payload.get("reason") or "Erreur inconnue",
+                                payload.get("status_code"),
+                                payload.get("action"),
+                            )
+
+                        result = download_volume(
+                            vol,
+                            images,
+                            title,
+                            self.get_cookie(link),
+                            self.get_request_user_agent_for_url(link),
+                            self.log,
+                            self.cancel_event,
+                            cbz_enabled=cbz_enabled,
+                            update_progress=progress,
+                            webp2jpg_enabled=webp2jpg_enabled,
+                            comicinfo_enabled=comicinfo_enabled,
+                            chapter_cover_enabled=chapter_cover_enabled,
+                            referer_url=link,
+                            smart_resume_enabled=smart_resume_enabled,
+                            error_callback=error_callback,
+                            output_root=output_root,
+                            prompt_cookie_retry=False,
+                            total_count=len(pairs),
+                            series_metadata=series_metadata,
+                            cover_url=(series_metadata or {}).get("cover_url", ""),
+                        )
+                        if result is False:
+                            self.log(f"File: élément non finalisé: {vol}", level="warning")
+                if self.cancel_event.is_set():
+                    self.log("File d'attente annulée.", level="warning")
+                else:
+                    self.log("File d'attente terminée.", level="success")
+            finally:
+                self.download_in_progress = False
+                self.cancel_event.clear()
+                self.run_on_ui(self._set_download_controls, False)
+                self.run_on_ui(self._set_progress_detail_ui, None, None)
+                self.run_on_ui(self.root.title, f"{APP_NAME} v{APP_VERSION}")
+
+        threading.Thread(target=task, daemon=True, name="download-queue").start()
+
     def get_cookie_header_for_domain(self, domain, fallback_cookie=None):
         """Retourne l'en-tête Cookie effectif (complet si disponible)."""
         if domain not in COOKIE_DOMAINS:
@@ -10770,9 +11195,138 @@ class SushiCliBackend:
         )
 
 
+def run_batch_cli(argv, backend=None):
+    """Mode terminal non interactif pour automatisation simple."""
+    parser = argparse.ArgumentParser(
+        prog="SushiDL.py --cli",
+        description="Analyse et telecharge sans interface interactive.",
+    )
+    parser.add_argument("--url", action="append", default=[], help="URL catalogue a analyser. Peut etre repete.")
+    parser.add_argument("--url-file", default="", help="Fichier texte contenant une URL par ligne.")
+    parser.add_argument("--range", dest="selection_range", default="all", help="Selection: all, 1-20, 50+, 1,4,7.")
+    parser.add_argument("--output", default="", help="Dossier de destination.")
+    parser.add_argument("--download", action="store_true", help="Lance le telechargement apres analyse.")
+    parser.add_argument("--dry-run", action="store_true", help="Analyse seulement et affiche la selection.")
+    parser.add_argument("--no-cbz", action="store_true", help="Desactive la creation CBZ.")
+    parser.add_argument("--no-comicinfo", action="store_true", help="Desactive ComicInfo.xml.")
+    parser.add_argument("--no-cover", action="store_true", help="Desactive la couverture en premiere page des chapitres.")
+    parser.add_argument("--no-webp2jpg", action="store_true", help="Desactive la conversion WEBP en JPG.")
+    parser.add_argument("--no-resume", action="store_true", help="Desactive la reprise intelligente.")
+    args = parser.parse_args([arg for arg in argv if arg != "--cli"])
+
+    urls = [url.strip() for url in args.url if (url or "").strip()]
+    if args.url_file:
+        try:
+            with open(args.url_file, "r", encoding="utf-8") as handle:
+                urls.extend(line.strip() for line in handle if line.strip() and not line.strip().startswith("#"))
+        except Exception as exc:
+            print(f"Erreur lecture fichier URL: {exc}")
+            return 2
+    if not urls:
+        parser.print_help()
+        return 2
+
+    from cli.actions import apply_range_selection, load_state
+    from cli.download import CliDownloadController
+    from cli.state import CliItem
+
+    backend = backend or SushiCliBackend()
+    state = load_state(backend)
+    state.cbz_enabled = not args.no_cbz
+    state.comicinfo_enabled = not args.no_comicinfo
+    state.chapter_cover_enabled = not args.no_cover
+    state.webp2jpg_enabled = not args.no_webp2jpg
+    state.smart_resume_enabled = not args.no_resume
+    output_dir = os.path.abspath(args.output or ROOT_FOLDER)
+    os.makedirs(output_dir, exist_ok=True)
+
+    exit_code = 0
+    for url_index, url in enumerate(urls, start=1):
+        print(f"\n[{url_index}/{len(urls)}] Analyse: {url}")
+        try:
+            title, domain, pairs, metadata, series_metadata = backend.analyze_url(
+                url,
+                state.cookies,
+                state.user_agent,
+            )
+        except Exception as exc:
+            print(f"Echec analyse: {exc}")
+            exit_code = 1
+            continue
+
+        state.current_url = url
+        state.current_title = title
+        state.current_domain = domain
+        state.series_metadata = dict(series_metadata or {})
+        state.detected_items = [
+            CliItem(
+                index=idx + 1,
+                label=(label or f"Element {idx + 1}").strip(),
+                url=(item_url or "").strip(),
+                premium=bool((metadata.get((item_url or "").strip()) or {}).get("premium")),
+            )
+            for idx, (label, item_url) in enumerate(pairs)
+        ]
+        state.filtered_indices = list(range(len(state.detected_items)))
+        if args.selection_range.strip().lower() in ("", "all", "*"):
+            state.selected_urls = {item.url for item in state.detected_items if not item.premium}
+        else:
+            state.selected_urls.clear()
+            apply_range_selection(state, args.selection_range)
+            state.selected_urls = {
+                item.url for item in state.detected_items if item.url in state.selected_urls and not item.premium
+            }
+
+        premium_count = sum(1 for item in state.detected_items if item.premium)
+        print(f"Titre: {title}")
+        print(f"Domaine: {domain}")
+        print(f"Elements detectes: {len(state.detected_items)} | selectionnes: {len(state.selected_urls)} | premium ignores: {premium_count}")
+        if args.dry_run or not args.download:
+            preview = [item for item in state.detected_items if item.url in state.selected_urls][:20]
+            for item in preview:
+                print(f"  - {item.index}. {item.label}")
+            if len(state.selected_urls) > len(preview):
+                print(f"  ... {len(state.selected_urls) - len(preview)} autre(s)")
+            continue
+
+        controller = CliDownloadController(backend, state, output_dir)
+        controller.start()
+        last_line = ""
+        while True:
+            snapshot = controller.snapshot()
+            line = (
+                f"{snapshot.global_percent:5.1f}% | "
+                f"{snapshot.completed_volumes}/{snapshot.total_volumes} | "
+                f"{snapshot.current_volume} | "
+                f"{snapshot.current_images_done}/{snapshot.current_images_total} images | "
+                f"ETA {snapshot.eta_global}"
+            )
+            if line != last_line:
+                print(line)
+                last_line = line
+            if not snapshot.active:
+                break
+            time.sleep(0.8)
+        if controller._thread:
+            controller._thread.join(timeout=1)
+        final = controller.snapshot()
+        print(final.status_message)
+        if final.errors:
+            exit_code = 1
+            print(f"Erreurs: {len(final.errors)}")
+            for err in final.errors[:20]:
+                http = f" HTTP {err.status_code}" if err.status_code else ""
+                print(f"  - {err.tome} [{err.stage}{http}] {err.reason}")
+            if len(final.errors) > 20:
+                print(f"  ... {len(final.errors) - 20} autre(s)")
+    return exit_code
+
+
 # Point d'entrée de l'application
 if __name__ == "__main__":
-    if "--cli" in sys.argv[1:]:
+    if "--cli" in sys.argv[1:] and any(arg.startswith("--url") or arg in {"--download", "--dry-run", "--url-file", "--help", "-h"} for arg in sys.argv[1:]):
+        sys.exit(run_batch_cli(sys.argv[1:], SushiCliBackend()))
+    elif "--cli" in sys.argv[1:]:
         from cli.app import run_cli_app
 
         run_cli_app(SushiCliBackend())

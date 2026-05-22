@@ -7,6 +7,20 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.11.0] - 2026-05-22
+
+### Ameliorations
+- Ajout d'une file d'attente GUI pour lancer plusieurs URLs catalogue a la suite.
+- Ajout d'un mode CLI non interactif :
+  - `--url`,
+  - `--url-file`,
+  - `--range`,
+  - `--download`,
+  - `--dry-run`,
+  - options de sortie `--no-cbz`, `--no-comicinfo`, `--no-cover`, `--no-webp2jpg`, `--no-resume`.
+- Ajout d'un editeur de metadonnees ComicInfo en GUI avant telechargement.
+- Ajout d'un rapport `SushiDL_report.txt` dans les CBZ crees avec pages manquantes ou invalides.
+
 ## [11.10.0] - 2026-05-20
 
 ### Ameliorations
