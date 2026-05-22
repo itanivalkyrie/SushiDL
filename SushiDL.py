@@ -29,7 +29,7 @@ import unicodedata
 import webbrowser
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -372,8 +372,25 @@ def is_valid_catalogue_url(url):
 
     if not match:
         return False
-    slug = match.group(1).strip()
-    return bool(re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug, flags=re.IGNORECASE))
+    return is_valid_catalogue_slug(match.group(1))
+
+
+def is_valid_catalogue_slug(slug):
+    """Valide un segment de slug, y compris les caractères percent-encodés."""
+    value = (slug or "").strip()
+    if not value:
+        return False
+    if any(ord(ch) < 32 or ord(ch) == 127 or ch.isspace() for ch in value):
+        return False
+    if any(ch in value for ch in "/\\?#"):
+        return False
+    if re.search(r"%(?![0-9a-fA-F]{2})", value):
+        return False
+
+    decoded = unquote(value)
+    if any(ord(ch) < 32 or ord(ch) == 127 or ch.isspace() for ch in decoded):
+        return False
+    return not any(ch in decoded for ch in "/\\?#")
 
 
 def extract_supported_catalogue_url(text):
@@ -785,7 +802,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
 APP_VERSION = "11.15.3"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
 MIN_DOWNLOAD_THREADS = 1
