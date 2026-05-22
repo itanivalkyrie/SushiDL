@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.1] - 2026-05-22
+
+### Corrections
+- Popup `Cookie à renouveler` :
+  - suppression du bouton `Aller à Authentification`,
+  - l'onglet Authentification reste ouvert automatiquement comme avant.
+
 ## [11.15.0] - 2026-05-22
 
 ### Ameliorations

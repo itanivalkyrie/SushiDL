@@ -765,7 +765,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.0"
+APP_VERSION = "11.15.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[a-z0-9_-]+/?$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -6627,20 +6627,6 @@ class MangaApp:
         actions.pack(fill="x", padx=14, pady=(0, 14))
         actions.grid_columnconfigure(0, weight=1)
         actions.grid_columnconfigure(1, weight=0)
-        actions.grid_columnconfigure(2, weight=0)
-
-        ctk.CTkButton(
-            actions,
-            text="Aller à Authentification",
-            command=lambda: self._focus_cookie_editor_for_domain(domain),
-            height=32,
-            corner_radius=6,
-            fg_color=self.palette["panel_bg"],
-            hover_color=self.palette["card_alt"],
-            text_color=self.palette["text"],
-            border_width=1,
-            border_color=self.palette["border"],
-        ).grid(row=0, column=0, sticky="w")
 
         ctk.CTkButton(
             actions,
@@ -6654,7 +6640,7 @@ class MangaApp:
             text_color=self.palette["danger_text"],
             border_width=1,
             border_color=self.palette["danger_border"],
-        ).grid(row=0, column=1, padx=(10, 8))
+        ).grid(row=0, column=0, sticky="e", padx=(0, 8))
 
         ok_button = ctk.CTkButton(
             actions,
@@ -6669,7 +6655,7 @@ class MangaApp:
             border_width=1,
             border_color=self.palette["success_border"],
         )
-        ok_button.grid(row=0, column=2)
+        ok_button.grid(row=0, column=1)
 
         holder["window"] = win
         self.cookie_refresh_prompt_window = win
