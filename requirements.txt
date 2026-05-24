@@ -2,5 +2,6 @@ beautifulsoup4>=4.13.4
 customtkinter>=5.2.2
 curl_cffi>=0.10.0
 Pillow>=11.3.0
+playwright>=1.52.0
 requests>=2.32.3
 textual>=0.82.0

@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.5"
+APP_VERSION = "11.15.6"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -897,6 +897,8 @@ ANALYSIS_CACHE_MEMORY = None
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
+SCANMANGA_BROWSER_LOCK = threading.Lock()
+SCANMANGA_BROWSER_STATE = {"playwright": None, "browser": None, "context": None, "page": None, "ua": ""}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -1445,6 +1447,141 @@ def build_scanmanga_image_headers(image_url, chapter_url, cookie="", ua=""):
     return headers
 
 
+def close_scanmanga_browser_state():
+    """Ferme le navigateur de secours Scan-Manga si ouvert."""
+    with SCANMANGA_BROWSER_LOCK:
+        state = SCANMANGA_BROWSER_STATE
+        for key in ("page", "context", "browser"):
+            item = state.get(key)
+            if item is not None:
+                try:
+                    item.close()
+                except Exception:
+                    pass
+                state[key] = None
+        playwright_obj = state.get("playwright")
+        if playwright_obj is not None:
+            try:
+                playwright_obj.stop()
+            except Exception:
+                pass
+            state["playwright"] = None
+        state["ua"] = ""
+
+
+def get_scanmanga_browser_page(ua=""):
+    """Retourne une page Chromium réutilisée pour le fallback image Scan-Manga."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        raise ImageDownloadError(
+            f"Fallback navigateur Scan-Manga indisponible: installe playwright ({exc}).",
+            kind="blocked_or_retryable",
+            phase="browser",
+        )
+
+    safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+    state = SCANMANGA_BROWSER_STATE
+    if state.get("playwright") is None:
+        state["playwright"] = sync_playwright().start()
+    if state.get("browser") is None:
+        chromium = state["playwright"].chromium
+        try:
+            state["browser"] = chromium.launch(channel="chrome", headless=True)
+        except Exception:
+            state["browser"] = chromium.launch(headless=True)
+    if state.get("context") is None or state.get("ua") != safe_ua:
+        if state.get("context") is not None:
+            try:
+                state["context"].close()
+            except Exception:
+                pass
+        state["context"] = state["browser"].new_context(
+            user_agent=safe_ua,
+            locale="fr-FR",
+            viewport={"width": 1365, "height": 900},
+        )
+        state["page"] = None
+        state["ua"] = safe_ua
+    if state.get("page") is None or state["page"].is_closed():
+        state["page"] = state["context"].new_page()
+    return state["page"]
+
+
+def download_scanmanga_image_with_browser(img_url, filename, referer_url, ua, cancel_event=None):
+    """Télécharge une image Scan-Manga depuis le contexte réel du lecteur."""
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
+
+    normalized_url = normalize_image_url(img_url)
+    safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
+    tmp_filename = f"{filename}.part-browser-{threading.get_ident()}"
+    with SCANMANGA_BROWSER_LOCK:
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("Téléchargement annulé.")
+        page = get_scanmanga_browser_page(ua)
+        current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
+        if current_url != safe_referer.split("#", 1)[0]:
+            page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
+        result = page.evaluate(
+            """
+            async (url) => {
+                const response = await fetch(url, { credentials: "omit" });
+                const buffer = await response.arrayBuffer();
+                let binary = "";
+                const bytes = new Uint8Array(buffer);
+                const chunkSize = 0x8000;
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+                }
+                return {
+                    status: response.status,
+                    contentType: response.headers.get("content-type") || "",
+                    body: btoa(binary)
+                };
+            }
+            """,
+            normalized_url,
+        )
+
+    status_code = int((result or {}).get("status") or 0)
+    content_type = ((result or {}).get("contentType") or "").lower()
+    if status_code != 200:
+        raise ImageDownloadError(
+            f"Fallback navigateur Scan-Manga HTTP {status_code}",
+            status_code=status_code,
+            kind=classify_download_failure(status_code, f"HTTP {status_code}"),
+            phase="browser",
+        )
+    if "image" not in content_type:
+        raise ImageDownloadError(
+            f"Fallback navigateur Scan-Manga: contenu non image ({content_type or 'inconnu'})",
+            kind="invalid_image",
+            phase="browser",
+        )
+
+    raw = base64.b64decode((result or {}).get("body") or "")
+    if _is_html_payload_start(raw):
+        raise ImageDownloadError(
+            "Fallback navigateur Scan-Manga: réponse HTML",
+            kind="blocked_or_retryable",
+            phase="browser",
+        )
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    try:
+        with open(tmp_filename, "wb") as handle:
+            handle.write(raw)
+        validate_image_file(tmp_filename)
+        os.replace(tmp_filename, filename)
+    except Exception:
+        try:
+            if os.path.exists(tmp_filename):
+                os.remove(tmp_filename)
+        except OSError:
+            pass
+        raise
+
+
 def make_request(url, cookie, ua):
     """Effectue une requête HTTP avec les cookies et l'user-agent appropriés."""
     if get_supported_site_from_url(url) == "scan-manga.com":
@@ -1983,7 +2120,7 @@ def download_image(
 
     # Configuration des en-têtes HTTP
     referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
-    if normalize_hostname(urlparse(normalized_url).hostname) in {"data.scan-manga.com", "data3.scan-manga.com"}:
+    if normalize_hostname(urlparse(normalized_url).hostname) in {"data.scan-manga.com", "data2.scan-manga.com", "data3.scan-manga.com"}:
         headers = build_scanmanga_image_headers(normalized_url, referer, "", ua)
     else:
         headers = build_request_headers(
@@ -1996,6 +2133,11 @@ def download_image(
 
     # Détermination de l'extension et du nom de fichier
     parsed_path = (urlparse(normalized_url).path or "").lower()
+    is_scanmanga_cdn_image = normalize_hostname(urlparse(normalized_url).hostname) in {
+        "data.scan-manga.com",
+        "data2.scan-manga.com",
+        "data3.scan-manga.com",
+    }
     ext = parsed_path.rsplit(".", 1)[-1] if "." in parsed_path else "jpg"
     if ext not in {"jpg", "jpeg", "png", "webp", "avif"}:
         ext = "jpg"
@@ -2007,6 +2149,8 @@ def download_image(
             normalized_url,
             filename,
             headers,
+            max_try=1 if is_scanmanga_cdn_image else 4,
+            delay=1 if is_scanmanga_cdn_image else 2,
             cancel_event=cancel_event,
         )
 
@@ -2031,6 +2175,54 @@ def download_image(
         register_failure("cancelled", "Annulation demandée pendant téléchargement direct.")
         return
     except ImageDownloadError as e:
+        if is_scanmanga_cdn_image and e.kind not in ("missing", "invalid_image", "cancelled"):
+            try:
+                runtime_log(
+                    "Téléchargement direct Scan-Manga bloqué, essai via contexte navigateur.",
+                    level="warning",
+                    context={"action": "download", "domain": "scanmanga"},
+                )
+                download_scanmanga_image_with_browser(
+                    normalized_url,
+                    filename,
+                    referer,
+                    ua,
+                    cancel_event=cancel_event,
+                )
+                if webp2jpg_enabled and filename.lower().endswith(".webp"):
+                    try:
+                        with Image.open(filename) as source_image:
+                            img = source_image.convert("RGB")
+                        new_path = filename[:-5] + ".jpg"
+                        img.save(new_path, "JPEG", quality=90)
+                        os.remove(filename)
+                        filename = new_path
+                    except Exception as conv_e:
+                        runtime_log(f"Erreur conversion WebP->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
+                if progress_callback:
+                    progress_callback(i + 1)
+                return
+            except DownloadCancelled:
+                register_failure("cancelled", "Annulation demandée pendant fallback navigateur Scan-Manga.")
+                return
+            except ImageDownloadError as browser_exc:
+                register_failure(browser_exc.kind, str(browser_exc), status_code=browser_exc.status_code)
+                runtime_log(
+                    f"Fallback navigateur Scan-Manga échoué: {browser_exc}",
+                    level="warning",
+                    context={"action": "download", "url": normalized_url},
+                )
+                return
+            except Exception as browser_exc:
+                status_code = get_status_code_from_exception(browser_exc)
+                kind = classify_download_failure(status_code, str(browser_exc))
+                register_failure(kind, str(browser_exc), status_code=status_code)
+                runtime_log(
+                    f"Fallback navigateur Scan-Manga échoué: {browser_exc}",
+                    level="warning",
+                    context={"action": "download", "url": normalized_url},
+                )
+                return
         if e.kind == "missing":
             register_failure("missing", str(e), status_code=e.status_code)
             runtime_log(
