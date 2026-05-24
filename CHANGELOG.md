@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.14] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - correction de l'extraction des URLs d'images sur les chapitres protégés par l'avertissement public averti,
+  - isolation de l'appel API lecteur dans une session HTTP vierge pour éviter les réponses `HTTP 500` causées par l'état de navigation du lecteur.
+
 ## [11.15.13] - 2026-05-24
 
 ### Ameliorations
