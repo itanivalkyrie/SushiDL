@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.8] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - invalidation automatique des anciens caches d'analyse pour forcer une nouvelle extraction des métadonnées `ComicInfo.xml`,
+  - évite que la popup affiche encore auteur, dessinateur, année, genres et statut vides après une mise à jour du parseur.
+
 ## [11.15.7] - 2026-05-24
 
 ### Corrections

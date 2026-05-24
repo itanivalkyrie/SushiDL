@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.7"
+APP_VERSION = "11.15.8"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -894,6 +894,7 @@ CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
 ANALYSIS_CACHE_LOCK = threading.Lock()
 ANALYSIS_CACHE_MEMORY = None
+ANALYSIS_CACHE_SCHEMA_VERSION = 2
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -1085,6 +1086,12 @@ def get_cached_analysis(url, ua):
     if not isinstance(entry, dict):
         return None
     try:
+        schema_version = int(entry.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        return None
+    if schema_version != ANALYSIS_CACHE_SCHEMA_VERSION:
+        return None
+    try:
         age = time.time() - float(entry.get("timestamp") or 0)
     except (TypeError, ValueError):
         return None
@@ -1107,6 +1114,7 @@ def store_cached_analysis(url, ua, title, pairs, volume_metadata=None, series_me
     global ANALYSIS_CACHE_MEMORY
     cache = _read_analysis_cache()
     cache[_analysis_cache_key(url, ua)] = {
+        "schema_version": ANALYSIS_CACHE_SCHEMA_VERSION,
         "url": (url or "").strip(),
         "timestamp": time.time(),
         "title": title or "",
@@ -13098,6 +13106,18 @@ def run_self_test():
         )
         cached = get_cached_analysis("https://sushiscan.net/catalogue/test/", "UA")
         check("cache analyse roundtrip", bool(cached and cached.get("title") == "Titre" and cached.get("pairs")))
+        stale_key = _analysis_cache_key("https://sushiscan.net/catalogue/stale/", "UA")
+        ANALYSIS_CACHE_MEMORY = {
+            stale_key: {
+                "schema_version": ANALYSIS_CACHE_SCHEMA_VERSION - 1,
+                "url": "https://sushiscan.net/catalogue/stale/",
+                "timestamp": time.time(),
+                "title": "Ancien",
+                "pairs": [["Chapitre 1", "https://sushiscan.net/stale/1/"]],
+                "series_metadata": {"series": "Ancien"},
+            }
+        }
+        check("cache analyse ancien schema ignore", get_cached_analysis("https://sushiscan.net/catalogue/stale/", "UA") is None)
     ANALYSIS_CACHE_PATH = old_cache_path
     ANALYSIS_CACHE_MEMORY = old_cache_memory
 
