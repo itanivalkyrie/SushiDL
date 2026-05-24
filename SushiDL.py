@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.14"
+APP_VERSION = "11.15.15"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1579,6 +1579,40 @@ def fetch_scanmanga_image_with_context_request(state, img_url, referer_url):
     }
 
 
+def accept_scanmanga_reader_warning(page):
+    """Valide l'avertissement lecteur Scan-Manga quand il est présent."""
+    try:
+        return bool(
+            page.evaluate(
+                """
+                () => {
+                    let changed = false;
+                    try {
+                        const raw = localStorage.getItem("lelParametres") || "{}";
+                        const params = JSON.parse(raw) || {};
+                        if (typeof idm !== "undefined" && idm) {
+                            const key = String(idm);
+                            if (!Object.prototype.hasOwnProperty.call(params, key)) {
+                                params[key] = "";
+                                localStorage.setItem("lelParametres", JSON.stringify(params));
+                                changed = true;
+                            }
+                        }
+                    } catch (e) {}
+                    const button = document.querySelector("button.oui-avertissement-btn");
+                    if (button && button.offsetParent !== null) {
+                        button.click();
+                        changed = true;
+                    }
+                    return changed;
+                }
+                """
+            )
+        )
+    except Exception:
+        return False
+
+
 def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, cancel_event=None):
     normalized_url = normalize_image_url(img_url)
     safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
@@ -1592,6 +1626,12 @@ def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, canc
         must_reload = attempt > 1 or current_url != safe_referer.split("#", 1)[0]
         if must_reload:
             page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
+            warning_accepted = accept_scanmanga_reader_warning(page)
+            if warning_accepted:
+                try:
+                    page.wait_for_timeout(250)
+                except Exception:
+                    time.sleep(0.25)
             try:
                 page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:

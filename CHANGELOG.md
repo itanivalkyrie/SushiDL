@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.15] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - validation automatique de l'avertissement lecteur dans le contexte Playwright avant de récupérer les images CDN,
+  - stabilisation des téléchargements de chapitres avec avertissement quand la session navigateur passe d'un chapitre au suivant.
+
 ## [11.15.14] - 2026-05-24
 
 ### Corrections
