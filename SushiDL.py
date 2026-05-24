@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.9"
+APP_VERSION = "11.15.10"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -899,7 +899,8 @@ IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
 SCANMANGA_BROWSER_LOCK = threading.Lock()
-SCANMANGA_BROWSER_STATES = {}
+SCANMANGA_BROWSER_THREAD = None
+SCANMANGA_BROWSER_TASKS = None
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -1455,45 +1456,51 @@ def build_scanmanga_image_headers(image_url, chapter_url, cookie="", ua=""):
     return headers
 
 
-def close_scanmanga_browser_state():
-    """Ferme les navigateurs de secours Scan-Manga ouverts."""
-    with SCANMANGA_BROWSER_LOCK:
-        states = list(SCANMANGA_BROWSER_STATES.values())
-        SCANMANGA_BROWSER_STATES.clear()
-    for state in states:
-        for key in ("page", "context", "browser"):
-            item = state.get(key)
-            if item is not None:
-                try:
-                    item.close()
-                except Exception:
-                    pass
-        playwright_obj = state.get("playwright")
-        if playwright_obj is not None:
+def new_scanmanga_browser_state():
+    return {"playwright": None, "browser": None, "context": None, "page": None, "ua": ""}
+
+
+def dispose_scanmanga_browser_state(state):
+    """Ferme un état Playwright depuis le thread qui le possède."""
+    for key in ("page", "context", "browser"):
+        item = state.get(key)
+        if item is not None:
             try:
-                playwright_obj.stop()
+                item.close()
             except Exception:
                 pass
+            state[key] = None
+    playwright_obj = state.get("playwright")
+    if playwright_obj is not None:
+        try:
+            playwright_obj.stop()
+        except Exception:
+            pass
+        state["playwright"] = None
+    state["ua"] = ""
 
 
-def get_scanmanga_browser_state():
-    """Retourne l'état Playwright Scan-Manga propre au thread courant."""
-    thread_id = threading.get_ident()
-    state = SCANMANGA_BROWSER_STATES.get(thread_id)
-    if state is None:
-        state = {
-            "playwright": None,
-            "browser": None,
-            "context": None,
-            "page": None,
-            "ua": "",
-            "thread_id": thread_id,
-        }
-        SCANMANGA_BROWSER_STATES[thread_id] = state
-    return state
+def close_scanmanga_browser_state():
+    """Demande l'arrêt de la session navigateur Scan-Manga réutilisée."""
+    global SCANMANGA_BROWSER_THREAD, SCANMANGA_BROWSER_TASKS
+    with SCANMANGA_BROWSER_LOCK:
+        tasks = SCANMANGA_BROWSER_TASKS
+        thread = SCANMANGA_BROWSER_THREAD
+        SCANMANGA_BROWSER_TASKS = None
+        SCANMANGA_BROWSER_THREAD = None
+    if tasks is not None:
+        try:
+            tasks.put({"action": "stop"})
+        except Exception:
+            pass
+    if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+        try:
+            thread.join(timeout=5)
+        except Exception:
+            pass
 
 
-def get_scanmanga_browser_page(ua=""):
+def get_scanmanga_browser_page(state, ua=""):
     """Retourne une page Chromium réutilisée pour le fallback image Scan-Manga."""
     try:
         from playwright.sync_api import sync_playwright
@@ -1505,7 +1512,6 @@ def get_scanmanga_browser_page(ua=""):
         )
 
     safe_ua = (ua or DEFAULT_USER_AGENT).strip()
-    state = get_scanmanga_browser_state()
     if state.get("playwright") is None:
         state["playwright"] = sync_playwright().start()
     if state.get("browser") is None:
@@ -1532,72 +1538,154 @@ def get_scanmanga_browser_page(ua=""):
     return state["page"]
 
 
+def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, cancel_event=None):
+    normalized_url = normalize_image_url(img_url)
+    safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
+    last_error = None
+    result = None
+    for attempt in range(1, 4):
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("Téléchargement annulé.")
+        page = get_scanmanga_browser_page(state, ua)
+        current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
+        must_reload = attempt > 1 or current_url != safe_referer.split("#", 1)[0]
+        if must_reload:
+            page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                pass
+        try:
+            result = page.evaluate(
+                """
+                async (url) => {
+                    const response = await fetch(url, {
+                        cache: "reload",
+                        credentials: "omit",
+                        referrerPolicy: "strict-origin-when-cross-origin"
+                    });
+                    const buffer = await response.arrayBuffer();
+                    let binary = "";
+                    const bytes = new Uint8Array(buffer);
+                    const chunkSize = 0x8000;
+                    for (let i = 0; i < bytes.length; i += chunkSize) {
+                        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+                    }
+                    return {
+                        status: response.status,
+                        contentType: response.headers.get("content-type") || "",
+                        body: btoa(binary)
+                    };
+                }
+                """,
+                normalized_url,
+            )
+            if int((result or {}).get("status") or 0) == 200:
+                return result
+            last_error = f"HTTP {int((result or {}).get('status') or 0)}"
+        except Exception as exc:
+            result = None
+            last_error = str(exc)
+        if attempt < 3:
+            try:
+                page.wait_for_timeout(350 * attempt)
+            except Exception:
+                time.sleep(0.35 * attempt)
+    if result is not None:
+        return result
+    raise ImageDownloadError(
+        f"Navigateur Scan-Manga échoué: {last_error or 'fetch impossible'}",
+        kind="blocked_or_retryable",
+        phase="browser",
+    )
+
+
+def scanmanga_browser_worker_loop(tasks):
+    """Thread propriétaire de Playwright pour Scan-Manga."""
+    state = new_scanmanga_browser_state()
+    try:
+        while True:
+            task = tasks.get()
+            if not isinstance(task, dict):
+                continue
+            if task.get("action") == "stop":
+                break
+            response = task.get("response")
+            try:
+                result = fetch_scanmanga_image_in_browser_state(
+                    state,
+                    task.get("url") or "",
+                    task.get("referer") or "",
+                    task.get("ua") or DEFAULT_USER_AGENT,
+                )
+                if response is not None:
+                    response.put({"ok": True, "result": result})
+            except Exception as exc:
+                if response is not None:
+                    response.put({"ok": False, "error": exc})
+    finally:
+        dispose_scanmanga_browser_state(state)
+
+
+def get_scanmanga_browser_tasks():
+    """Démarre au besoin l'unique thread navigateur Scan-Manga."""
+    global SCANMANGA_BROWSER_THREAD, SCANMANGA_BROWSER_TASKS
+    with SCANMANGA_BROWSER_LOCK:
+        if SCANMANGA_BROWSER_THREAD is not None and SCANMANGA_BROWSER_THREAD.is_alive() and SCANMANGA_BROWSER_TASKS is not None:
+            return SCANMANGA_BROWSER_TASKS
+        SCANMANGA_BROWSER_TASKS = queue.Queue()
+        SCANMANGA_BROWSER_THREAD = threading.Thread(
+            target=scanmanga_browser_worker_loop,
+            args=(SCANMANGA_BROWSER_TASKS,),
+            daemon=True,
+            name="scanmanga-browser",
+        )
+        SCANMANGA_BROWSER_THREAD.start()
+        return SCANMANGA_BROWSER_TASKS
+
+
+def fetch_scanmanga_image_with_browser(img_url, referer_url, ua, cancel_event=None):
+    """Récupère une image via l'unique session navigateur Scan-Manga."""
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
+    response = queue.Queue(maxsize=1)
+    get_scanmanga_browser_tasks().put(
+        {
+            "action": "fetch",
+            "url": normalize_image_url(img_url),
+            "referer": referer_url,
+            "ua": ua,
+            "response": response,
+        }
+    )
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("Téléchargement annulé.")
+        try:
+            payload = response.get(timeout=0.2)
+            break
+        except queue.Empty:
+            continue
+    if payload.get("ok"):
+        return payload.get("result") or {}
+    error = payload.get("error")
+    if isinstance(error, Exception):
+        raise error
+    raise ImageDownloadError(
+        f"Navigateur Scan-Manga échoué: {error or 'fetch impossible'}",
+        kind="blocked_or_retryable",
+        phase="browser",
+    )
+
+
 def download_scanmanga_image_with_browser(img_url, filename, referer_url, ua, cancel_event=None):
     """Télécharge une image Scan-Manga depuis le contexte réel du lecteur."""
     if cancel_event is not None and cancel_event.is_set():
         raise DownloadCancelled("Téléchargement annulé.")
 
     normalized_url = normalize_image_url(img_url)
-    safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
     tmp_filename = f"{filename}.part-browser-{threading.get_ident()}"
-    last_error = None
-    with SCANMANGA_BROWSER_LOCK:
-        result = None
-        for attempt in range(1, 4):
-            if cancel_event is not None and cancel_event.is_set():
-                raise DownloadCancelled("Téléchargement annulé.")
-            page = get_scanmanga_browser_page(ua)
-            current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
-            must_reload = attempt > 1 or current_url != safe_referer.split("#", 1)[0]
-            if must_reload:
-                page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
-                try:
-                    page.wait_for_load_state("networkidle", timeout=5000)
-                except Exception:
-                    pass
-            try:
-                result = page.evaluate(
-                    """
-                    async (url) => {
-                        const response = await fetch(url, {
-                            cache: "reload",
-                            credentials: "omit",
-                            referrerPolicy: "strict-origin-when-cross-origin"
-                        });
-                        const buffer = await response.arrayBuffer();
-                        let binary = "";
-                        const bytes = new Uint8Array(buffer);
-                        const chunkSize = 0x8000;
-                        for (let i = 0; i < bytes.length; i += chunkSize) {
-                            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-                        }
-                        return {
-                            status: response.status,
-                            contentType: response.headers.get("content-type") || "",
-                            body: btoa(binary)
-                        };
-                    }
-                    """,
-                    normalized_url,
-                )
-                if int((result or {}).get("status") or 0) == 200:
-                    break
-                last_error = f"HTTP {int((result or {}).get('status') or 0)}"
-            except Exception as exc:
-                result = None
-                last_error = str(exc)
-            if attempt < 3:
-                try:
-                    page.wait_for_timeout(350 * attempt)
-                except Exception:
-                    time.sleep(0.35 * attempt)
-
-    if result is None:
-        raise ImageDownloadError(
-            f"Fallback navigateur Scan-Manga échoué: {last_error or 'fetch impossible'}",
-            kind="blocked_or_retryable",
-            phase="browser",
-        )
+    result = fetch_scanmanga_image_with_browser(normalized_url, referer_url, ua, cancel_event=cancel_event)
 
     status_code = int((result or {}).get("status") or 0)
     content_type = ((result or {}).get("contentType") or "").lower()
@@ -1643,57 +1731,11 @@ def download_preview_image_with_browser(img_url, referer_url, ua, cancel_event=N
         raise DownloadCancelled("Téléchargement annulé.")
 
     normalized_url = normalize_image_url(img_url)
-    safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
-    last_error = None
-    with SCANMANGA_BROWSER_LOCK:
-        result = None
-        for attempt in range(1, 4):
-            if cancel_event is not None and cancel_event.is_set():
-                raise DownloadCancelled("Téléchargement annulé.")
-            page = get_scanmanga_browser_page(ua)
-            current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
-            if attempt > 1 or current_url != safe_referer.split("#", 1)[0]:
-                page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
-                try:
-                    page.wait_for_load_state("networkidle", timeout=5000)
-                except Exception:
-                    pass
-            try:
-                result = page.evaluate(
-                    """
-                    async (url) => {
-                        const response = await fetch(url, { cache: "reload", credentials: "omit" });
-                        const buffer = await response.arrayBuffer();
-                        let binary = "";
-                        const bytes = new Uint8Array(buffer);
-                        const chunkSize = 0x8000;
-                        for (let i = 0; i < bytes.length; i += chunkSize) {
-                            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-                        }
-                        return {
-                            status: response.status,
-                            contentType: response.headers.get("content-type") || "",
-                            body: btoa(binary)
-                        };
-                    }
-                    """,
-                    normalized_url,
-                )
-                if int((result or {}).get("status") or 0) == 200:
-                    break
-                last_error = f"HTTP {int((result or {}).get('status') or 0)}"
-            except Exception as exc:
-                result = None
-                last_error = str(exc)
-            if attempt < 3:
-                try:
-                    page.wait_for_timeout(350 * attempt)
-                except Exception:
-                    time.sleep(0.35 * attempt)
+    result = fetch_scanmanga_image_with_browser(normalized_url, referer_url, ua, cancel_event=cancel_event)
 
     if result is None or int((result or {}).get("status") or 0) != 200:
         raise ImageDownloadError(
-            f"Preview Scan-Manga via navigateur impossible: {last_error or 'fetch impossible'}",
+            "Preview Scan-Manga via navigateur impossible.",
             status_code=int((result or {}).get("status") or 0) if result else None,
             kind="blocked_or_retryable",
             phase="browser",

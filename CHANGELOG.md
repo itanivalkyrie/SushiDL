@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.10] - 2026-05-24
+
+### Ameliorations
+- Scan-Manga :
+  - remplacement des contextes Playwright par thread par un thread navigateur unique,
+  - les images et previews passent par une file interne pour réutiliser une seule session Chrome,
+  - réduction forte du nombre de processus Chrome ouverts lors du téléchargement de plusieurs chapitres.
+
 ## [11.15.9] - 2026-05-24
 
 ### Corrections
