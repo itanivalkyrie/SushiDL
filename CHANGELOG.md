@@ -7,6 +7,16 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.13] - 2026-05-24
+
+### Ameliorations
+- Réactivité GUI :
+  - batching des logs dans le journal Tkinter pour éviter une mise à jour widget par message,
+  - traitement de la file UI avec limite de lot et budget temps afin de réduire les blocages courts,
+  - regroupement des mises à jour progression / compteur images / ETA,
+  - suppression des reconfigurations de widgets quand la valeur affichée ne change pas,
+  - application différée du filtre de chapitres pour fluidifier la saisie sur gros catalogues.
+
 ## [11.15.12] - 2026-05-24
 
 ### Corrections

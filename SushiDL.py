@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.12"
+APP_VERSION = "11.15.13"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -859,7 +859,11 @@ MIN_DOWNLOAD_THREADS = 1
 MAX_DOWNLOAD_THREADS = 8
 THREADS = DEFAULT_DOWNLOAD_THREADS  # Compatibilite interne historique.
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
+UI_QUEUE_BATCH_LIMIT = 120
+UI_QUEUE_TIME_BUDGET_SECONDS = 0.012
 VOLUME_RENDER_BATCH_SIZE = 36  # Rendu progressif des gros listings pour eviter les timeouts UI
+GUI_LOG_FLUSH_INTERVAL_MS = 70
+GUI_LOG_FLUSH_MAX_BATCH = 180
 VOLUME_COMPACT_MODE_THRESHOLD = 180  # Au-dela, bascule vers un rendu compact plus rapide
 VOLUME_FAST_WIDGET_THRESHOLD = 2400  # Fallback ultime pour des catalogues exceptionnellement grands
 VOLUME_VIRTUALIZATION_THRESHOLD = 280  # En auto dense, n'instancie que la fenetre visible
@@ -5062,23 +5066,38 @@ class MangaApp:
 
     def process_ui_queue(self):
         """Traite les actions UI planifiées depuis les threads de fond."""
+        start = time.perf_counter()
+        processed = 0
         try:
-            for _ in range(200):
+            for _ in range(UI_QUEUE_BATCH_LIMIT):
                 action = self.ui_queue.get_nowait()
                 try:
                     action()
                 except Exception as exc:
                     emit_console_log(f"Erreur action UI planifiée: {exc}", level="error", context={"action": "ui_queue"})
+                processed += 1
+                if time.perf_counter() - start >= UI_QUEUE_TIME_BUDGET_SECONDS:
+                    break
         except queue.Empty:
             pass
         finally:
-            self.root.after(30, self.process_ui_queue)
+            delay = 5 if processed and not self.ui_queue.empty() else 30
+            self.root.after(delay, self.process_ui_queue)
 
     def _set_progress_ui(self, percent):
-        self.progress.set(percent)
+        try:
+            safe_percent = max(0.0, min(100.0, float(percent)))
+        except (TypeError, ValueError):
+            safe_percent = 0.0
+        label_text = f"{int(safe_percent)}%"
+        if self.last_progress_percent_ui == round(safe_percent, 2) and self.last_progress_text_ui == label_text:
+            return
+        self.last_progress_percent_ui = round(safe_percent, 2)
+        self.last_progress_text_ui = label_text
+        self.progress.set(safe_percent)
         if hasattr(self, "progress_bar") and self._is_ctk_widget(self.progress_bar):
-            self.progress_bar.set(max(0.0, min(1.0, float(percent) / 100.0)))
-        self.progress_label.configure(text=f"{int(percent)}%")
+            self.progress_bar.set(safe_percent / 100.0)
+        self.progress_label.configure(text=label_text)
 
     def _set_current_volume_ui(self, volume_label=None):
         if not hasattr(self, "current_volume_status_label"):
@@ -5090,6 +5109,9 @@ class MangaApp:
             text = f"{label} en cours"
         else:
             text = f"Tome/Chapitre {label} en cours"
+        if text == self.last_current_volume_text_ui:
+            return
+        self.last_current_volume_text_ui = text
         self.current_volume_status_label.configure(text=text)
 
     def _set_eta_ui(self, tome_eta=None, global_eta=None):
@@ -5097,7 +5119,11 @@ class MangaApp:
             return
         tome_text = format_duration_short(tome_eta)
         global_text = format_duration_short(global_eta)
-        self.eta_label.configure(text=f"ETA Tome: {tome_text} | ETA Global: {global_text}")
+        text = f"ETA Tome: {tome_text} | ETA Global: {global_text}"
+        if text == self.last_eta_text_ui:
+            return
+        self.last_eta_text_ui = text
+        self.eta_label.configure(text=text)
 
     def _set_download_controls(self, is_running):
         self.download_in_progress = bool(is_running)
@@ -5152,9 +5178,24 @@ class MangaApp:
         if not hasattr(self, "progress_detail_label"):
             return
         if done is None or total is None:
-            self.progress_detail_label.configure(text="Images: --/--")
+            text = "Images: --/--"
+            if text != self.last_progress_detail_ui:
+                self.last_progress_detail_ui = text
+                self.progress_detail_label.configure(text=text)
             return
-        self.progress_detail_label.configure(text=f"Images: {int(done)}/{int(total)}")
+        text = f"Images: {int(done)}/{int(total)}"
+        if text == self.last_progress_detail_ui:
+            return
+        self.last_progress_detail_ui = text
+        self.progress_detail_label.configure(text=text)
+
+    def _set_download_runtime_ui(self, percent=None, done=None, total=None, tome_eta=None, global_eta=None):
+        if percent is not None:
+            self._set_progress_ui(percent)
+        if done is not None or total is not None:
+            self._set_progress_detail_ui(done, total)
+        if tome_eta is not None or global_eta is not None:
+            self._set_eta_ui(tome_eta, global_eta)
 
     def _start_analysis_loading_indicators(self, overlay_text="Chargement de la liste..."):
         self.analysis_spinner_running = True
@@ -7236,6 +7277,7 @@ class MangaApp:
         self.volume_virtual_top_spacer = None
         self.volume_virtual_bottom_spacer = None
         self.volume_last_canvas_yview = None
+        self.last_applied_filter_raw = None
         total = len(self.pairs)
         self.use_fast_volume_widgets = self._should_use_fast_volume_widgets(total)
         self.use_compact_volume_mode = self._should_use_compact_volume_mode(total)
@@ -8628,6 +8670,16 @@ class MangaApp:
         self.log_lock = threading.Lock()
         self.max_log_entries = 5000
         self.log_ready = False
+        self.gui_log_queue = queue.Queue()
+        self.gui_log_flush_lock = threading.Lock()
+        self.gui_log_flush_scheduled = False
+        self.last_progress_percent_ui = None
+        self.last_progress_text_ui = None
+        self.last_progress_detail_ui = None
+        self.last_eta_text_ui = None
+        self.last_current_volume_text_ui = None
+        self.filter_apply_after_id = None
+        self.last_applied_filter_raw = None
         self.configure_styles()
         
         # Variables Tkinter
@@ -8890,7 +8942,7 @@ class MangaApp:
 
         should_emit_debug = not (normalized_level == "debug" and not verbose_enabled)
         if should_emit_debug and getattr(self, "log_ready", False) and hasattr(self, "log_text"):
-            self.run_on_ui(self._append_log_entry, entry)
+            self._queue_gui_log_entry(entry)
 
         if normalized_level == "debug" and not verbose_enabled:
             return
@@ -8946,6 +8998,58 @@ class MangaApp:
             return repair_mojibake_text(f"[{timestamp}] {emoji} {message}")
         return repair_mojibake_text(f"[{timestamp}] {message}")
 
+    def _queue_gui_log_entry(self, entry):
+        """Regroupe les logs GUI pour éviter une action Tk par message."""
+        try:
+            self.gui_log_queue.put_nowait(dict(entry))
+        except Exception:
+            return
+        should_schedule = False
+        with self.gui_log_flush_lock:
+            if not self.gui_log_flush_scheduled:
+                self.gui_log_flush_scheduled = True
+                should_schedule = True
+        if should_schedule:
+            self.run_on_ui(self._flush_gui_log_entries)
+
+    def _flush_gui_log_entries(self):
+        """Insère un lot de logs dans le widget journal en une seule mise à jour."""
+        if not getattr(self, "log_ready", False) or not hasattr(self, "log_text"):
+            with self.gui_log_flush_lock:
+                self.gui_log_flush_scheduled = False
+            return
+
+        drained = []
+        for _ in range(GUI_LOG_FLUSH_MAX_BATCH):
+            try:
+                drained.append(self.gui_log_queue.get_nowait())
+            except queue.Empty:
+                break
+
+        if drained:
+            self.log_text.configure(state="normal")
+            for entry in drained:
+                if not self._should_display_log_entry(entry):
+                    continue
+                entry["message"] = repair_mojibake_text(entry.get("message", ""))
+                level = normalize_log_level(entry.get("level", "info"))
+                self._insert_log_line(self._format_log_entry(entry), level)
+            self.log_text.configure(state="disabled")
+            if self.log_autoscroll.get():
+                self._scroll_log_to_bottom()
+
+        if not self.gui_log_queue.empty():
+            self.root.after(GUI_LOG_FLUSH_INTERVAL_MS, self._flush_gui_log_entries)
+            return
+
+        with self.gui_log_flush_lock:
+            self.gui_log_flush_scheduled = False
+            has_new_entries = not self.gui_log_queue.empty()
+            if has_new_entries:
+                self.gui_log_flush_scheduled = True
+        if has_new_entries:
+            self.root.after(GUI_LOG_FLUSH_INTERVAL_MS, self._flush_gui_log_entries)
+
     def _insert_log_line(self, text, level):
         """Insere une ligne dans le journal sans laisser de ligne vide finale."""
         if self.log_text.compare("end-1c", ">", "1.0"):
@@ -8974,6 +9078,13 @@ class MangaApp:
 
     def refresh_log_view(self, *_args):
         """Rafraîchit le journal GUI selon les filtres actifs."""
+        try:
+            while True:
+                self.gui_log_queue.get_nowait()
+        except queue.Empty:
+            pass
+        with self.gui_log_flush_lock:
+            self.gui_log_flush_scheduled = False
         with self.log_lock:
             entries_snapshot = list(self.log_entries)
         self.log_text.configure(state="normal")
@@ -10468,7 +10579,7 @@ class MangaApp:
         self.filter_entry.pack(side="left", padx=(8, 0), pady=4)
         self.filter_entry.bind("<FocusIn>", self.on_filter_focus_in)
         self.filter_entry.bind("<FocusOut>", self.on_filter_focus_out)
-        self.filter_entry.bind("<KeyRelease>", lambda e: self.apply_filter())
+        self.filter_entry.bind("<KeyRelease>", lambda e: self.schedule_filter_apply())
         self.clear_filter_button = ctk.CTkButton(
             filter_box,
             text="×",
@@ -11855,8 +11966,12 @@ class MangaApp:
                             progress_state["last_done"] = int(done or 0)
                             progress_state["last_ts"] = now
                             item_percent = (float(done or 0) / float(total_images or 1)) if total_images else 0.0
-                            self.run_on_ui(self._set_progress_ui, ((base + item_percent) / count) * 100.0)
-                            self.run_on_ui(self._set_progress_detail_ui, done, total_images)
+                            self.run_on_ui(
+                                self._set_download_runtime_ui,
+                                ((base + item_percent) / count) * 100.0,
+                                done,
+                                total_images,
+                            )
 
                         def error_callback(payload, fallback_vol=vol):
                             if not isinstance(payload, dict):
@@ -12361,11 +12476,25 @@ class MangaApp:
             var.set(not var.get())
         self.update_master_toggle_button()
 
+    def schedule_filter_apply(self, delay_ms=120):
+        """Débounce le filtre pour garder la saisie fluide sur gros catalogues."""
+        after_id = getattr(self, "filter_apply_after_id", None)
+        if after_id:
+            try:
+                self.root.after_cancel(after_id)
+            except Exception:
+                pass
+        self.filter_apply_after_id = self.root.after(max(1, int(delay_ms)), self.apply_filter)
+
     def apply_filter(self):
         """Filtre la liste des tomes selon le texte saisi"""
+        self.filter_apply_after_id = None
         raw = ""
         if not self.filter_placeholder_active:
             raw = self.filter_text.get().strip().lower()
+        if raw == getattr(self, "last_applied_filter_raw", None):
+            return
+        self.last_applied_filter_raw = raw
 
         if getattr(self, "volume_virtualized", False):
             self.filtered_volume_indices = self._compute_filtered_volume_indices(raw)
@@ -12709,8 +12838,7 @@ class MangaApp:
                         if should_update_ui:
                             progress_state["last_ui_done"] = done
                             progress_state["last_ui_ts"] = now
-                            self.run_on_ui(self._set_progress_ui, percent)
-                            self.run_on_ui(self._set_progress_detail_ui, done, total_images)
+                            self.run_on_ui(self._set_download_runtime_ui, percent, done, total_images)
 
                         if (
                             done == total_images
@@ -12749,7 +12877,7 @@ class MangaApp:
                             global_eta = max(0, base_current) + (remaining_after_current * avg_volume)
                         else:
                             global_eta = None
-                        self.run_on_ui(self._set_eta_ui, tome_eta, global_eta)
+                        self.run_on_ui(self._set_download_runtime_ui, None, None, None, tome_eta, global_eta)
 
                     self.log(
                         "Début du téléchargement.",
