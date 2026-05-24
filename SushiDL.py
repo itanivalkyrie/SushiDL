@@ -28,6 +28,7 @@ import sys
 import unicodedata
 import webbrowser
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlparse, urlunparse
 
@@ -104,6 +105,22 @@ class DownloadCancelled(Exception):
     """Erreur levée lorsqu'une annulation utilisateur est demandée."""
 
 
+class SushiDLError(Exception):
+    """Erreur de base contrôlée par SushiDL."""
+
+
+class AuthError(SushiDLError):
+    """Erreur liée à l'authentification ou à une protection serveur."""
+
+
+class ParseError(SushiDLError):
+    """Erreur liée au parsing d'une page source."""
+
+
+class ArchiveError(SushiDLError):
+    """Erreur liée à la création ou validation d'une archive."""
+
+
 class ImageDownloadError(Exception):
     """Erreur de téléchargement enrichie avec type et code HTTP."""
 
@@ -112,6 +129,17 @@ class ImageDownloadError(Exception):
         self.status_code = status_code
         self.kind = kind
         self.phase = phase
+
+
+@dataclass(frozen=True)
+class MangaAnalysis:
+    """Résultat structuré d'une analyse catalogue."""
+
+    title: str = ""
+    pairs: list[tuple[str, str]] = field(default_factory=list)
+    volume_metadata: dict = field(default_factory=dict)
+    series_metadata: dict = field(default_factory=dict)
+    html_content: str = ""
 
 
 def get_status_code_from_exception(exc):
@@ -336,6 +364,21 @@ def get_cookie_domain_from_host(host):
 def get_cookie_domain_from_url(url):
     """Retourne le domaine cookie interne depuis une URL supportée."""
     return get_cookie_domain_from_host((urlparse(url).hostname or "").strip().lower() if url else "")
+
+
+def get_site_domain_key(url):
+    """Retourne la clé de domaine interne utilisée par les parseurs et téléchargements."""
+    site = get_supported_site_from_url(url)
+    mapping = {
+        "sushiscan.fr": "fr",
+        "sushiscan.net": "net",
+        "mangas-origines.fr": "origines",
+        "hentai-origines.fr": "hentai",
+        "toonfr.com": "toonfr",
+        "ortegascans.fr": "ortega",
+        "hentaizone.xyz": "hentaizone",
+    }
+    return mapping.get(site) or normalize_hostname(urlparse(url).hostname) or "-"
 
 
 def is_valid_catalogue_url(url):
@@ -842,6 +885,8 @@ APP_ICON_PATH = BASE_DIR / "assets" / "sushidl.ico"
 COOKIE_CACHE_PATH = BASE_DIR / "cookie_cache.json"  # Fichier de cache pour les cookies
 CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
+ANALYSIS_CACHE_LOCK = threading.Lock()
+ANALYSIS_CACHE_MEMORY = None
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -891,12 +936,12 @@ CF_CHALLENGE_MARKERS = (
 )
 LOG_LEVELS = ("debug", "info", "success", "warning", "error", "cbz")
 LOG_EMOJIS = {
-    "debug": "ðŸ”Ž",
-    "info": "ðŸ’¬",
-    "success": "âœ…",
-    "warning": "âš ï¸",
-    "error": "ðŸ”´",
-    "cbz": "ðŸ“¦",
+    "debug": "🔎",
+    "info": "💬",
+    "success": "✅",
+    "warning": "⚠️",
+    "error": "🔴",
+    "cbz": "📦",
 }
 LOG_ANSI_COLORS = {
     "debug": "\033[90m",
@@ -941,6 +986,30 @@ def _write_json_file(path, data):
     os.replace(tmp_path, path)
 
 
+def set_private_file_permissions(path):
+    """Restreint les permissions fichier quand la plateforme le permet."""
+    try:
+        if os.name != "nt":
+            os.chmod(path, 0o600)
+    except Exception:
+        pass
+
+
+def redact_sensitive_text(text):
+    """Masque les cookies et jetons probables avant journalisation."""
+    value = str(text or "")
+    if not value:
+        return ""
+    patterns = (
+        r"(?i)(cf_clearance=)[^;\s]+",
+        r"(?i)(Cookie:\s*)[^\r\n]+",
+        r"(?i)(cookies?['\"]?\s*[:=]\s*['\"]?)[^'\"\s,;}]+",
+    )
+    for pattern in patterns:
+        value = re.sub(pattern, r"\1[REDACTED]", value)
+    return value
+
+
 def load_app_config():
     """Charge config.json et applique les valeurs par défaut manquantes."""
     if not CONFIG_PATH.exists():
@@ -973,15 +1042,22 @@ def get_analysis_cache_ttl_seconds():
 
 
 def _read_analysis_cache():
-    if not ANALYSIS_CACHE_PATH.exists():
-        return {}
-    try:
-        with ANALYSIS_CACHE_PATH.open("r", encoding="utf-8-sig") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {}
-    except Exception as exc:
-        runtime_log(f"Cache analyse illisible: {exc}", level="debug")
-        return {}
+    global ANALYSIS_CACHE_MEMORY
+    with ANALYSIS_CACHE_LOCK:
+        if ANALYSIS_CACHE_MEMORY is not None:
+            return dict(ANALYSIS_CACHE_MEMORY)
+        if not ANALYSIS_CACHE_PATH.exists():
+            ANALYSIS_CACHE_MEMORY = {}
+            return {}
+        try:
+            with ANALYSIS_CACHE_PATH.open("r", encoding="utf-8-sig") as handle:
+                data = json.load(handle)
+            ANALYSIS_CACHE_MEMORY = data if isinstance(data, dict) else {}
+            return dict(ANALYSIS_CACHE_MEMORY)
+        except Exception as exc:
+            runtime_log(f"Cache analyse illisible: {exc}", level="debug")
+            ANALYSIS_CACHE_MEMORY = {}
+            return {}
 
 
 def _analysis_cache_key(url, ua):
@@ -1016,6 +1092,7 @@ def get_cached_analysis(url, ua):
 
 
 def store_cached_analysis(url, ua, title, pairs, volume_metadata=None, series_metadata=None, html_content=""):
+    global ANALYSIS_CACHE_MEMORY
     cache = _read_analysis_cache()
     cache[_analysis_cache_key(url, ua)] = {
         "url": (url or "").strip(),
@@ -1029,7 +1106,9 @@ def store_cached_analysis(url, ua, title, pairs, volume_metadata=None, series_me
     if len(cache) > 80:
         ordered = sorted(cache.items(), key=lambda item: float((item[1] or {}).get("timestamp") or 0), reverse=True)
         cache = dict(ordered[:80])
-    _write_json_file(ANALYSIS_CACHE_PATH, cache)
+    with ANALYSIS_CACHE_LOCK:
+        ANALYSIS_CACHE_MEMORY = dict(cache)
+        _write_json_file(ANALYSIS_CACHE_PATH, cache)
 
 
 def get_fragile_site_settings(domain):
@@ -1085,13 +1164,13 @@ def format_log_context(context):
         ordered_keys = ("domain", "tome", "action")
         parts = []
         for key in ordered_keys:
-            value = str(context.get(key, "")).strip()
+            value = redact_sensitive_text(str(context.get(key, "")).strip())
             if value:
                 parts.append(f"{key}={value}")
         for key, value in context.items():
             if key in ordered_keys:
                 continue
-            value_txt = str(value).strip()
+            value_txt = redact_sensitive_text(str(value).strip())
             if value_txt:
                 parts.append(f"{key}={value_txt}")
         if parts:
@@ -1114,7 +1193,7 @@ def format_console_line(message, level="info", context=None, timestamp=None, wit
     lvl = normalize_log_level(level)
     ts = timestamp or time.strftime("%H:%M:%S")
     emoji = (LOG_EMOJIS.get(lvl, "") + " ") if with_emoji else ""
-    safe_message = strip_console_unsafe_chars(repair_mojibake_text(message))
+    safe_message = strip_console_unsafe_chars(redact_sensitive_text(repair_mojibake_text(message)))
     ctx = format_log_context(context)
     return f"[{ts}] {emoji}{safe_message}{ctx}"
 
@@ -1144,7 +1223,7 @@ def runtime_log(message, level="info", context=None):
     Route un message vers le logger GUI quand disponible,
     sinon vers la console uniquement.
     """
-    text = repair_mojibake_text(str(message or "").strip())
+    text = redact_sensitive_text(repair_mojibake_text(str(message or "").strip()))
     if not text:
         return
 
@@ -1244,36 +1323,49 @@ def build_cf_clearance_cookie_header(cookie_value):
     return f"cf_clearance={safe_cookie}"
 
 
-def make_request(url, cookie, ua):
-    """Effectue une requête HTTP avec les cookies et l'user-agent appropriés"""
-    headers = {
-        "Accept": "*/*",
-        "Accept-Language": "fr-FR,fr;q=0.9",
-        "User-Agent": ua or DEFAULT_USER_AGENT,
-        "Accept-Encoding": "gzip, deflate, br",
-    }
-    referer_root = get_site_root_url(url)
-    if referer_root:
-        headers["Referer"] = referer_root
-
+def resolve_cookie_header_for_url(url, cookie="", use_app_provider=True):
+    """Retourne l'en-tête Cookie effectif pour une URL."""
     cookie_header = ""
-    app = getattr(MangaApp, "current_instance", None)
-    if app and hasattr(app, "get_cookie_header_for_url"):
-        try:
-            cookie_header = app.get_cookie_header_for_url(url, fallback_cookie=cookie)
-        except Exception as exc:
-            runtime_log(
-                f"Impossible de calculer l'en-tete Cookie: {exc}",
-                level="debug",
-                context={"action": "make_request"},
-            )
-            cookie_header = ""
+    if use_app_provider:
+        app = getattr(MangaApp, "current_instance", None)
+        if app and hasattr(app, "get_cookie_header_for_url"):
+            try:
+                cookie_header = app.get_cookie_header_for_url(url, fallback_cookie=cookie)
+            except Exception as exc:
+                runtime_log(
+                    f"Impossible de calculer l'en-tete Cookie: {exc}",
+                    level="debug",
+                    context={"action": "cookie_header"},
+                )
+                cookie_header = ""
 
     cookie_header = sanitize_cookie_header(cookie_header)
     if not cookie_header and cookie:
         cookie_header = build_cf_clearance_cookie_header(cookie)
+    return sanitize_cookie_header(cookie_header)
+
+
+def build_request_headers(url, cookie="", ua="", accept="*/*", referer_url=None, use_app_provider=True):
+    """Construit les en-têtes HTTP communs de SushiDL."""
+    headers = {
+        "Accept": accept or "*/*",
+        "Accept-Language": "fr-FR,fr;q=0.9",
+        "User-Agent": ua or DEFAULT_USER_AGENT,
+        "Accept-Encoding": "gzip, deflate, br",
+    }
+    referer_root = referer_url or get_site_root_url(url)
+    if referer_root:
+        headers["Referer"] = referer_root
+
+    cookie_header = resolve_cookie_header_for_url(url, cookie, use_app_provider=use_app_provider)
     if cookie_header:
         headers["Cookie"] = cookie_header
+    return headers
+
+
+def make_request(url, cookie, ua):
+    """Effectue une requête HTTP avec les cookies et l'user-agent appropriés."""
+    headers = build_request_headers(url, cookie, ua)
     return _http_get(url, headers=headers, timeout=10)
 
 
@@ -1455,6 +1547,18 @@ def interpret_curl_error(message):
         return None
 
 
+def remove_tree_safely(folder_path, expected_parent=None):
+    """Supprime un dossier uniquement s'il correspond au dossier attendu."""
+    target = Path(folder_path).resolve(strict=False)
+    parent = Path(expected_parent).resolve(strict=False) if expected_parent else target.parent
+    if not str(target) or target == parent or target.parent != parent:
+        raise ValueError(f"Refus suppression dossier inattendu: {target}")
+    if target.anchor and target == Path(target.anchor):
+        raise ValueError(f"Refus suppression racine: {target}")
+    if target.exists():
+        shutil.rmtree(target)
+
+
 def archive_cbz(folder_path, title, volume, remove_source=True):
     """
     Crée une archive CBZ à partir d'un dossier d'images
@@ -1471,23 +1575,36 @@ def archive_cbz(folder_path, title, volume, remove_source=True):
     clean_volume = sanitize_folder_name(normalize_tome_label(volume))
     parent_dir = os.path.dirname(folder_path)
     cbz_name = os.path.join(parent_dir, f"{clean_title} - {clean_volume}.cbz")
+    tmp_cbz_name = f"{cbz_name}.tmp"
     
     try:
+        if os.path.exists(tmp_cbz_name):
+            os.remove(tmp_cbz_name)
         # Création de l'archive ZIP
-        with ZipFile(cbz_name, "w") as cbz:
+        with ZipFile(tmp_cbz_name, "w") as cbz:
             for root, _, files in os.walk(folder_path):
                 for file in sorted(files):  # Tri alphabétique pour l'ordre des pages
                     full_path = os.path.join(root, file)
                     arcname = os.path.relpath(full_path, folder_path)
                     cbz.write(full_path, arcname)
-    except Exception:
+    except Exception as exc:
+        runtime_log(f"Création CBZ impossible: {exc}", level="warning", context={"action": "archive_cbz"})
+        try:
+            if os.path.exists(tmp_cbz_name):
+                os.remove(tmp_cbz_name)
+        except OSError:
+            pass
         return False
     
     # Vérification de l'intégrité de l'archive
     try:
-        with ZipFile(cbz_name, "r") as test_zip:
+        with ZipFile(tmp_cbz_name, "r") as test_zip:
             corrupt_member = test_zip.testzip()
             if corrupt_member:
+                try:
+                    os.remove(tmp_cbz_name)
+                except OSError:
+                    pass
                 return False
             image_members = [
                 name
@@ -1495,17 +1612,36 @@ def archive_cbz(folder_path, title, volume, remove_source=True):
                 if name.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".avif"))
             ]
             if not image_members:
+                try:
+                    os.remove(tmp_cbz_name)
+                except OSError:
+                    pass
                 return False
-    except Exception:
+    except Exception as exc:
+        runtime_log(f"Validation CBZ impossible: {exc}", level="warning", context={"action": "archive_cbz"})
+        try:
+            if os.path.exists(tmp_cbz_name):
+                os.remove(tmp_cbz_name)
+        except OSError:
+            pass
         return False
     
     # Suppression du dossier original si l'archive est valide
     try:
-        if os.path.exists(cbz_name) and os.path.getsize(cbz_name) > 10000:
+        if os.path.exists(tmp_cbz_name) and os.path.getsize(tmp_cbz_name) > 10000:
+            os.replace(tmp_cbz_name, cbz_name)
             if remove_source:
-                shutil.rmtree(folder_path)
+                remove_tree_safely(folder_path, expected_parent=parent_dir)
             return True
-    except Exception:
+        if os.path.exists(tmp_cbz_name):
+            os.remove(tmp_cbz_name)
+    except Exception as exc:
+        runtime_log(f"Finalisation CBZ impossible: {exc}", level="warning", context={"action": "archive_cbz"})
+        try:
+            if os.path.exists(tmp_cbz_name):
+                os.remove(tmp_cbz_name)
+        except OSError:
+            pass
         return False
     return False
 
@@ -1699,23 +1835,13 @@ def write_chapter_cover_page(folder_path, cover_url, cookie, ua, referer_url=Non
         except OSError:
             pass
 
-    app = getattr(MangaApp, "current_instance", None)
-    cookie_header = ""
-    if app and hasattr(app, "get_cookie_header_for_url"):
-        try:
-            cookie_header = app.get_cookie_header_for_url(safe_cover_url, fallback_cookie=cookie)
-        except Exception:
-            cookie_header = ""
-    cookie_header = sanitize_cookie_header(cookie_header)
-    if not cookie_header and cookie:
-        cookie_header = build_cf_clearance_cookie_header(cookie)
-
-    headers = {
-        "User-Agent": (ua or DEFAULT_USER_AGENT).strip(),
-        "Referer": referer_url or get_site_root_url(safe_cover_url) or safe_cover_url,
-    }
-    if cookie_header:
-        headers["Cookie"] = cookie_header
+    headers = build_request_headers(
+        safe_cover_url,
+        cookie,
+        (ua or DEFAULT_USER_AGENT).strip(),
+        accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
+        referer_url=referer_url or get_site_root_url(safe_cover_url) or safe_cover_url,
+    )
 
     raw = robust_download_image(safe_cover_url, headers, max_try=2, delay=1)
     image = Image.open(BytesIO(raw))
@@ -1770,30 +1896,13 @@ def download_image(
 
     # Configuration des en-têtes HTTP
     referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
-    app = getattr(MangaApp, "current_instance", None)
-    cookie_header = ""
-    if app and hasattr(app, "get_cookie_header_for_url"):
-        try:
-            cookie_header = app.get_cookie_header_for_url(normalized_url, fallback_cookie=cookie)
-        except Exception as exc:
-            runtime_log(
-                f"Impossible de calculer le cookie d'image: {exc}",
-                level="debug",
-                context={"action": "download_image"},
-            )
-            cookie_header = ""
-    cookie_header = sanitize_cookie_header(cookie_header)
-    if not cookie_header and cookie:
-        cookie_header = build_cf_clearance_cookie_header(cookie)
-
-    headers = {
-        "Accept": "image/webp,image/jpeg,image/png,*/*;q=0.8",
-        "Accept-Language": "fr-FR,fr;q=0.9",
-        "User-Agent": ua,
-        "Referer": referer,
-    }
-    if cookie_header:
-        headers["Cookie"] = cookie_header
+    headers = build_request_headers(
+        normalized_url,
+        cookie,
+        ua,
+        accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
+        referer_url=referer,
+    )
 
     # Détermination de l'extension et du nom de fichier
     parsed_path = (urlparse(normalized_url).path or "").lower()
@@ -2490,7 +2599,7 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         unique_pairs.append((label, link))
 
     if not unique_pairs:
-        raise Exception("Aucun tome/chapitre détecté (page protégée ou structure modifiée).")
+        raise ParseError("Aucun tome/chapitre détecté (page protégée ou structure modifiée).")
 
     unique_pairs.reverse()  # Pour afficher dans l'ordre croissant
     if emit_logs:
@@ -2524,26 +2633,15 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
     if not source_slug:
         return [], {}
 
-    app = getattr(MangaApp, "current_instance", None)
-    cookie_header = ""
-    if app and hasattr(app, "get_cookie_header_for_url"):
-        try:
-            cookie_header = app.get_cookie_header_for_url(url, fallback_cookie=cookie)
-        except Exception:
-            cookie_header = ""
-    cookie_header = sanitize_cookie_header(cookie_header)
-    if not cookie_header and cookie:
-        cookie_header = build_cf_clearance_cookie_header(cookie)
-
-    headers = {
-        "Accept": "*/*",
-        "Accept-Language": "fr-FR,fr;q=0.9",
-        "User-Agent": ua or DEFAULT_USER_AGENT,
+    headers = build_request_headers(
+        url,
+        cookie,
+        ua or DEFAULT_USER_AGENT,
+        referer_url=base_url,
+    )
+    headers.update({
         "X-Requested-With": "XMLHttpRequest",
-        "Referer": base_url,
-    }
-    if cookie_header:
-        headers["Cookie"] = cookie_header
+    })
 
     pairs = []
     max_page = 1
@@ -2623,9 +2721,9 @@ def fetch_mangas_origines_chapters_via_ajax(url, cookie, ua, emit_logs=True):
     return unique_pairs, {}
 
 
-def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None, emit_logs=True):
+def fetch_manga_analysis(url, cookie, ua, progress_callback=None, emit_logs=True):
     """
-    Récupère les données d'un manga : titre et liste des tomes/chapitres
+    Récupère les données d'un manga sous forme structurée.
     
     Args:
         url (str): URL de la page catalogue du manga
@@ -2633,7 +2731,7 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
         ua (str): User-Agent
     
     Returns:
-        tuple: (titre, liste de tuples (label, url))
+        MangaAnalysis: titre, chapitres, métadonnées et HTML brut
     """
     if callable(progress_callback):
         progress_callback("fetch")
@@ -2648,15 +2746,15 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
                 detail += " | Vérifie le cookie cf_clearance du domaine"
             else:
                 detail += " | Vérifie l'accès au site (protection ou blocage)"
-        raise Exception(f"Accès refusé ou URL invalide ({detail})")
+        if int(getattr(r, "status_code", 0) or 0) in (401, 403):
+            raise AuthError(f"Accès refusé ou URL invalide ({detail})")
+        raise SushiDLError(f"Accès refusé ou URL invalide ({detail})")
 
     html_content = r.text or ""
     if callable(progress_callback):
         progress_callback("parse")
     site = get_supported_site_from_url(url)
     volume_metadata = {}
-    fetch_manga_data.last_volume_metadata = {}
-    fetch_manga_data.last_series_metadata = {}
     if site in ("mangas-origines.fr", "hentai-origines.fr", "toonfr.com"):
         parse_error = None
         try:
@@ -2680,18 +2778,44 @@ def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None,
         elif not pairs:
             if parse_error is not None:
                 raise parse_error
-            raise Exception("Aucun tome/chapitre détecté sur ce site.")
+            raise ParseError("Aucun tome/chapitre détecté sur ce site.")
     else:
         title, pairs, volume_metadata = parse_manga_data_from_html(
             url,
             html_content,
             emit_logs=emit_logs,
         )
-    fetch_manga_data.last_volume_metadata = dict(volume_metadata or {})
-    fetch_manga_data.last_series_metadata = extract_series_metadata_from_html(url, html_content, title)
+    series_metadata = extract_series_metadata_from_html(url, html_content, title)
+    return MangaAnalysis(
+        title=title or "",
+        pairs=[(str(label), str(link)) for label, link in (pairs or [])],
+        volume_metadata=dict(volume_metadata or {}),
+        series_metadata=dict(series_metadata or {}),
+        html_content=html_content,
+    )
+
+
+def fetch_manga_data(url, cookie, ua, return_html=False, progress_callback=None, emit_logs=True):
+    """
+    Récupère les données d'un manga : titre et liste des tomes/chapitres.
+    Garde l'ancienne API tuple tout en alimentant les métadonnées historiques.
+    """
+    analysis = fetch_manga_analysis(
+        url,
+        cookie,
+        ua,
+        progress_callback=progress_callback,
+        emit_logs=emit_logs,
+    )
+    fetch_manga_data.last_volume_metadata = dict(analysis.volume_metadata or {})
+    fetch_manga_data.last_series_metadata = dict(analysis.series_metadata or {})
     if return_html:
-        return title, pairs, html_content
-    return title, pairs
+        return analysis.title, analysis.pairs, analysis.html_content
+    return analysis.title, analysis.pairs
+
+
+fetch_manga_data.last_volume_metadata = {}
+fetch_manga_data.last_series_metadata = {}
 
 
 def build_mangas_origines_list_url(url):
@@ -3000,23 +3124,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
         return img_urls[:max_images] if max_images else img_urls
 
     attempt_count = max(1, int(retries or 1))
-    site = get_supported_site_from_url(link)
-    if site == "sushiscan.fr":
-        domain = "fr"
-    elif site == "sushiscan.net":
-        domain = "net"
-    elif site == "mangas-origines.fr":
-        domain = "origines"
-    elif site == "hentai-origines.fr":
-        domain = "hentai"
-    elif site == "toonfr.com":
-        domain = "toonfr"
-    elif site == "ortegascans.fr":
-        domain = "ortega"
-    elif site == "hentaizone.xyz":
-        domain = "hentaizone"
-    else:
-        domain = normalize_hostname(urlparse(link).hostname) or "-"
+    domain = get_site_domain_key(link)
 
     candidate_links = [(link or "").strip()]
     if domain in ("origines", "hentai"):
@@ -3454,7 +3562,7 @@ def download_volume(
 
         if failed_downloads:
             try:
-                report_path = write_download_report(folder, tome_label, image_urls, failed_downloads)
+                report_path = write_download_report(folder, tome_label, images, failed_downloads)
                 if report_path:
                     logger(
                         f"Rapport pages manquantes ajoute au CBZ: {os.path.basename(report_path)}",
@@ -3722,6 +3830,7 @@ def save_cookie_cache(
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp_path, COOKIE_CACHE_PATH)
+    set_private_file_permissions(COOKIE_CACHE_PATH)
     return cookie_updated_at
 
 
@@ -3950,13 +4059,13 @@ def get_cover_image(r_text):
             referer_url = get_site_root_url(img_url) or "https://sushiscan.fr/"
 
         cookie = app.get_cookie(img_url)
-        cookie_header = app.get_cookie_header_for_url(img_url, fallback_cookie=cookie)
-        headers = {
-            "User-Agent": app.get_request_user_agent_for_url(img_url),
-            "Referer": referer_url,
-        }
-        if cookie_header:
-            headers["Cookie"] = cookie_header
+        headers = build_request_headers(
+            img_url,
+            cookie,
+            app.get_request_user_agent_for_url(img_url),
+            accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
+            referer_url=referer_url,
+        )
 
         raw = robust_download_image(
             normalize_image_url(img_url),
@@ -4248,23 +4357,13 @@ class MangaApp:
     def _build_preview_image_headers(self, image_url, referer_url, cookie, ua):
         normalized_url = normalize_image_url(image_url)
         referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
-        cookie_header = ""
-        try:
-            cookie_header = self.get_cookie_header_for_url(normalized_url, fallback_cookie=cookie)
-        except Exception:
-            cookie_header = ""
-        cookie_header = sanitize_cookie_header(cookie_header)
-        if not cookie_header and cookie:
-            cookie_header = build_cf_clearance_cookie_header(cookie)
-        headers = {
-            "Accept": "image/webp,image/jpeg,image/png,*/*;q=0.8",
-            "Accept-Language": "fr-FR,fr;q=0.9",
-            "User-Agent": ua or DEFAULT_USER_AGENT,
-            "Referer": referer,
-        }
-        if cookie_header:
-            headers["Cookie"] = cookie_header
-        return headers
+        return build_request_headers(
+            normalized_url,
+            cookie,
+            ua or DEFAULT_USER_AGENT,
+            accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
+            referer_url=referer,
+        )
 
     def _download_preview_pil_image(self, image_url, referer_url, cookie, ua):
         headers = self._build_preview_image_headers(image_url, referer_url, cookie, ua)
@@ -10752,9 +10851,11 @@ class MangaApp:
                     self.run_on_ui(self.url.set, source_url)
                     self.log(f"File {queue_index}/{queue_total}: analyse {source_url}", level="info")
                     try:
-                        title, pairs = fetch_manga_data(source_url, cookie, ua_for_url, emit_logs=False)
-                        metadata_by_url = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
-                        series_metadata = dict(getattr(fetch_manga_data, "last_series_metadata", {}) or {})
+                        analysis = fetch_manga_analysis(source_url, cookie, ua_for_url, emit_logs=False)
+                        title = analysis.title
+                        pairs = analysis.pairs
+                        metadata_by_url = dict(analysis.volume_metadata or {})
+                        series_metadata = dict(analysis.series_metadata or {})
                     except Exception as exc:
                         self.log(f"File: analyse échouée pour {source_url}: {exc}", level="error")
                         continue
@@ -11114,36 +11215,40 @@ class MangaApp:
                 set_analysis_step("fetch")
                 cached_analysis = get_cached_analysis(url, ua_for_url) if use_analysis_cache else None
                 if cached_analysis:
-                    title = cached_analysis["title"]
-                    pairs = cached_analysis["pairs"]
-                    html_content = cached_analysis.get("html_content", "")
-                    fetch_manga_data.last_volume_metadata = dict(cached_analysis.get("volume_metadata") or {})
-                    fetch_manga_data.last_series_metadata = dict(cached_analysis.get("series_metadata") or {})
+                    analysis = MangaAnalysis(
+                        title=cached_analysis["title"],
+                        pairs=cached_analysis["pairs"],
+                        volume_metadata=dict(cached_analysis.get("volume_metadata") or {}),
+                        series_metadata=dict(cached_analysis.get("series_metadata") or {}),
+                        html_content=cached_analysis.get("html_content", ""),
+                    )
                     self.log(
                         f"Analyse chargée depuis le cache disque ({int(cached_analysis.get('age_seconds') or 0)}s).",
                         level="info",
                     )
                 else:
-                    title, pairs, html_content = fetch_manga_data(
+                    analysis = fetch_manga_analysis(
                         url,
                         cookie,
                         ua_for_url,
-                        return_html=True,
                         progress_callback=fetch_progress_callback,
                     )
                     store_cached_analysis(
                         url,
                         ua_for_url,
-                        title,
-                        pairs,
-                        getattr(fetch_manga_data, "last_volume_metadata", {}) or {},
-                        getattr(fetch_manga_data, "last_series_metadata", {}) or {},
-                        html_content,
+                        analysis.title,
+                        analysis.pairs,
+                        analysis.volume_metadata,
+                        analysis.series_metadata,
+                        analysis.html_content,
                     )
+                title = analysis.title
+                pairs = analysis.pairs
+                html_content = analysis.html_content
                 self.title = title
                 self.pairs = pairs
-                self.volume_meta_by_url = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
-                self.series_metadata = dict(getattr(fetch_manga_data, "last_series_metadata", {}) or {})
+                self.volume_meta_by_url = dict(analysis.volume_metadata or {})
+                self.series_metadata = dict(analysis.series_metadata or {})
                 log_perf(self.log, "analyse catalogue", analysis_started_at, domaine=domain, elements=len(pairs))
                 self.ua_runtime_validity = bool((ua_for_url or "").strip())
                 self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
@@ -11984,15 +12089,19 @@ class SushiCliBackend:
             raise ValueError("URL non supportee.")
         cookie = (cookies.get(domain) or "").strip()
         safe_ua = (ua or DEFAULT_USER_AGENT).strip()
-        title, pairs = fetch_manga_data(
+        analysis = fetch_manga_analysis(
             safe_url,
             cookie,
             safe_ua,
             emit_logs=False,
         )
-        metadata = dict(getattr(fetch_manga_data, "last_volume_metadata", {}) or {})
-        series_metadata = dict(getattr(fetch_manga_data, "last_series_metadata", {}) or {})
-        return title, domain, pairs, metadata, series_metadata
+        return (
+            analysis.title,
+            domain,
+            analysis.pairs,
+            dict(analysis.volume_metadata or {}),
+            dict(analysis.series_metadata or {}),
+        )
 
     def resolve_domain(self, url):
         return get_cookie_domain_from_url((url or "").strip())
@@ -12052,6 +12161,213 @@ class SushiCliBackend:
         )
 
 
+def run_self_test():
+    """Exécute des tests rapides sans réseau pour valider les fonctions critiques."""
+    import tempfile
+
+    checks = []
+
+    def check(name, condition):
+        checks.append((name, bool(condition), "" if condition else "condition fausse"))
+
+    def check_raises(name, exc_type, func):
+        try:
+            func()
+        except exc_type:
+            checks.append((name, True, ""))
+        except Exception as exc:
+            checks.append((name, False, f"exception inattendue: {type(exc).__name__}: {exc}"))
+        else:
+            checks.append((name, False, "aucune exception"))
+
+    check(
+        "url emoji percent-encoded",
+        is_valid_catalogue_url("https://hentai-origines.fr/manga/hunter-to-nakama-no-wild-na-seikatsu-%e2%99%a5/"),
+    )
+    check("url slug classique", is_valid_catalogue_url("https://sushiscan.net/catalogue/one-piece/"))
+    check("domain key", get_site_domain_key("https://ortegascans.fr/serie/moby-dick") == "ortega")
+    check("url percent invalide refuse", not is_valid_catalogue_url("https://hentai-origines.fr/manga/bad%zz/"))
+    check("url slash encode refuse", not is_valid_catalogue_url("https://hentai-origines.fr/manga/bad%2fslug/"))
+    check(
+        "extraction collage url",
+        extract_supported_catalogue_url("x https://hentai-origines.fr/manga/test-%e2%99%a5/ y")
+        == "https://hentai-origines.fr/manga/test-%e2%99%a5/",
+    )
+    check(
+        "cookie brut",
+        build_cf_clearance_cookie_header("abc123") == "cf_clearance=abc123",
+    )
+    check(
+        "cookie header nettoye",
+        build_cf_clearance_cookie_header("cf_clearance=abc\r\nInjected: nope; a=b")
+        == "cf_clearance=abcInjected: nope; a=b",
+    )
+    check(
+        "redaction log cookie",
+        redact_sensitive_text("Cookie: cf_clearance=abc123; a=b") == "Cookie: [REDACTED]",
+    )
+    headers = build_request_headers(
+        "https://sushiscan.net/catalogue/one-piece/",
+        "abc123",
+        "UA-test",
+    )
+    check("headers user-agent", headers.get("User-Agent") == "UA-test")
+    check("headers cookie", headers.get("Cookie") == "cf_clearance=abc123")
+    check("headers referer", headers.get("Referer") == "https://sushiscan.net/")
+    check_raises("suppression racine refusee", ValueError, lambda: remove_tree_safely(".", expected_parent="."))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_root = Path(tmp)
+        folder = tmp_root / "Title" / "Chapitre 1"
+        folder.mkdir(parents=True)
+        for idx in range(1, 4):
+            Image.effect_noise((900, 1200), 80).convert("RGB").save(folder / f"{idx:03d}.jpg", quality=90)
+        archive_ok = archive_cbz(str(folder), "Title", "Chapitre 1", remove_source=True)
+        check("archive cbz atomique", archive_ok)
+        check("archive source supprimee", not folder.exists())
+        check("archive finale presente", (tmp_root / "Title" / "Title - Chapitre 1.cbz").exists())
+        check("archive tmp absente", not (tmp_root / "Title" / "Title - Chapitre 1.cbz.tmp").exists())
+
+    global ANALYSIS_CACHE_PATH, ANALYSIS_CACHE_MEMORY
+    old_cache_path = ANALYSIS_CACHE_PATH
+    old_cache_memory = ANALYSIS_CACHE_MEMORY
+    with tempfile.TemporaryDirectory() as tmp:
+        ANALYSIS_CACHE_PATH = Path(tmp) / "analysis_cache.json"
+        ANALYSIS_CACHE_MEMORY = None
+        store_cached_analysis(
+            "https://sushiscan.net/catalogue/test/",
+            "UA",
+            "Titre",
+            [("Chapitre 1", "https://sushiscan.net/test/1/")],
+            {"https://sushiscan.net/test/1/": {"premium": False}},
+            {"series": "Titre"},
+            "<html></html>",
+        )
+        cached = get_cached_analysis("https://sushiscan.net/catalogue/test/", "UA")
+        check("cache analyse roundtrip", bool(cached and cached.get("title") == "Titre" and cached.get("pairs")))
+    ANALYSIS_CACHE_PATH = old_cache_path
+    ANALYSIS_CACHE_MEMORY = old_cache_memory
+
+    class FakeResponse:
+        status_code = 200
+        url = "https://sushiscan.net/catalogue/test/"
+        text = "<html></html>"
+
+    old_make = globals()["make_request"]
+    old_parse = globals()["parse_manga_data_from_html"]
+    old_meta = globals()["extract_series_metadata_from_html"]
+    try:
+        globals()["make_request"] = lambda url, cookie, ua: FakeResponse()
+        globals()["parse_manga_data_from_html"] = (
+            lambda url, html, emit_logs=True: (
+                "Titre",
+                [("Chapitre 1", "https://sushiscan.net/test/1/")],
+                {"https://sushiscan.net/test/1/": {"premium": False}},
+            )
+        )
+        globals()["extract_series_metadata_from_html"] = lambda url, html, title="": {
+            "series": title,
+            "cover_url": "https://sushiscan.net/cover.jpg",
+        }
+        analysis = fetch_manga_analysis("https://sushiscan.net/catalogue/test/", "", "", emit_logs=False)
+        check("analyse structuree titre", analysis.title == "Titre")
+        check("analyse structuree metadata", analysis.series_metadata.get("cover_url") == "https://sushiscan.net/cover.jpg")
+    finally:
+        globals()["make_request"] = old_make
+        globals()["parse_manga_data_from_html"] = old_parse
+        globals()["extract_series_metadata_from_html"] = old_meta
+
+    failed = [(name, detail) for name, ok, detail in checks if not ok]
+    for name, ok, detail in checks:
+        status = "OK" if ok else "FAIL"
+        suffix = f" - {detail}" if detail else ""
+        print(f"[{status}] {name}{suffix}")
+    print(f"\nSelf-test: {len(checks) - len(failed)}/{len(checks)} OK")
+    return 1 if failed else 0
+
+
+def build_diagnostic_snapshot(url=""):
+    """Construit un diagnostic sans exposer cookies ni secrets."""
+    try:
+        (
+            cookies,
+            ua,
+            cbz_enabled,
+            comicinfo_enabled,
+            chapter_cover_enabled,
+            last_url,
+            webp2jpg_enabled,
+            smart_resume_enabled,
+            verbose_logs,
+            download_threads,
+            _cookie_sources,
+            _cookie_user_agents,
+            _cookie_headers,
+            cookie_updated_at,
+        ) = load_cookie_cache()
+    except Exception:
+        cookies = {domain: "" for domain in COOKIE_DOMAINS}
+        ua = DEFAULT_USER_AGENT
+        cbz_enabled = True
+        comicinfo_enabled = True
+        chapter_cover_enabled = True
+        last_url = ""
+        webp2jpg_enabled = True
+        smart_resume_enabled = True
+        verbose_logs = True
+        download_threads = DEFAULT_DOWNLOAD_THREADS
+        cookie_updated_at = {domain: "" for domain in COOKIE_DOMAINS}
+
+    safe_url = (url or last_url or "").strip()
+    parsed = urlparse(safe_url) if safe_url else None
+    domain = get_cookie_domain_from_url(safe_url) if safe_url else ""
+    return {
+        "app": APP_NAME,
+        "version": APP_VERSION,
+        "python": sys.version.split()[0],
+        "platform": sys.platform,
+        "cwd": os.getcwd(),
+        "url": {
+            "provided": bool(url),
+            "supported": bool(is_valid_catalogue_url(safe_url)) if safe_url else False,
+            "site": get_supported_site_from_url(safe_url) if safe_url else "",
+            "domain": domain,
+            "scheme": parsed.scheme if parsed else "",
+            "host": normalize_hostname(parsed.hostname) if parsed else "",
+            "path": parsed.path if parsed else "",
+        },
+        "auth": {
+            cookie_domain: {
+                "cookie_present": bool((cookies.get(cookie_domain) or "").strip()),
+                "updated_at": (cookie_updated_at.get(cookie_domain) or "").strip(),
+            }
+            for cookie_domain in COOKIE_DOMAINS
+        },
+        "settings": {
+            "ua_present": bool((ua or "").strip()),
+            "cbz_enabled": bool(cbz_enabled),
+            "comicinfo_enabled": bool(comicinfo_enabled),
+            "chapter_cover_enabled": bool(chapter_cover_enabled),
+            "webp2jpg_enabled": bool(webp2jpg_enabled),
+            "smart_resume_enabled": bool(smart_resume_enabled),
+            "verbose_logs": bool(verbose_logs),
+            "download_threads": clamp_download_threads(download_threads),
+            "analysis_cache_ttl_seconds": get_analysis_cache_ttl_seconds(),
+        },
+        "files": {
+            "config_exists": CONFIG_PATH.exists(),
+            "cookie_cache_exists": COOKIE_CACHE_PATH.exists(),
+            "analysis_cache_exists": ANALYSIS_CACHE_PATH.exists(),
+        },
+    }
+
+
+def run_diagnostic_cli(url=""):
+    """Affiche le diagnostic JSON sans secrets."""
+    print(json.dumps(build_diagnostic_snapshot(url), indent=2, ensure_ascii=False))
+    return 0
+
+
 def run_batch_cli(argv, backend=None):
     """Mode terminal non interactif pour automatisation simple."""
     parser = argparse.ArgumentParser(
@@ -12070,7 +12386,15 @@ def run_batch_cli(argv, backend=None):
     parser.add_argument("--no-webp2jpg", action="store_true", help="Desactive la conversion WEBP en JPG.")
     parser.add_argument("--no-resume", action="store_true", help="Desactive la reprise intelligente.")
     parser.add_argument("--threads", type=int, default=None, help="Nombre de telechargements paralleles (1-8).")
+    parser.add_argument("--self-test", action="store_true", help="Execute les tests internes sans reseau.")
+    parser.add_argument("--diagnostic", action="store_true", help="Affiche un diagnostic JSON sans secrets.")
     args = parser.parse_args([arg for arg in argv if arg != "--cli"])
+
+    if args.self_test:
+        return run_self_test()
+    if args.diagnostic:
+        diagnostic_url = (args.url or [""])[-1] if args.url else ""
+        return run_diagnostic_cli(diagnostic_url)
 
     urls = [url.strip() for url in args.url if (url or "").strip()]
     if args.url_file:
@@ -12184,7 +12508,17 @@ def run_batch_cli(argv, backend=None):
 
 # Point d'entrée de l'application
 if __name__ == "__main__":
-    if "--cli" in sys.argv[1:] and any(arg.startswith("--url") or arg in {"--download", "--dry-run", "--url-file", "--help", "-h"} for arg in sys.argv[1:]):
+    if "--self-test" in sys.argv[1:]:
+        sys.exit(run_self_test())
+    if "--diagnostic" in sys.argv[1:]:
+        diagnostic_url = ""
+        for idx, arg in enumerate(sys.argv[1:]):
+            if arg == "--url" and idx + 2 <= len(sys.argv[1:]):
+                diagnostic_url = sys.argv[1:][idx + 1]
+            elif arg.startswith("--url="):
+                diagnostic_url = arg.split("=", 1)[1]
+        sys.exit(run_diagnostic_cli(diagnostic_url))
+    if "--cli" in sys.argv[1:] and any(arg.startswith("--url") or arg in {"--download", "--dry-run", "--url-file", "--self-test", "--diagnostic", "--help", "-h"} for arg in sys.argv[1:]):
         sys.exit(run_batch_cli(sys.argv[1:], SushiCliBackend()))
     elif "--cli" in sys.argv[1:]:
         from cli.app import run_cli_app
