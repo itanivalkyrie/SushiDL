@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.10`
+Version actuelle : `11.15.11`
 
 ## Ce qui change sur `main`
 
@@ -42,7 +42,7 @@ Concretement :
 - progression GUI moins bavarde pour garder l'interface fluide
 - ralentissement automatique des threads sur erreurs serveur/rate-limit
 - support Scan-Manga avec analyse catalogue, métadonnées, preview et téléchargement CBZ
-- récupération des images Scan-Manga exclusivement via Playwright pour contourner le blocage Cloudflare des URLs `data*.scan-manga.com`
+- récupération des images Scan-Manga exclusivement via Playwright pour contourner le blocage Cloudflare des URLs `data*.scan-manga.com` et `cdn.scan-manga.com`
 - logs `[perf]` pour mesurer analyse, extraction, telechargement et archive
 - cache disque des analyses catalogue avec raccourci `Ctrl+R` pour forcer le rafraîchissement
 - préflight avec plan de téléchargement avant lancement
@@ -137,6 +137,10 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.11
+- Scan-Manga :
+  - ajout de `cdn.scan-manga.com` dans les hôtes image obligatoirement récupérés via Playwright.
 
 ### 11.15.10
 - Scan-Manga :
@@ -399,7 +403,7 @@ python3 SushiDL.py --cli
 ## Authentification manuelle
 
 SushiDL fonctionne en mode manuel pour l'authentification.
-Le flux principal n'utilise pas FlareSolverr ni import automatique des cookies depuis le navigateur. Exception importante : Scan-Manga utilise Playwright pour récupérer les images et les previews, car les URLs `data*.scan-manga.com` sont bloquées en accès HTTP direct.
+Le flux principal n'utilise pas FlareSolverr ni import automatique des cookies depuis le navigateur. Exception importante : Scan-Manga utilise Playwright pour récupérer les images et les previews, car les URLs `data*.scan-manga.com` et `cdn.scan-manga.com` sont bloquées en accès HTTP direct.
 
 Tu dois fournir :
 - un cookie `cf_clearance` pour chaque domaine que tu veux utiliser

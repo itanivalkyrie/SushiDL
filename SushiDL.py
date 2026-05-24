@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.10"
+APP_VERSION = "11.15.11"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -901,6 +901,12 @@ IMAGE_URL_CACHE_LOCK = threading.Lock()
 SCANMANGA_BROWSER_LOCK = threading.Lock()
 SCANMANGA_BROWSER_THREAD = None
 SCANMANGA_BROWSER_TASKS = None
+SCANMANGA_IMAGE_HOSTS = {
+    "cdn.scan-manga.com",
+    "data.scan-manga.com",
+    "data2.scan-manga.com",
+    "data3.scan-manga.com",
+}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -2285,7 +2291,7 @@ def download_image(
 
     # Configuration des en-têtes HTTP
     referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
-    if normalize_hostname(urlparse(normalized_url).hostname) in {"data.scan-manga.com", "data2.scan-manga.com", "data3.scan-manga.com"}:
+    if normalize_hostname(urlparse(normalized_url).hostname) in SCANMANGA_IMAGE_HOSTS:
         headers = build_scanmanga_image_headers(normalized_url, referer, "", ua)
     else:
         headers = build_request_headers(
@@ -2298,11 +2304,7 @@ def download_image(
 
     # Détermination de l'extension et du nom de fichier
     parsed_path = (urlparse(normalized_url).path or "").lower()
-    is_scanmanga_cdn_image = normalize_hostname(urlparse(normalized_url).hostname) in {
-        "data.scan-manga.com",
-        "data2.scan-manga.com",
-        "data3.scan-manga.com",
-    }
+    is_scanmanga_cdn_image = normalize_hostname(urlparse(normalized_url).hostname) in SCANMANGA_IMAGE_HOSTS
     ext = parsed_path.rsplit(".", 1)[-1] if "." in parsed_path else "jpg"
     if ext not in {"jpg", "jpeg", "png", "webp", "avif"}:
         ext = "jpg"
@@ -5213,11 +5215,7 @@ class MangaApp:
 
     def _download_preview_pil_image(self, image_url, referer_url, cookie, ua):
         normalized_url = normalize_image_url(image_url)
-        if normalize_hostname(urlparse(normalized_url).hostname) in {
-            "data.scan-manga.com",
-            "data2.scan-manga.com",
-            "data3.scan-manga.com",
-        }:
+        if normalize_hostname(urlparse(normalized_url).hostname) in SCANMANGA_IMAGE_HOSTS:
             preview = download_preview_image_with_browser(normalized_url, referer_url, ua or DEFAULT_USER_AGENT)
             if max(preview.size or (0, 0)) > PREVIEW_MAX_IMAGE_DIMENSION:
                 preview.thumbnail(

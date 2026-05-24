@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.11] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - ajout de `cdn.scan-manga.com` à la liste des hôtes image traités exclusivement via Playwright,
+  - correction des chapitres dont les pages ne viennent pas de `data*.scan-manga.com` et échouaient en HTTP direct avec 403.
+
 ## [11.15.10] - 2026-05-24
 
 ### Ameliorations
