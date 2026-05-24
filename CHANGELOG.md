@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.12] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - ajout d'un fallback Playwright via `BrowserContext.request` quand `page.evaluate(fetch)` retourne `Failed to fetch`,
+  - amélioration de la récupération des images `cdn.scan-manga.com` instables sans repasser par le téléchargement HTTP direct classique,
+  - validation par contenu réel quand le CDN ne renvoie pas de `content-type`.
+
 ## [11.15.11] - 2026-05-24
 
 ### Corrections

@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.11"
+APP_VERSION = "11.15.12"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1544,6 +1544,37 @@ def get_scanmanga_browser_page(state, ua=""):
     return state["page"]
 
 
+def fetch_scanmanga_image_with_context_request(state, img_url, referer_url):
+    """Télécharge une image via l'API request Playwright du contexte navigateur."""
+    context = state.get("context")
+    if context is None:
+        raise ImageDownloadError(
+            "Contexte navigateur Scan-Manga indisponible.",
+            kind="blocked_or_retryable",
+            phase="browser",
+        )
+    response = context.request.get(
+        normalize_image_url(img_url),
+        headers={
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+            "Referer": (referer_url or "https://www.scan-manga.com/").strip(),
+        },
+        timeout=30000,
+    )
+    raw = response.body()
+    content_type = ""
+    try:
+        content_type = (response.headers or {}).get("content-type", "")
+    except Exception:
+        content_type = ""
+    body = base64.b64encode(raw or b"").decode("ascii")
+    return {
+        "status": int(getattr(response, "status", 0) or 0),
+        "contentType": content_type,
+        "body": body,
+    }
+
+
 def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, cancel_event=None):
     normalized_url = normalize_image_url(img_url)
     safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
@@ -1589,9 +1620,25 @@ def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, canc
             if int((result or {}).get("status") or 0) == 200:
                 return result
             last_error = f"HTTP {int((result or {}).get('status') or 0)}"
+            try:
+                request_result = fetch_scanmanga_image_with_context_request(state, normalized_url, safe_referer)
+                if int((request_result or {}).get("status") or 0) == 200:
+                    return request_result
+                last_error = f"{last_error} | context request HTTP {int((request_result or {}).get('status') or 0)}"
+                result = request_result
+            except Exception as request_exc:
+                last_error = f"{last_error} | context request: {request_exc}"
         except Exception as exc:
             result = None
-            last_error = str(exc)
+            last_error = f"page fetch: {exc}"
+            try:
+                result = fetch_scanmanga_image_with_context_request(state, normalized_url, safe_referer)
+                if int((result or {}).get("status") or 0) == 200:
+                    return result
+                last_error = f"{last_error} | context request HTTP {int((result or {}).get('status') or 0)}"
+            except Exception as request_exc:
+                result = None
+                last_error = f"{last_error} | context request: {request_exc}"
         if attempt < 3:
             try:
                 page.wait_for_timeout(350 * attempt)
@@ -1702,7 +1749,7 @@ def download_scanmanga_image_with_browser(img_url, filename, referer_url, ua, ca
             kind=classify_download_failure(status_code, f"HTTP {status_code}"),
             phase="browser",
         )
-    if "image" not in content_type:
+    if content_type and "image" not in content_type:
         raise ImageDownloadError(
             f"Fallback navigateur Scan-Manga: contenu non image ({content_type or 'inconnu'})",
             kind="invalid_image",
