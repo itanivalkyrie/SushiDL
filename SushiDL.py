@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.16"
+APP_VERSION = "11.15.17"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1707,6 +1707,7 @@ def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, canc
                 result = None
                 last_error = f"{last_error} | context request: {request_exc}"
         if attempt < 3:
+            reset_scanmanga_browser_context(state)
             try:
                 page.wait_for_timeout(350 * attempt)
             except Exception:

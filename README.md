@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.16`
+Version actuelle : `11.15.17`
 
 ## Ce qui change sur `main`
 
@@ -137,6 +137,11 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.17
+- Scan-Manga :
+  - recyclage du contexte Playwright aussi entre les tentatives d'une même image quand le CDN renvoie un blocage,
+  - réduction des blocages en chaîne sur les chapitres téléchargés à la suite.
 
 ### 11.15.16
 - Scan-Manga :
