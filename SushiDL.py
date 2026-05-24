@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.15"
+APP_VERSION = "11.15.16"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1510,6 +1510,25 @@ def close_scanmanga_browser_state():
             pass
 
 
+def reset_scanmanga_browser_context(state):
+    """Recycle le contexte Playwright Scan-Manga sans fermer le navigateur."""
+    page = state.get("page")
+    if page is not None:
+        try:
+            page.close()
+        except Exception:
+            pass
+    context = state.get("context")
+    if context is not None:
+        try:
+            context.close()
+        except Exception:
+            pass
+    state["context"] = None
+    state["page"] = None
+    state["referer"] = ""
+
+
 def get_scanmanga_browser_page(state, ua=""):
     """Retourne une page Chromium réutilisée pour le fallback image Scan-Manga."""
     try:
@@ -1616,6 +1635,9 @@ def accept_scanmanga_reader_warning(page):
 def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, cancel_event=None):
     normalized_url = normalize_image_url(img_url)
     safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
+    referer_key = safe_referer.split("#", 1)[0]
+    if state.get("referer") and state.get("referer") != referer_key:
+        reset_scanmanga_browser_context(state)
     last_error = None
     result = None
     for attempt in range(1, 4):
@@ -1623,9 +1645,10 @@ def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, canc
             raise DownloadCancelled("Téléchargement annulé.")
         page = get_scanmanga_browser_page(state, ua)
         current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
-        must_reload = attempt > 1 or current_url != safe_referer.split("#", 1)[0]
+        must_reload = attempt > 1 or current_url != referer_key
         if must_reload:
             page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
+            state["referer"] = referer_key
             warning_accepted = accept_scanmanga_reader_warning(page)
             if warning_accepted:
                 try:

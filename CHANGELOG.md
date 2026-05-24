@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.16] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - recyclage du contexte Playwright entre deux chapitres pour éviter les blocages qui disparaissaient après redémarrage,
+  - conservation d'un seul navigateur Chrome afin de garder les téléchargements en série plus stables sans rouvrir des sessions en parallèle.
+
 ## [11.15.15] - 2026-05-24
 
 ### Corrections
