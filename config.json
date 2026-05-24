@@ -16,6 +16,11 @@
       "enabled": true,
       "max_threads": 2,
       "delay_between_volumes": 0.25
+    },
+    "scanmanga": {
+      "enabled": true,
+      "max_threads": 1,
+      "delay_between_volumes": 0.5
     }
   },
   "manual_links": {
@@ -26,6 +31,7 @@
     "cookie_toonfr": "https://toonfr.com",
     "cookie_ortega": "https://ortegascans.fr",
     "cookie_hentaizone": "https://hentaizone.xyz",
+    "cookie_scanmanga": "https://www.scan-manga.com",
     "user_agent": "https://httpbin.org/user-agent",
     "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
     "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance"

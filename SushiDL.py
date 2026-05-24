@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.4"
+APP_VERSION = "11.15.5"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1984,7 +1984,7 @@ def download_image(
     # Configuration des en-têtes HTTP
     referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
     if normalize_hostname(urlparse(normalized_url).hostname) in {"data.scan-manga.com", "data3.scan-manga.com"}:
-        headers = build_scanmanga_image_headers(normalized_url, referer, cookie, ua)
+        headers = build_scanmanga_image_headers(normalized_url, referer, "", ua)
     else:
         headers = build_request_headers(
             normalized_url,
@@ -2767,12 +2767,37 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
     api_url = f"https://bqj.scan-manga.com/lel/{reader_vars['idc']}.json"
     api_response = session.post(
         api_url,
-        headers=build_scanmanga_api_headers(chapter_url, cookie, ua),
+        headers=build_scanmanga_api_headers(chapter_url, "", ua),
         json=api_body,
         impersonate="chrome",
         timeout=20,
     )
     api_status = int(getattr(api_response, "status_code", 0) or 0)
+    if api_status != 200 and cookie:
+        # Un cookie valide pour www.scan-manga.com peut être refusé par bqj.scan-manga.com.
+        retry_session = requests.Session()
+        retry_page = retry_session.get(
+            chapter_url,
+            headers=build_scanmanga_navigation_headers(chapter_url, "", ua),
+            impersonate="chrome",
+            timeout=20,
+        )
+        if int(getattr(retry_page, "status_code", 0) or 0) == 200:
+            retry_vars = extract_scanmanga_reader_vars(retry_page.text or "")
+            retry_body = {
+                "a": retry_vars["sme"],
+                "b": retry_vars["sml"],
+                "c": api_body["c"],
+            }
+            api_response = retry_session.post(
+                f"https://bqj.scan-manga.com/lel/{retry_vars['idc']}.json",
+                headers=build_scanmanga_api_headers(chapter_url, "", ua),
+                json=retry_body,
+                impersonate="chrome",
+                timeout=20,
+            )
+            api_status = int(getattr(api_response, "status_code", 0) or 0)
+            reader_vars = retry_vars
     if api_status != 200:
         raise AuthError(f"Scan-Manga: API lecteur inaccessible (HTTP {api_status}).")
 
