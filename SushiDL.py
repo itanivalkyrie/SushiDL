@@ -18,6 +18,7 @@ import json
 import csv
 import math
 import base64
+import zlib
 import hashlib
 import shutil
 import threading
@@ -306,6 +307,8 @@ def get_supported_site_from_host(host):
         return "ortegascans.fr"
     if value == "hentaizone.xyz" or value.endswith(".hentaizone.xyz"):
         return "hentaizone.xyz"
+    if value == "scan-manga.com" or value.endswith(".scan-manga.com"):
+        return "scan-manga.com"
     return ""
 
 
@@ -357,6 +360,7 @@ def get_cookie_domain_from_host(host):
         "toonfr.com": "toonfr",
         "ortegascans.fr": "ortega",
         "hentaizone.xyz": "hentaizone",
+        "scan-manga.com": "scanmanga",
     }
     return mapping.get(site, "")
 
@@ -377,6 +381,7 @@ def get_site_domain_key(url):
         "toonfr.com": "toonfr",
         "ortegascans.fr": "ortega",
         "hentaizone.xyz": "hentaizone",
+        "scan-manga.com": "scanmanga",
     }
     return mapping.get(site) or normalize_hostname(urlparse(url).hostname) or "-"
 
@@ -410,6 +415,8 @@ def is_valid_catalogue_url(url):
         match = re.match(r"^/serie/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     elif site == "hentaizone.xyz":
         match = re.match(r"^/manga/([^/?#]+)/?$", path, flags=re.IGNORECASE)
+    elif site == "scan-manga.com":
+        match = re.match(r"^/\d+(?:-\d+)?/([^/?#]+)\.html$", path, flags=re.IGNORECASE)
     else:
         return False
 
@@ -844,8 +851,8 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.3"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$"  # Formats d'URL valides
+APP_VERSION = "11.15.4"
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
 MIN_DOWNLOAD_THREADS = 1
@@ -876,7 +883,7 @@ ADAPTIVE_THREAD_FAILURE_CODES = {429, 500, 502, 503, 504}
 PERF_LOG_MIN_SECONDS = 0.05
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
-COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone")
+COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone", "scanmanga")
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
 COVER_TARGET_HEIGHT = 150
@@ -903,6 +910,7 @@ DEFAULT_APP_CONFIG = {
         "toonfr": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.4},
         "ortega": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.4},
         "hentaizone": {"enabled": True, "max_threads": 2, "delay_between_volumes": 0.25},
+        "scanmanga": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.5},
     },
     "manual_links": {
         "cookie_fr": "https://sushiscan.fr",
@@ -912,6 +920,7 @@ DEFAULT_APP_CONFIG = {
         "cookie_toonfr": "https://toonfr.com",
         "cookie_ortega": "https://ortegascans.fr",
         "cookie_hentaizone": "https://hentaizone.xyz",
+        "cookie_scanmanga": "https://www.scan-manga.com",
         "user_agent": "https://httpbin.org/user-agent",
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
         "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
@@ -925,6 +934,7 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "toonfr": "https://toonfr.com/webtoon/ma-brute/",
     "ortega": "https://ortegascans.fr/serie/moby-dick",
     "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
+    "scanmanga": "https://www.scan-manga.com/16363/Death-Penalty.html",
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
@@ -1363,8 +1373,82 @@ def build_request_headers(url, cookie="", ua="", accept="*/*", referer_url=None,
     return headers
 
 
+def build_scanmanga_client_hints(ua=""):
+    """Construit les Client Hints Chrome suffisants pour Scan-Manga."""
+    safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+    version_match = re.search(r"\bChrome/(\d+)", safe_ua)
+    chrome_major = version_match.group(1) if version_match else "127"
+    return {
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-ch-ua": f'"Chromium";v="{chrome_major}", "Google Chrome";v="{chrome_major}", "Not/A)Brand";v="99"',
+        "sec-ch-ua-mobile": "?0",
+    }
+
+
+def build_scanmanga_navigation_headers(url, cookie="", ua=""):
+    """Headers de navigation requis par Scan-Manga avant les appels API lecteur."""
+    safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+    headers = build_request_headers(
+        url,
+        cookie,
+        safe_ua,
+        accept="text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        referer_url=None,
+    )
+    headers.update(build_scanmanga_client_hints(safe_ua))
+    headers.update({
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-User": "?1",
+        "Sec-Fetch-Dest": "document",
+    })
+    return headers
+
+
+def build_scanmanga_api_headers(chapter_url, cookie="", ua=""):
+    """Headers fetch utilisés par le lecteur Scan-Manga pour bqj.scan-manga.com."""
+    safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+    headers = build_request_headers(
+        "https://bqj.scan-manga.com/",
+        cookie,
+        safe_ua,
+        accept="*/*",
+        referer_url="https://www.scan-manga.com/",
+        use_app_provider=False,
+    )
+    headers.update(build_scanmanga_client_hints(safe_ua))
+    headers.update({
+        "Content-Type": "application/json; charset=UTF-8",
+        "Origin": "https://www.scan-manga.com",
+        "source": (chapter_url or "").strip(),
+        "token": "yf",
+        "Sec-Fetch-Site": "same-site",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+    })
+    return headers
+
+
+def build_scanmanga_image_headers(image_url, chapter_url, cookie="", ua=""):
+    """Headers proches de ceux du navigateur pour les images data.scan-manga.com."""
+    safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+    headers = build_request_headers(
+        image_url,
+        cookie,
+        safe_ua,
+        accept="*/*",
+        referer_url=(chapter_url or "https://www.scan-manga.com/"),
+        use_app_provider=False,
+    )
+    headers.update(build_scanmanga_client_hints(safe_ua))
+    return headers
+
+
 def make_request(url, cookie, ua):
     """Effectue une requête HTTP avec les cookies et l'user-agent appropriés."""
+    if get_supported_site_from_url(url) == "scan-manga.com":
+        return _http_get(url, headers=build_scanmanga_navigation_headers(url, cookie, ua), timeout=20)
     headers = build_request_headers(url, cookie, ua)
     return _http_get(url, headers=headers, timeout=10)
 
@@ -1471,6 +1555,7 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
         "toonfr": "https://toonfr.com/webtoon/ma-brute/",
         "ortega": "https://ortegascans.fr/serie/moby-dick",
         "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
+        "scanmanga": "https://www.scan-manga.com/16363/Death-Penalty.html",
     }
     if domain not in probe_urls:
         return result
@@ -1507,6 +1592,7 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
                 "wp-manga-chapter",
                 "toonfr",
                 "hentaizone",
+                "scan-manga",
             )
         )
         challenge_blocking = is_cloudflare_challenge_page(text) and not has_content_markers
@@ -1677,6 +1763,7 @@ COMICINFO_SOURCE_LABELS = {
     "toonfr": "toonfr.com",
     "ortega": "ortegascans.fr",
     "hentaizone": "hentaizone.xyz",
+    "scanmanga": "scan-manga.com",
 }
 
 
@@ -1896,13 +1983,16 @@ def download_image(
 
     # Configuration des en-têtes HTTP
     referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
-    headers = build_request_headers(
-        normalized_url,
-        cookie,
-        ua,
-        accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
-        referer_url=referer,
-    )
+    if normalize_hostname(urlparse(normalized_url).hostname) in {"data.scan-manga.com", "data3.scan-manga.com"}:
+        headers = build_scanmanga_image_headers(normalized_url, referer, cookie, ua)
+    else:
+        headers = build_request_headers(
+            normalized_url,
+            cookie,
+            ua,
+            accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
+            referer_url=referer,
+        )
 
     # Détermination de l'extension et du nom de fichier
     parsed_path = (urlparse(normalized_url).path or "").lower()
@@ -1995,6 +2085,17 @@ def extract_manga_title_from_html(url, html_content):
     """Extrait un titre de manga/œuvre depuis le HTML source."""
     html_content = html_content or ""
     soup = BeautifulSoup(html_content, "html.parser")
+    if get_supported_site_from_url(url) == "scan-manga.com":
+        title_tag = soup.find("title")
+        if title_tag:
+            title_text = normalize_metadata_text(title_tag.get_text(" ", strip=True))
+            title_text = re.sub(r"\s*\|\s*Scan-Manga\s*$", "", title_text, flags=re.IGNORECASE).strip()
+            title_text = re.sub(r"\s*\((?:Webtoon|Novel|Manga)\)\s*$", "", title_text, flags=re.IGNORECASE).strip()
+            if " » " in title_text:
+                title_text = title_text.split(" » ", 1)[0].strip()
+            if title_text:
+                return normalize_manga_title_case(title_text)
+
     title_tag = soup.select_one("h1.entry-title, .post-title h1, .summary__content h1, h1")
     if title_tag:
         title = title_tag.get_text(" ", strip=True)
@@ -2455,6 +2556,239 @@ def parse_ortega_chapters_from_html(url, soup, source_slug, html_content=""):
     return pairs, metadata
 
 
+def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
+    """Parse la liste statique des chapitres Scan-Manga depuis une page serie."""
+    pairs = []
+    metadata = {}
+    seen_links = set()
+    source_root = "https://www.scan-manga.com"
+    chapter_pattern = re.compile(
+        r"^https://www\.scan-manga\.com/lecture-en-ligne/[^\"'<>]+_(\d+)\.html$",
+        flags=re.IGNORECASE,
+    )
+
+    chapter_anchors = soup.select('.chapitre_nom a[href*="/lecture-en-ligne/"]')
+    if not chapter_anchors:
+        chapter_anchors = soup.select('li.chapitre a[href*="/lecture-en-ligne/"]')
+    if not chapter_anchors:
+        chapter_anchors = soup.select('a[href*="/lecture-en-ligne/"]')
+
+    for a in chapter_anchors:
+        href = (a.get("href") or "").strip()
+        full_link = urljoin(source_root, href)
+        if not chapter_pattern.match(full_link):
+            continue
+        if full_link in seen_links:
+            continue
+        seen_links.add(full_link)
+
+        path_name = urlparse(full_link).path.rsplit("/", 1)[-1]
+        match_label = re.search(r"-Chapitre-([^_]+?)-FR_", path_name, flags=re.IGNORECASE)
+        if match_label:
+            label = normalize_tome_label(f"Chapitre {match_label.group(1).replace('-', '.')}")
+        else:
+            label = normalize_tome_label(a.get_text(" ", strip=True))
+        if not label:
+            label = "Chapitre"
+
+        pairs.append((label, full_link))
+        match_id = chapter_pattern.match(full_link)
+        metadata[full_link] = {"chapter_id": int(match_id.group(1)) if match_id else None}
+
+    if not pairs:
+        raw_links = re.findall(
+            r"https://www\.scan-manga\.com/lecture-en-ligne/[^\"'<>]+_\d+\.html",
+            html_content or "",
+            flags=re.IGNORECASE,
+        )
+        for full_link in raw_links:
+            if full_link in seen_links:
+                continue
+            seen_links.add(full_link)
+            path_name = urlparse(full_link).path.rsplit("/", 1)[-1]
+            match_label = re.search(r"-Chapitre-([^_]+?)-FR_", path_name, flags=re.IGNORECASE)
+            label = normalize_tome_label(
+                f"Chapitre {match_label.group(1).replace('-', '.')}" if match_label else "Chapitre"
+            )
+            match_id = chapter_pattern.match(full_link)
+            pairs.append((label, full_link))
+            metadata[full_link] = {"chapter_id": int(match_id.group(1)) if match_id else None}
+
+    return pairs, metadata
+
+
+def _scanmanga_base_convert_to_int(value, base_chars):
+    total = 0
+    for idx, char in enumerate(reversed(value or "")):
+        char_value = base_chars.find(char)
+        if char_value < 0:
+            continue
+        total += char_value * (len(base_chars) ** idx)
+    return total
+
+
+def decode_scanmanga_eval_script(script):
+    """Decode l'obfuscateur simple utilisé autour de sml/sme/DataAPI."""
+    match = re.search(
+        r'eval\(function\s*\([^)]*\)\s*\{.*?\}\("([^"]+)",\s*(\d+),\s*"([^"]+)",\s*(\d+),\s*(\d+),\s*(\d+)\)\s*\)',
+        script or "",
+        flags=re.DOTALL,
+    )
+    if not match:
+        return ""
+    payload, _unused_w, q, offset, base, _unused_f = match.groups()
+    try:
+        offset = int(offset)
+        base = int(base)
+    except ValueError:
+        return ""
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+/"
+    base_chars = alphabet[:base]
+    separator = q[base] if len(q) > base else ""
+    if not separator:
+        return ""
+
+    decoded = []
+    index = 0
+    while index < len(payload):
+        chunk = []
+        while index < len(payload) and payload[index] != separator:
+            chunk.append(payload[index])
+            index += 1
+        index += 1
+        token = "".join(chunk)
+        if not token:
+            continue
+        for replacement_index, replacement_char in enumerate(q):
+            token = token.replace(replacement_char, str(replacement_index))
+        decoded.append(chr(_scanmanga_base_convert_to_int(token, base_chars) - offset))
+    return "".join(decoded)
+
+
+def extract_scanmanga_reader_vars(html_content):
+    """Extrait idc/idm/sml/sme depuis une page lecteur Scan-Manga."""
+    html_content = html_content or ""
+    idc_match = re.search(r"const\s+idc\s*=\s*(\d+)\s*;", html_content)
+    idm_match = re.search(r"const\s+idm\s*=\s*(\d+)\s*;", html_content)
+    sml_match = re.search(r"var\s+sml\s*=\s*['\"]([^'\"]+)['\"]\s*;", html_content)
+    sme_match = re.search(r"var\s+sme\s*=\s*['\"]([^'\"]+)['\"]\s*;", html_content)
+
+    if (not sml_match or not sme_match) and "eval(function" in html_content:
+        for script in re.findall(r"<script[^>]*>(.*?)</script>", html_content, flags=re.DOTALL | re.IGNORECASE):
+            if "eval(function" not in script:
+                continue
+            decoded_script = decode_scanmanga_eval_script(script)
+            if not decoded_script:
+                continue
+            sml_match = sml_match or re.search(r"var\s+sml\s*=\s*['\"]([^'\"]+)['\"]\s*;", decoded_script)
+            sme_match = sme_match or re.search(r"var\s+sme\s*=\s*['\"]([^'\"]+)['\"]\s*;", decoded_script)
+            if sml_match and sme_match:
+                break
+
+    if not idc_match or not sml_match or not sme_match:
+        raise ParseError("Variables lecteur Scan-Manga introuvables (idc/sml/sme).")
+    return {
+        "idc": int(idc_match.group(1)),
+        "idm": int(idm_match.group(1)) if idm_match else 0,
+        "sml": sml_match.group(1),
+        "sme": sme_match.group(1),
+    }
+
+
+def decode_scanmanga_data_api(payload, chapter_id):
+    """Equivalent Python de DataAPI(D, idc)."""
+    raw_text = (payload or "").strip()
+    if not raw_text:
+        raise ParseError("Réponse Scan-Manga vide.")
+    raw = base64.b64decode(raw_text + "=" * (-len(raw_text) % 4))
+    inflated = zlib.decompress(raw).decode("utf-8")
+    suffix = format(int(chapter_id), "x")
+    if inflated.endswith(suffix):
+        inflated = inflated[: -len(suffix)]
+    reversed_payload = inflated[::-1]
+    decoded = base64.b64decode(reversed_payload + "=" * (-len(reversed_payload) % 4)).decode("utf-8")
+    return json.loads(decoded)
+
+
+def build_scanmanga_image_urls(data):
+    """Transforme le JSON lecteur Scan-Manga en URLs d'images réelles."""
+    if not isinstance(data, dict):
+        return []
+    host = (data.get("dN") or "").strip()
+    serie = (data.get("s") or "").strip("/")
+    volume = str(data.get("v") or "").strip("/")
+    chapter = str(data.get("c") or "").strip("/")
+    pages = data.get("p") or {}
+    if not host or not serie or not volume or not chapter or not isinstance(pages, dict):
+        return []
+
+    def page_sort_key(item):
+        key, _value = item
+        try:
+            return int(key)
+        except (TypeError, ValueError):
+            return str(key)
+
+    images = []
+    for _page, page_data in sorted(pages.items(), key=page_sort_key):
+        if not isinstance(page_data, dict):
+            continue
+        filename = (page_data.get("f") or "").strip()
+        ext = (page_data.get("e") or "").strip().lstrip(".")
+        if not filename or not ext:
+            continue
+        images.append(f"https://{host}/{serie}/{volume}/{chapter}/{filename}.{ext}")
+    return images
+
+
+def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
+    """Récupère les images Scan-Manga via l'API bqj, sans navigateur."""
+    chapter_url = (link or "").strip()
+    if not chapter_url:
+        return []
+    session = requests.Session()
+    page_response = session.get(
+        chapter_url,
+        headers=build_scanmanga_navigation_headers(chapter_url, cookie, ua),
+        impersonate="chrome",
+        timeout=20,
+    )
+    status_code = int(getattr(page_response, "status_code", 0) or 0)
+    if status_code != 200:
+        raise AuthError(f"Scan-Manga: page lecteur inaccessible (HTTP {status_code}).")
+
+    reader_vars = extract_scanmanga_reader_vars(page_response.text or "")
+    fingerprint = {"gpu": "IC", "connection": "IC"}
+    api_body = {
+        "a": reader_vars["sme"],
+        "b": reader_vars["sml"],
+        "c": base64.b64encode(json.dumps(fingerprint, separators=(",", ":")).encode("utf-8")).decode("ascii"),
+    }
+    api_url = f"https://bqj.scan-manga.com/lel/{reader_vars['idc']}.json"
+    api_response = session.post(
+        api_url,
+        headers=build_scanmanga_api_headers(chapter_url, cookie, ua),
+        json=api_body,
+        impersonate="chrome",
+        timeout=20,
+    )
+    api_status = int(getattr(api_response, "status_code", 0) or 0)
+    if api_status != 200:
+        raise AuthError(f"Scan-Manga: API lecteur inaccessible (HTTP {api_status}).")
+
+    data = decode_scanmanga_data_api(api_response.text or "", reader_vars["idc"])
+    images = build_scanmanga_image_urls(data)
+    if max_images:
+        images = images[:max_images]
+    if emit_logs:
+        runtime_log(
+            f"{len(images)} image(s) Scan-Manga détectée(s) via API lecteur.",
+            level="info",
+            context={"action": "extract_images", "domain": "scanmanga"},
+        )
+    return images
+
+
 def parse_manga_data_from_html(url, html_content, emit_logs=True):
     """
     Parse le HTML du catalogue et retourne (title, pairs).
@@ -2494,8 +2828,30 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         match_slug = re.match(r"^/manga/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
         if match_slug:
             source_slug = match_slug.group(1).strip()
+    elif source_site == "scan-manga.com":
+        match_slug = re.match(r"^/\d+(?:-\d+)?/([^/?#]+)\.html$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
     pairs = []
     volume_metadata = {}
+
+    if source_site == "scan-manga.com":
+        pairs, volume_metadata = parse_scanmanga_chapters_from_html(url, soup, html_content)
+        unique_pairs = list(reversed(pairs))
+        ordered_metadata = {
+            link: volume_metadata.get(link, {})
+            for _label, link in unique_pairs
+            if link
+        }
+        if not unique_pairs:
+            raise ParseError("Aucun chapitre Scan-Manga détecté (page protégée ou structure modifiée).")
+        if emit_logs:
+            runtime_log(
+                f"{len(unique_pairs)} chapitre(s) Scan-Manga détecté(s)",
+                level="info",
+                context={"action": "parse_catalogue", "domain": "scanmanga"},
+            )
+        return title, unique_pairs, ordered_metadata
 
     if source_site == "ortegascans.fr" and source_slug:
         pairs, volume_metadata = parse_ortega_chapters_from_html(url, soup, source_slug, html_content)
@@ -3125,6 +3481,27 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
 
     attempt_count = max(1, int(retries or 1))
     domain = get_site_domain_key(link)
+
+    if domain == "scanmanga":
+        try:
+            images = fetch_scanmanga_images(
+                link,
+                cookie,
+                ua,
+                max_images=max_images,
+                emit_logs=emit_logs,
+            )
+            if images:
+                store_cached_image_urls(link, images, max_images=max_images)
+                return images
+        except Exception as exc:
+            if emit_logs:
+                runtime_log(
+                    f"Extraction Scan-Manga impossible: {exc}",
+                    level="error",
+                    context={"action": "get_images", "domain": "scanmanga"},
+                )
+            return []
 
     candidate_links = [(link or "").strip()]
     if domain in ("origines", "hentai"):
@@ -7037,6 +7414,18 @@ class MangaApp:
         self.run_on_ui(self.update_runtime_status)
         self._schedule_cookie_listing_probe(domains=("hentaizone",), delay_ms=1200)
 
+    def _schedule_auth_status_update_cookie_scanmanga(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .scanmanga sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["scanmanga"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["scanmanga"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("scanmanga",), delay_ms=1200)
+
     def _schedule_auth_status_update_url(self, *_args):
         """Rafraîchit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
         if not hasattr(self, "cookie_sources"):
@@ -7372,6 +7761,7 @@ class MangaApp:
         self.cookie_toonfr_label_var.set("Cookie (.toonfr) :")
         self.cookie_ortega_label_var.set("Cookie (.ortegascans) :")
         self.cookie_hentaizone_label_var.set("Cookie (.hentaizone) :")
+        self.cookie_scanmanga_label_var.set("Cookie (.scanmanga) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -7393,6 +7783,7 @@ class MangaApp:
                     "cookie_toonfr_status",
                     "cookie_ortega_status",
                     "cookie_hentaizone_status",
+                    "cookie_scanmanga_status",
                     "ua_status",
                 )
             ):
@@ -7526,6 +7917,7 @@ class MangaApp:
                 "toonfr": "https://toonfr.com/",
                 "ortega": "https://ortegascans.fr/",
                 "hentaizone": "https://hentaizone.xyz/",
+                "scanmanga": "https://www.scan-manga.com/",
             }
             probe_url = ua_probe_urls.get(domain, "")
             if not probe_url:
@@ -7728,6 +8120,7 @@ class MangaApp:
         self.cookie_toonfr = tk.StringVar()
         self.cookie_ortega = tk.StringVar()
         self.cookie_hentaizone = tk.StringVar()
+        self.cookie_scanmanga = tk.StringVar()
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
@@ -7735,6 +8128,7 @@ class MangaApp:
         self.cookie_toonfr_label_var = tk.StringVar(value="Cookie (.toonfr) :")
         self.cookie_ortega_label_var = tk.StringVar(value="Cookie (.ortegascans) :")
         self.cookie_hentaizone_label_var = tk.StringVar(value="Cookie (.hentaizone) :")
+        self.cookie_scanmanga_label_var = tk.StringVar(value="Cookie (.scanmanga) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
@@ -7767,6 +8161,7 @@ class MangaApp:
         self.cookie_toonfr.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_ortega.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_hentaizone.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_scanmanga.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_auth_status_update_cookie_fr)
         self.cookie_net.trace_add("write", self._schedule_auth_status_update_cookie_net)
         self.cookie_origines.trace_add("write", self._schedule_auth_status_update_cookie_origines)
@@ -7774,6 +8169,7 @@ class MangaApp:
         self.cookie_toonfr.trace_add("write", self._schedule_auth_status_update_cookie_toonfr)
         self.cookie_ortega.trace_add("write", self._schedule_auth_status_update_cookie_ortega)
         self.cookie_hentaizone.trace_add("write", self._schedule_auth_status_update_cookie_hentaizone)
+        self.cookie_scanmanga.trace_add("write", self._schedule_auth_status_update_cookie_scanmanga)
         self.ua.trace_add("write", self._schedule_auth_status_update)
         self.url.trace_add("write", self._schedule_auth_status_update_url)
         self.verbose_logs.trace_add("write", self._refresh_log_option_cache)
@@ -7804,6 +8200,7 @@ class MangaApp:
         self.cookie_toonfr.set(cookies.get("toonfr", ""))
         self.cookie_ortega.set(cookies.get("ortega", ""))
         self.cookie_hentaizone.set(cookies.get("hentaizone", ""))
+        self.cookie_scanmanga.set(cookies.get("scanmanga", ""))
         runtime_log(f"{APP_NAME} v{APP_VERSION}", level="info")
         runtime_log(f"Cache cookie : {COOKIE_CACHE_PATH}", level="info")
         runtime_log(f"Config : {CONFIG_PATH}", level="info")
@@ -9037,6 +9434,30 @@ class MangaApp:
 
         ctk.CTkLabel(
             auth_surface,
+            textvariable=self.cookie_scanmanga_label_var,
+            text_color=self.palette["text"],
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
+        )
+        self.cookie_scanmanga_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_scanmanga,
+            font=font_entry,
+            height=36,
+            corner_radius=6,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
+        )
+        self.cookie_scanmanga_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_scanmanga_status = create_ctk_badge(auth_surface)
+        self.cookie_scanmanga_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
+        row += 1
+
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.ua_label_var,
             text_color=self.palette["text"],
             font=font_label,
@@ -9405,7 +9826,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/ ou https://www.scan-manga.com/1234/slug.html",
             None,
         )
 
@@ -10029,6 +10450,7 @@ class MangaApp:
             "cookie_toonfr_label_var",
             "cookie_ortega_label_var",
             "cookie_hentaizone_label_var",
+            "cookie_scanmanga_label_var",
             "ua_label_var",
         ):
             var = getattr(self, var_name, None)
@@ -10363,6 +10785,7 @@ class MangaApp:
         cookie_hentai_link = get_manual_link("cookie_hentai", "https://hentai-origines.fr")
         cookie_toonfr_link = get_manual_link("cookie_toonfr", "https://toonfr.com")
         cookie_hentaizone_link = get_manual_link("cookie_hentaizone", "https://hentaizone.xyz")
+        cookie_scanmanga_link = get_manual_link("cookie_scanmanga", "https://www.scan-manga.com")
         self._attach_link_placeholder(
             self.cookie_fr_entry,
             self.cookie_fr,
@@ -10407,6 +10830,12 @@ class MangaApp:
             cookie_hentaizone_link,
         )
         self._attach_link_placeholder(
+            self.cookie_scanmanga_entry,
+            self.cookie_scanmanga,
+            'Cookie scan-manga.com: cf_clearance seul ou header Cookie complet.',
+            cookie_scanmanga_link,
+        )
+        self._attach_link_placeholder(
             self.ua_entry,
             self.ua,
             'Cliquer ici pour accéder à : Votre User-Agent (copier/coller seulement la partie à droite entre les "" )',
@@ -10430,6 +10859,8 @@ class MangaApp:
             self.cookie_ortega_entry.configure(show=show_char)
         if hasattr(self, "cookie_hentaizone_entry"):
             self.cookie_hentaizone_entry.configure(show=show_char)
+        if hasattr(self, "cookie_scanmanga_entry"):
+            self.cookie_scanmanga_entry.configure(show=show_char)
 
 
     def get_domain_from_url(self, url):
@@ -10446,6 +10877,7 @@ class MangaApp:
             "toonfr": getattr(self, "cookie_toonfr", None),
             "ortega": getattr(self, "cookie_ortega", None),
             "hentaizone": getattr(self, "cookie_hentaizone", None),
+            "scanmanga": getattr(self, "cookie_scanmanga", None),
         }
         return mapping.get(domain)
 
@@ -10459,6 +10891,7 @@ class MangaApp:
             "toonfr": getattr(self, "cookie_toonfr_entry", None),
             "ortega": getattr(self, "cookie_ortega_entry", None),
             "hentaizone": getattr(self, "cookie_hentaizone_entry", None),
+            "scanmanga": getattr(self, "cookie_scanmanga_entry", None),
         }
         return mapping.get(domain)
 
@@ -10472,6 +10905,7 @@ class MangaApp:
             "toonfr": getattr(self, "cookie_toonfr_status", None),
             "ortega": getattr(self, "cookie_ortega_status", None),
             "hentaizone": getattr(self, "cookie_hentaizone_status", None),
+            "scanmanga": getattr(self, "cookie_scanmanga_status", None),
         }
         return mapping.get(domain)
 
@@ -11073,7 +11507,7 @@ class MangaApp:
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/.",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/ ou https://www.scan-manga.com/1234/slug.html.",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
@@ -12065,7 +12499,7 @@ class SushiCliBackend:
         if not safe_cookie:
             return False
 
-        if safe_domain in ("fr", "net", "toonfr", "ortega", "hentaizone"):
+        if safe_domain in ("fr", "net", "toonfr", "ortega", "hentaizone", "scanmanga"):
             return test_cookie_validity(
                 safe_domain,
                 safe_cookie,
@@ -12185,6 +12619,9 @@ def run_self_test():
         is_valid_catalogue_url("https://hentai-origines.fr/manga/hunter-to-nakama-no-wild-na-seikatsu-%e2%99%a5/"),
     )
     check("url slug classique", is_valid_catalogue_url("https://sushiscan.net/catalogue/one-piece/"))
+    check("url scan-manga serie", is_valid_catalogue_url("https://www.scan-manga.com/16363/Death-Penalty.html"))
+    check("domain scan-manga", get_cookie_domain_from_url("https://www.scan-manga.com/16363/Death-Penalty.html") == "scanmanga")
+    check("url scan-manga chapitre refusee", not is_valid_catalogue_url("https://www.scan-manga.com/lecture-en-ligne/Death-Penalty-Chapitre-56-FR_545712.html"))
     check("domain key", get_site_domain_key("https://ortegascans.fr/serie/moby-dick") == "ortega")
     check("url percent invalide refuse", not is_valid_catalogue_url("https://hentai-origines.fr/manga/bad%zz/"))
     check("url slash encode refuse", not is_valid_catalogue_url("https://hentai-origines.fr/manga/bad%2fslug/"))
