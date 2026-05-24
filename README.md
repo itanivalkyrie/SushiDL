@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.3`
+Version actuelle : `11.15.7`
 
 ## Ce qui change sur `main`
 
@@ -41,6 +41,8 @@ Concretement :
 - cache session des URLs d'images pour eviter les extractions repetees
 - progression GUI moins bavarde pour garder l'interface fluide
 - ralentissement automatique des threads sur erreurs serveur/rate-limit
+- support Scan-Manga avec analyse catalogue, métadonnées, preview et téléchargement CBZ
+- récupération des images Scan-Manga exclusivement via Playwright pour contourner le blocage Cloudflare des URLs `data*.scan-manga.com`
 - logs `[perf]` pour mesurer analyse, extraction, telechargement et archive
 - cache disque des analyses catalogue avec raccourci `Ctrl+R` pour forcer le rafraîchissement
 - préflight avec plan de téléchargement avant lancement
@@ -51,6 +53,7 @@ Concretement :
 - nombre de telechargements paralleles configurable dans `Options`
 - `requirements.txt` inclut maintenant :
   - `customtkinter>=5.2.2`
+  - `playwright>=1.52.0`
   - `textual>=0.82.0`
 
 ## Mode terminal
@@ -134,6 +137,18 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.7
+- Scan-Manga :
+  - support des URLs catalogue `https://www.scan-manga.com/<id>/<titre>.html`,
+  - téléchargement et preview des images uniquement via Playwright,
+  - relances navigateur plus robustes quand le lecteur coupe la récupération après quelques pages,
+  - extraction corrigée des métadonnées `ComicInfo.xml` depuis la fiche technique.
+
+### 11.15.6
+- Scan-Manga :
+  - ajout du domaine `.scanmanga` dans l'onglet Authentification,
+  - analyse catalogue et récupération des URLs d'images via le lecteur Scan-Manga.
 
 ### 11.15.1
 - Interface :
@@ -339,6 +354,7 @@ Dependances Python actuelles :
 - `customtkinter>=5.2.2`
 - `curl_cffi>=0.10.0`
 - `Pillow>=11.3.0`
+- `playwright>=1.52.0`
 - `requests>=2.32.3`
 - `textual>=0.82.0`
 
@@ -371,7 +387,7 @@ python3 SushiDL.py --cli
 ## Authentification manuelle
 
 SushiDL fonctionne en mode manuel pour l'authentification.
-Le flux principal n'utilise pas FlareSolverr, Playwright, ni import automatique des cookies depuis le navigateur.
+Le flux principal n'utilise pas FlareSolverr ni import automatique des cookies depuis le navigateur. Exception importante : Scan-Manga utilise Playwright pour récupérer les images et les previews, car les URLs `data*.scan-manga.com` sont bloquées en accès HTTP direct.
 
 Tu dois fournir :
 - un cookie `cf_clearance` pour chaque domaine que tu veux utiliser
@@ -387,6 +403,16 @@ Procedure conseillee :
 
 Lien pratique pour recuperer le `User-Agent` :
 - `https://httpbin.org/user-agent`
+
+### Note Scan-Manga
+
+Pour Scan-Manga, SushiDL analyse le catalogue et le lecteur avec les cookies et le `User-Agent` renseignés, puis récupère les images via un contexte Playwright réutilisé. Le téléchargement direct des images est volontairement ignoré pour ce domaine afin d'éviter les erreurs 403 répétées et les pertes de temps.
+
+Chrome installé sur la machine est utilisé en priorité. Si Playwright signale qu'aucun navigateur compatible n'est disponible, installe le navigateur Chromium fourni par Playwright :
+
+```bash
+python -m playwright install chromium
+```
 
 ## Configuration
 

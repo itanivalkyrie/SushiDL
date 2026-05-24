@@ -7,6 +7,27 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.7] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - les images et les previews passent maintenant exclusivement par Playwright,
+  - les tentatives HTTP directes sur `data*.scan-manga.com` sont ignorées pour éviter les 403 répétés et les délais inutiles,
+  - le contexte navigateur recharge le lecteur et retente la récupération quand certaines pages échouent après les premières images,
+  - extraction corrigée des métadonnées `ComicInfo.xml` depuis la fiche technique : auteurs, dessinateurs, genres, année, éditeur, statut et résumé.
+
+### Documentation
+- README mis à jour pour expliquer que Playwright est obligatoire pour les images Scan-Manga.
+- Documentation de la dépendance `playwright>=1.52.0` et de la commande `python -m playwright install chromium` en cas de navigateur manquant.
+
+## [11.15.6] - 2026-05-24
+
+### Ameliorations
+- Ajout du support Scan-Manga :
+  - analyse des pages catalogue `scan-manga.com`,
+  - champ cookie `.scanmanga` dans l'onglet Authentification,
+  - extraction des chapitres, couvertures et URLs du lecteur.
+
 ## [11.15.3] - 2026-05-22
 
 ### Ameliorations

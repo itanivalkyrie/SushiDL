@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.6"
+APP_VERSION = "11.15.7"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1516,32 +1516,63 @@ def download_scanmanga_image_with_browser(img_url, filename, referer_url, ua, ca
     normalized_url = normalize_image_url(img_url)
     safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
     tmp_filename = f"{filename}.part-browser-{threading.get_ident()}"
+    last_error = None
     with SCANMANGA_BROWSER_LOCK:
-        if cancel_event is not None and cancel_event.is_set():
-            raise DownloadCancelled("Téléchargement annulé.")
-        page = get_scanmanga_browser_page(ua)
-        current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
-        if current_url != safe_referer.split("#", 1)[0]:
-            page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
-        result = page.evaluate(
-            """
-            async (url) => {
-                const response = await fetch(url, { credentials: "omit" });
-                const buffer = await response.arrayBuffer();
-                let binary = "";
-                const bytes = new Uint8Array(buffer);
-                const chunkSize = 0x8000;
-                for (let i = 0; i < bytes.length; i += chunkSize) {
-                    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-                }
-                return {
-                    status: response.status,
-                    contentType: response.headers.get("content-type") || "",
-                    body: btoa(binary)
-                };
-            }
-            """,
-            normalized_url,
+        result = None
+        for attempt in range(1, 4):
+            if cancel_event is not None and cancel_event.is_set():
+                raise DownloadCancelled("Téléchargement annulé.")
+            page = get_scanmanga_browser_page(ua)
+            current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
+            must_reload = attempt > 1 or current_url != safe_referer.split("#", 1)[0]
+            if must_reload:
+                page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
+            try:
+                result = page.evaluate(
+                    """
+                    async (url) => {
+                        const response = await fetch(url, {
+                            cache: "reload",
+                            credentials: "omit",
+                            referrerPolicy: "strict-origin-when-cross-origin"
+                        });
+                        const buffer = await response.arrayBuffer();
+                        let binary = "";
+                        const bytes = new Uint8Array(buffer);
+                        const chunkSize = 0x8000;
+                        for (let i = 0; i < bytes.length; i += chunkSize) {
+                            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+                        }
+                        return {
+                            status: response.status,
+                            contentType: response.headers.get("content-type") || "",
+                            body: btoa(binary)
+                        };
+                    }
+                    """,
+                    normalized_url,
+                )
+                if int((result or {}).get("status") or 0) == 200:
+                    break
+                last_error = f"HTTP {int((result or {}).get('status') or 0)}"
+            except Exception as exc:
+                result = None
+                last_error = str(exc)
+            if attempt < 3:
+                try:
+                    page.wait_for_timeout(350 * attempt)
+                except Exception:
+                    time.sleep(0.35 * attempt)
+
+    if result is None:
+        raise ImageDownloadError(
+            f"Fallback navigateur Scan-Manga échoué: {last_error or 'fetch impossible'}",
+            kind="blocked_or_retryable",
+            phase="browser",
         )
 
     status_code = int((result or {}).get("status") or 0)
@@ -1580,6 +1611,74 @@ def download_scanmanga_image_with_browser(img_url, filename, referer_url, ua, ca
         except OSError:
             pass
         raise
+
+
+def download_preview_image_with_browser(img_url, referer_url, ua, cancel_event=None):
+    """Retourne une image PIL depuis le fallback navigateur Scan-Manga."""
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
+
+    normalized_url = normalize_image_url(img_url)
+    safe_referer = (referer_url or "https://www.scan-manga.com/").strip()
+    last_error = None
+    with SCANMANGA_BROWSER_LOCK:
+        result = None
+        for attempt in range(1, 4):
+            if cancel_event is not None and cancel_event.is_set():
+                raise DownloadCancelled("Téléchargement annulé.")
+            page = get_scanmanga_browser_page(ua)
+            current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
+            if attempt > 1 or current_url != safe_referer.split("#", 1)[0]:
+                page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=5000)
+                except Exception:
+                    pass
+            try:
+                result = page.evaluate(
+                    """
+                    async (url) => {
+                        const response = await fetch(url, { cache: "reload", credentials: "omit" });
+                        const buffer = await response.arrayBuffer();
+                        let binary = "";
+                        const bytes = new Uint8Array(buffer);
+                        const chunkSize = 0x8000;
+                        for (let i = 0; i < bytes.length; i += chunkSize) {
+                            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+                        }
+                        return {
+                            status: response.status,
+                            contentType: response.headers.get("content-type") || "",
+                            body: btoa(binary)
+                        };
+                    }
+                    """,
+                    normalized_url,
+                )
+                if int((result or {}).get("status") or 0) == 200:
+                    break
+                last_error = f"HTTP {int((result or {}).get('status') or 0)}"
+            except Exception as exc:
+                result = None
+                last_error = str(exc)
+            if attempt < 3:
+                try:
+                    page.wait_for_timeout(350 * attempt)
+                except Exception:
+                    time.sleep(0.35 * attempt)
+
+    if result is None or int((result or {}).get("status") or 0) != 200:
+        raise ImageDownloadError(
+            f"Preview Scan-Manga via navigateur impossible: {last_error or 'fetch impossible'}",
+            status_code=int((result or {}).get("status") or 0) if result else None,
+            kind="blocked_or_retryable",
+            phase="browser",
+        )
+    raw = base64.b64decode((result or {}).get("body") or "")
+    if _is_html_payload_start(raw):
+        raise ImageDownloadError("Preview Scan-Manga: réponse HTML", kind="blocked_or_retryable", phase="browser")
+    with Image.open(BytesIO(raw)) as image:
+        return image.convert("RGB")
 
 
 def make_request(url, cookie, ua):
@@ -2143,14 +2242,56 @@ def download_image(
         ext = "jpg"
     filename = os.path.join(folder, f"{str(i + 1).zfill(number_len)}.{ext}")
 
+    if is_scanmanga_cdn_image:
+        try:
+            download_scanmanga_image_with_browser(
+                normalized_url,
+                filename,
+                referer,
+                ua,
+                cancel_event=cancel_event,
+            )
+            if webp2jpg_enabled and filename.lower().endswith(".webp"):
+                try:
+                    with Image.open(filename) as source_image:
+                        img = source_image.convert("RGB")
+                    new_path = filename[:-5] + ".jpg"
+                    img.save(new_path, "JPEG", quality=90)
+                    os.remove(filename)
+                    filename = new_path
+                except Exception as conv_e:
+                    runtime_log(f"Erreur conversion WebP->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
+            if progress_callback:
+                progress_callback(i + 1)
+            return
+        except DownloadCancelled:
+            register_failure("cancelled", "Annulation demandée pendant téléchargement navigateur Scan-Manga.")
+            return
+        except ImageDownloadError as browser_exc:
+            register_failure(browser_exc.kind, str(browser_exc), status_code=browser_exc.status_code)
+            runtime_log(
+                f"Téléchargement navigateur Scan-Manga échoué: {browser_exc}",
+                level="warning",
+                context={"action": "download", "url": normalized_url},
+            )
+            return
+        except Exception as browser_exc:
+            status_code = get_status_code_from_exception(browser_exc)
+            kind = classify_download_failure(status_code, str(browser_exc))
+            register_failure(kind, str(browser_exc), status_code=status_code)
+            runtime_log(
+                f"Téléchargement navigateur Scan-Manga échoué: {browser_exc}",
+                level="warning",
+                context={"action": "download", "url": normalized_url},
+            )
+            return
+
     # Téléchargement direct prioritaire, en flux disque pour limiter la memoire.
     try:
         download_image_to_file(
             normalized_url,
             filename,
             headers,
-            max_try=1 if is_scanmanga_cdn_image else 4,
-            delay=1 if is_scanmanga_cdn_image else 2,
             cancel_event=cancel_event,
         )
 
@@ -2175,54 +2316,6 @@ def download_image(
         register_failure("cancelled", "Annulation demandée pendant téléchargement direct.")
         return
     except ImageDownloadError as e:
-        if is_scanmanga_cdn_image and e.kind not in ("missing", "invalid_image", "cancelled"):
-            try:
-                runtime_log(
-                    "Téléchargement direct Scan-Manga bloqué, essai via contexte navigateur.",
-                    level="warning",
-                    context={"action": "download", "domain": "scanmanga"},
-                )
-                download_scanmanga_image_with_browser(
-                    normalized_url,
-                    filename,
-                    referer,
-                    ua,
-                    cancel_event=cancel_event,
-                )
-                if webp2jpg_enabled and filename.lower().endswith(".webp"):
-                    try:
-                        with Image.open(filename) as source_image:
-                            img = source_image.convert("RGB")
-                        new_path = filename[:-5] + ".jpg"
-                        img.save(new_path, "JPEG", quality=90)
-                        os.remove(filename)
-                        filename = new_path
-                    except Exception as conv_e:
-                        runtime_log(f"Erreur conversion WebP->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
-                if progress_callback:
-                    progress_callback(i + 1)
-                return
-            except DownloadCancelled:
-                register_failure("cancelled", "Annulation demandée pendant fallback navigateur Scan-Manga.")
-                return
-            except ImageDownloadError as browser_exc:
-                register_failure(browser_exc.kind, str(browser_exc), status_code=browser_exc.status_code)
-                runtime_log(
-                    f"Fallback navigateur Scan-Manga échoué: {browser_exc}",
-                    level="warning",
-                    context={"action": "download", "url": normalized_url},
-                )
-                return
-            except Exception as browser_exc:
-                status_code = get_status_code_from_exception(browser_exc)
-                kind = classify_download_failure(status_code, str(browser_exc))
-                register_failure(kind, str(browser_exc), status_code=status_code)
-                runtime_log(
-                    f"Fallback navigateur Scan-Manga échoué: {browser_exc}",
-                    level="warning",
-                    context={"action": "download", "url": normalized_url},
-                )
-                return
         if e.kind == "missing":
             register_failure("missing", str(e), status_code=e.status_code)
             runtime_log(
@@ -2456,6 +2549,92 @@ def add_table_fields(fields, soup):
                 fields.setdefault(clean_label, []).append(clean_value)
 
 
+def extract_scanmanga_series_metadata(soup):
+    """Extrait les champs de la fiche technique Scan-Manga."""
+    result = {
+        "writer": "",
+        "penciller": "",
+        "translator": "",
+        "genre": "",
+        "publisher": "",
+        "year": "",
+        "month": "",
+        "day": "",
+        "status": "",
+        "summary": "",
+    }
+    fiche = soup.select_one(".contenu_texte_fiche_technique, .content_texte_fiche_technique")
+    if fiche is None:
+        return result
+
+    authors = []
+    genres = []
+
+    def scanmanga_direct_text(node):
+        values = []
+        for child in getattr(node, "contents", []) or []:
+            if isinstance(child, str):
+                text = normalize_metadata_text(child)
+                if text:
+                    values.append(text)
+        return " ".join(values).strip()
+
+    for li in fiche.select("li"):
+        itemprop = normalize_metadata_text(li.get("itemprop")).lower()
+        li_text = normalize_metadata_text(li.get_text(" ", strip=True))
+        link_values = [normalize_metadata_text(a.get_text(" ", strip=True)) for a in li.select("a")]
+        link_values = [value for value in link_values if value]
+
+        if itemprop == "author":
+            authors.extend(link_values or split_metadata_values(li_text))
+        elif itemprop == "genre":
+            if li_text:
+                genres.append(li_text.replace(" - ", ", "))
+        elif itemprop == "publisher":
+            result["publisher"] = result["publisher"] or first_metadata_value(link_values or li_text)
+        elif itemprop in ("translator", "creator"):
+            result["translator"] = result["translator"] or metadata_join(link_values or li_text)
+        elif itemprop in ("datepublished", "datecreated"):
+            year, month, day = extract_year_month_day(li_text)
+            result["year"] = result["year"] or year
+            result["month"] = result["month"] or month
+            result["day"] = result["day"] or day
+
+        if re.fullmatch(r"(en cours|termin[eé]|terminée|pause|abandonn[eé]|complet)", li_text, flags=re.IGNORECASE):
+            result["status"] = result["status"] or li_text
+        if not result["year"]:
+            year, month, day = extract_year_month_day(li_text)
+            if year:
+                result["year"], result["month"], result["day"] = year, month, day
+
+    info_genres = []
+    for node in fiche.select("a.infoBulle"):
+        text = scanmanga_direct_text(node) or normalize_metadata_text(node.get_text(" ", strip=True))
+        if text:
+            info_genres.append(text.replace(" - ", ", "))
+    genres.extend(info_genres)
+
+    result["writer"] = metadata_join(authors)
+    result["penciller"] = metadata_join(authors)
+    result["genre"] = metadata_join(genres)
+
+    summary_candidates = []
+    for selector in (
+        ".contenu_texte_fiche_description",
+        ".content_texte_fiche_description",
+        ".description",
+        "[itemprop='description']",
+    ):
+        node = soup.select_one(selector)
+        if node:
+            text = normalize_metadata_text(node.get_text(" ", strip=True))
+            if text:
+                summary_candidates.append(text)
+    if summary_candidates:
+        result["summary"] = max(summary_candidates, key=len).rstrip(" £")
+    return result
+
+
 def extract_series_metadata_from_html(url, html_content, title=""):
     """Extrait les metadonnees serie disponibles depuis la fiche catalogue."""
     html_content = html_content or ""
@@ -2547,6 +2726,13 @@ def extract_series_metadata_from_html(url, html_content, title=""):
     )
     if genres:
         metadata["genre"] = metadata_join([metadata["genre"], *genres])
+
+    if get_supported_site_from_url(url) == "scan-manga.com":
+        scanmanga_metadata = extract_scanmanga_series_metadata(soup)
+        for key in ("writer", "penciller", "translator", "genre", "publisher", "year", "month", "day", "status", "summary"):
+            value = scanmanga_metadata.get(key)
+            if value:
+                metadata[key] = value
 
     if not metadata["year"]:
         for candidate in (
@@ -4960,8 +5146,21 @@ class MangaApp:
         )
 
     def _download_preview_pil_image(self, image_url, referer_url, cookie, ua):
+        normalized_url = normalize_image_url(image_url)
+        if normalize_hostname(urlparse(normalized_url).hostname) in {
+            "data.scan-manga.com",
+            "data2.scan-manga.com",
+            "data3.scan-manga.com",
+        }:
+            preview = download_preview_image_with_browser(normalized_url, referer_url, ua or DEFAULT_USER_AGENT)
+            if max(preview.size or (0, 0)) > PREVIEW_MAX_IMAGE_DIMENSION:
+                preview.thumbnail(
+                    (PREVIEW_MAX_IMAGE_DIMENSION, PREVIEW_MAX_IMAGE_DIMENSION),
+                    Image.LANCZOS,
+                )
+            return preview
         headers = self._build_preview_image_headers(image_url, referer_url, cookie, ua)
-        raw = robust_download_image(normalize_image_url(image_url), headers, max_try=3, delay=1)
+        raw = robust_download_image(normalized_url, headers, max_try=3, delay=1)
         with Image.open(BytesIO(raw)) as image:
             image.load()
             if image.mode not in ("RGB", "RGBA"):
