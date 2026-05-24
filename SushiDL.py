@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.8"
+APP_VERSION = "11.15.9"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -899,7 +899,7 @@ IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
 SCANMANGA_BROWSER_LOCK = threading.Lock()
-SCANMANGA_BROWSER_STATE = {"playwright": None, "browser": None, "context": None, "page": None, "ua": ""}
+SCANMANGA_BROWSER_STATES = {}
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -1456,9 +1456,11 @@ def build_scanmanga_image_headers(image_url, chapter_url, cookie="", ua=""):
 
 
 def close_scanmanga_browser_state():
-    """Ferme le navigateur de secours Scan-Manga si ouvert."""
+    """Ferme les navigateurs de secours Scan-Manga ouverts."""
     with SCANMANGA_BROWSER_LOCK:
-        state = SCANMANGA_BROWSER_STATE
+        states = list(SCANMANGA_BROWSER_STATES.values())
+        SCANMANGA_BROWSER_STATES.clear()
+    for state in states:
         for key in ("page", "context", "browser"):
             item = state.get(key)
             if item is not None:
@@ -1466,15 +1468,29 @@ def close_scanmanga_browser_state():
                     item.close()
                 except Exception:
                     pass
-                state[key] = None
         playwright_obj = state.get("playwright")
         if playwright_obj is not None:
             try:
                 playwright_obj.stop()
             except Exception:
                 pass
-            state["playwright"] = None
-        state["ua"] = ""
+
+
+def get_scanmanga_browser_state():
+    """Retourne l'état Playwright Scan-Manga propre au thread courant."""
+    thread_id = threading.get_ident()
+    state = SCANMANGA_BROWSER_STATES.get(thread_id)
+    if state is None:
+        state = {
+            "playwright": None,
+            "browser": None,
+            "context": None,
+            "page": None,
+            "ua": "",
+            "thread_id": thread_id,
+        }
+        SCANMANGA_BROWSER_STATES[thread_id] = state
+    return state
 
 
 def get_scanmanga_browser_page(ua=""):
@@ -1489,7 +1505,7 @@ def get_scanmanga_browser_page(ua=""):
         )
 
     safe_ua = (ua or DEFAULT_USER_AGENT).strip()
-    state = SCANMANGA_BROWSER_STATE
+    state = get_scanmanga_browser_state()
     if state.get("playwright") is None:
         state["playwright"] = sync_playwright().start()
     if state.get("browser") is None:

@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.8`
+Version actuelle : `11.15.9`
 
 ## Ce qui change sur `main`
 
@@ -137,6 +137,10 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.9
+- Scan-Manga :
+  - correction de l'erreur Playwright `cannot switch to a different thread` quand la preview et le téléchargement utilisent des threads différents.
 
 ### 11.15.8
 - Scan-Manga :

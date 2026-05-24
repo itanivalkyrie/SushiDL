@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.9] - 2026-05-24
+
+### Corrections
+- Scan-Manga :
+  - isolation du contexte Playwright par thread pour éviter l'erreur `cannot switch to a different thread`,
+  - la preview peut ouvrir son navigateur sans casser le téléchargement lancé ensuite depuis un worker.
+
 ## [11.15.8] - 2026-05-24
 
 ### Corrections
