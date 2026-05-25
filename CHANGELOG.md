@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.32] - 2026-05-25
+
+### Corrections
+- Scan-Manga :
+  - activation de la preview pour les chapitres Novel en texte,
+  - génération limitée à la première page Novel pour garder l'aperçu rapide,
+  - prise en charge des URLs internes `sushidl-textpage://` dans la fenêtre de preview.
+
 ## [11.15.31] - 2026-05-25
 
 ### Corrections

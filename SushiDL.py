@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.31"
+APP_VERSION = "11.15.32"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3818,7 +3818,7 @@ def _fit_image_to_page(image, max_width, max_height):
     return image.resize(target_size, Image.Resampling.LANCZOS)
 
 
-def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua=""):
+def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua="", max_pages=None):
     """Rend un chapitre Novel Scan-Manga en pages JPG utilisables par le pipeline CBZ."""
     clean_title = normalize_metadata_text(title or "Chapitre texte")
     clean_blocks = []
@@ -3872,6 +3872,13 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
     y = 0
     page_number = 0
     page_has_body = False
+    try:
+        page_limit = max(0, int(max_pages or 0))
+    except (TypeError, ValueError):
+        page_limit = 0
+
+    def page_limit_reached():
+        return bool(page_limit and len(page_bytes) >= page_limit)
 
     def new_page():
         nonlocal page, draw, y, page_number, page_has_body
@@ -3889,7 +3896,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
             y += 48
 
     def save_page():
-        if page is None:
+        if page is None or page_limit_reached():
             return
         footer = f"{page_number}"
         footer_width = _text_width(draw, footer, footer_font)
@@ -3901,10 +3908,14 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
     new_page()
     usable_bottom = height - 110
     for block in clean_blocks:
+        if page_limit_reached():
+            break
         if block["kind"] == "spacer":
             spacer_height = block["height"]
             if y + spacer_height > usable_bottom and page_has_body:
                 save_page()
+                if page_limit_reached():
+                    break
                 new_page()
             y += spacer_height
             continue
@@ -3924,6 +3935,8 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
             image_width, image_height = fitted.size
             if y + image_height + image_gap > usable_bottom and page_has_body:
                 save_page()
+                if page_limit_reached():
+                    break
                 new_page()
             if image_height > usable_bottom - margin_y:
                 fitted = _fit_image_to_page(fitted, max_text_width, usable_bottom - margin_y)
@@ -3946,10 +3959,14 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
         needed = max(1, len(lines)) * line_height + block_gap
         if y + needed > usable_bottom and page_has_body:
             save_page()
+            if page_limit_reached():
+                break
             new_page()
         for line in lines:
             if y + line_height > usable_bottom and page_has_body:
                 save_page()
+                if page_limit_reached():
+                    break
                 new_page()
             line_width = _text_width(draw, line, body_font)
             if align == "center":
@@ -3961,8 +3978,11 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
             _draw_text_with_fallback(draw, (x, y), line, fill=text_color, font=body_font)
             y += line_height
             page_has_body = True
+        if page_limit_reached():
+            break
         y += block_gap
-    save_page()
+    if not page_limit_reached():
+        save_page()
 
     key = _text_page_cache_key(source_url, clean_title, clean_blocks)
     store_text_page_bytes(key, page_bytes)
@@ -4010,7 +4030,14 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
     novel_chapter = extract_scanmanga_novel_chapter(page_html)
     if novel_chapter:
         novel_title, paragraphs = novel_chapter
-        images = render_scanmanga_novel_pages(novel_title, paragraphs, chapter_url, cookie, ua)
+        images = render_scanmanga_novel_pages(
+            novel_title,
+            paragraphs,
+            chapter_url,
+            cookie,
+            ua,
+            max_pages=max_images,
+        )
         if max_images:
             images = images[:max_images]
         if emit_logs:
@@ -6065,6 +6092,19 @@ class MangaApp:
 
     def _download_preview_pil_image(self, image_url, referer_url, cookie, ua):
         normalized_url = normalize_image_url(image_url)
+        if is_text_page_url(normalized_url):
+            raw = get_text_page_bytes(normalized_url)
+            if not raw:
+                raise ValueError("Page texte de preview introuvable en cache.")
+            with Image.open(BytesIO(raw)) as image:
+                image.load()
+                preview = image.convert("RGB").copy()
+            if max(preview.size or (0, 0)) > PREVIEW_MAX_IMAGE_DIMENSION:
+                preview.thumbnail(
+                    (PREVIEW_MAX_IMAGE_DIMENSION, PREVIEW_MAX_IMAGE_DIMENSION),
+                    Image.LANCZOS,
+                )
+            return preview
         if normalize_hostname(urlparse(normalized_url).hostname) in SCANMANGA_IMAGE_HOSTS:
             preview = download_preview_image_with_browser(normalized_url, referer_url, ua or DEFAULT_USER_AGENT)
             if max(preview.size or (0, 0)) > PREVIEW_MAX_IMAGE_DIMENSION:
@@ -6406,6 +6446,7 @@ class MangaApp:
             link = payload.get("link") or ""
             cookie = payload.get("cookie") or ""
             ua = payload.get("ua") or DEFAULT_USER_AGENT
+            preview_page_limit = 1 if get_site_domain_key(link) == "scanmanga" else PREVIEW_PAGE_LIMIT
             image_urls = list(
                 get_images(
                     link,
@@ -6414,7 +6455,7 @@ class MangaApp:
                     retries=2,
                     delay=1,
                     cancel_event=None,
-                    max_images=PREVIEW_PAGE_LIMIT,
+                    max_images=preview_page_limit,
                     emit_logs=False,
                 )
                 or []
@@ -14350,6 +14391,13 @@ def run_self_test():
     image_urls = render_scanmanga_novel_pages(image_chapter[0], image_chapter[1], "local-image-test") if image_chapter else []
     image_page = get_text_page_bytes(image_urls[0]) if image_urls else None
     check("scan-manga novel image rendue", bool(image_page and image_page[:2] == b"\xff\xd8"))
+    limited_urls = render_scanmanga_novel_pages(
+        "Titre limite",
+        [{"kind": "text", "text": "Long texte de preview. " * 300, "align": "left"}],
+        "local-preview-limit",
+        max_pages=1,
+    )
+    check("scan-manga novel preview limite", len(limited_urls) == 1 and bool(get_text_page_bytes(limited_urls[0])))
 
     failed = [(name, detail) for name, ok, detail in checks if not ok]
     for name, ok, detail in checks:

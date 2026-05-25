@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.32
+- Scan-Manga :
+  - preview des chapitres Novel en générant uniquement la première page texte en image,
+  - la fenêtre de preview sait maintenant afficher les pages internes `sushidl-textpage://`.
+
 ### 11.15.31
 - Scan-Manga :
   - correction des deux-points et ponctuations de fin de ligne dans le rendu Novel,
