@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.29
+- Scan-Manga :
+  - rendu Novel plus lisible avec police serif, espacements HTML et paragraphes mieux séparés,
+  - évite les pages de titre seules quand le contenu peut continuer sur la même page.
+
 ### 11.15.28
 - Scan-Manga :
   - validation sur un vrai chapitre Novel contenant une image intégrée,

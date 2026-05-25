@@ -665,7 +665,7 @@ def _text_block_align(block):
 def _text_block_kind(block):
     if isinstance(block, dict):
         kind = str(block.get("kind") or "text").strip().lower()
-        return kind if kind in {"text", "image"} else "text"
+        return kind if kind in {"text", "image", "spacer"} else "text"
     return "text"
 
 
@@ -674,6 +674,8 @@ def _text_page_cache_key(source_url, title, paragraphs):
     for block in paragraphs or []:
         if _text_block_kind(block) == "image" and isinstance(block, dict):
             block_payload.append(f"image:{_text_block_align(block)}:{block.get('src', '')}")
+        elif _text_block_kind(block) == "spacer" and isinstance(block, dict):
+            block_payload.append(f"spacer:{block.get('height', '')}")
         else:
             block_payload.append(f"text:{_text_block_align(block)}:{_text_block_text(block)}")
     payload = "\n".join([(source_url or "").strip(), (title or "").strip(), "\n".join(block_payload)])
@@ -955,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.28"
+APP_VERSION = "11.15.29"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3539,6 +3541,9 @@ def extract_scanmanga_novel_chapter(html_content):
         seen.add(dedupe_key)
         blocks.append({"kind": "text", "text": text, "align": align if align in {"left", "center", "right"} else "left"})
 
+    def add_spacer(height=24):
+        blocks.append({"kind": "spacer", "height": max(8, min(80, int(height or 24)))})
+
     def image_source(node):
         if not node or not hasattr(node, "get"):
             return ""
@@ -3573,6 +3578,7 @@ def extract_scanmanga_novel_chapter(html_content):
     for child in content_node.children:
         child_name = getattr(child, "name", None)
         if child_name == "br":
+            add_spacer(18)
             continue
         if child_name == "center":
             for img in child.find_all("img", recursive=True):
@@ -3585,7 +3591,11 @@ def extract_scanmanga_novel_chapter(html_content):
         if child_name in {"p", "h1", "h2", "h3", "blockquote", "li"}:
             for img in child.find_all("img", recursive=True):
                 add_image(img, node_align(child))
-            add_block(child.get_text(" ", strip=True), node_align(child))
+            text = child.get_text(" ", strip=True)
+            if text:
+                add_block(text, node_align(child))
+            elif not child.find_all("img", recursive=True):
+                add_spacer(18)
             continue
         if child_name:
             for img in child.find_all("img", recursive=True):
@@ -3608,12 +3618,13 @@ def extract_scanmanga_novel_chapter(html_content):
 
 def _load_text_render_font(size, bold=False):
     font_candidates = [
-        r"C:\Windows\Fonts\ARIALUNI.ttf",
-        r"C:\Windows\Fonts\NotoSerif-Bold.ttf" if bold else r"C:\Windows\Fonts\NotoSerif-Regular.ttf",
         r"C:\Windows\Fonts\DejaVuSerif-Bold.ttf" if bold else r"C:\Windows\Fonts\DejaVuSerif.ttf",
+        r"C:\Windows\Fonts\NotoSerif-Bold.ttf" if bold else r"C:\Windows\Fonts\NotoSerif-Regular.ttf",
         r"C:\Windows\Fonts\georgiab.ttf" if bold else r"C:\Windows\Fonts\georgia.ttf",
+        r"C:\Windows\Fonts\cambria.ttc",
         r"C:\Windows\Fonts\timesbd.ttf" if bold else r"C:\Windows\Fonts\times.ttf",
         r"C:\Windows\Fonts\seguisym.ttf",
+        r"C:\Windows\Fonts\ARIALUNI.ttf",
         r"C:\Windows\Fonts\arialbd.ttf" if bold else r"C:\Windows\Fonts\arial.ttf",
     ]
     for font_path in font_candidates:
@@ -3764,6 +3775,13 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
                     }
                 )
             continue
+        if _text_block_kind(block) == "spacer" and isinstance(block, dict):
+            try:
+                spacer_height = int(block.get("height") or 24)
+            except (TypeError, ValueError):
+                spacer_height = 24
+            clean_blocks.append({"kind": "spacer", "height": max(8, min(80, spacer_height))})
+            continue
         text = _text_block_text(block)
         if text:
             clean_blocks.append({"kind": "text", "text": text, "align": _text_block_align(block)})
@@ -3777,25 +3795,27 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
     text_color = (32, 32, 32)
     rule_color = (202, 190, 171)
     title_font = _load_text_render_font(42, bold=True)
-    body_font = _load_text_render_font(32, bold=False)
+    body_font = _load_text_render_font(30, bold=False)
     footer_font = _load_text_render_font(20, bold=False)
     max_text_width = width - (margin_x * 2)
-    line_height = 43
-    paragraph_gap = 20
-    centered_paragraph_gap = 26
-    image_gap = 28
+    line_height = 42
+    paragraph_gap = 24
+    centered_paragraph_gap = 34
+    image_gap = 34
     page_bytes = []
     page = None
     draw = None
     y = 0
     page_number = 0
+    page_has_body = False
 
     def new_page():
-        nonlocal page, draw, y, page_number
+        nonlocal page, draw, y, page_number, page_has_body
         page_number += 1
         page = Image.new("RGB", (width, height), background)
         draw = ImageDraw.Draw(page)
         y = margin_y
+        page_has_body = False
         if page_number == 1:
             title_lines = _wrap_text_for_width(draw, clean_title, title_font, max_text_width)
             for line in title_lines[:4]:
@@ -3817,6 +3837,13 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
     new_page()
     usable_bottom = height - 110
     for block in clean_blocks:
+        if block["kind"] == "spacer":
+            spacer_height = block["height"]
+            if y + spacer_height > usable_bottom and page_has_body:
+                save_page()
+                new_page()
+            y += spacer_height
+            continue
         if block["kind"] == "image":
             try:
                 source_image = _load_scanmanga_novel_image(block["src"], source_url, cookie, ua)
@@ -3831,7 +3858,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
                 )
                 continue
             image_width, image_height = fitted.size
-            if y + image_height + image_gap > usable_bottom and y > margin_y + 40:
+            if y + image_height + image_gap > usable_bottom and page_has_body:
                 save_page()
                 new_page()
             if image_height > usable_bottom - margin_y:
@@ -3846,17 +3873,18 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
                 x = max(margin_x, int((width - image_width) / 2))
             page.paste(fitted, (int(x), int(y)))
             y += image_height + image_gap
+            page_has_body = True
             continue
         paragraph = block["text"]
         align = block["align"]
         lines = _wrap_text_for_width(draw, paragraph, body_font, max_text_width)
         block_gap = centered_paragraph_gap if align == "center" else paragraph_gap
         needed = max(1, len(lines)) * line_height + block_gap
-        if y + needed > usable_bottom and y > margin_y + 40:
+        if y + needed > usable_bottom and page_has_body:
             save_page()
             new_page()
         for line in lines:
-            if y + line_height > usable_bottom:
+            if y + line_height > usable_bottom and page_has_body:
                 save_page()
                 new_page()
             line_width = _text_width(draw, line, body_font)
@@ -3868,6 +3896,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
                 x = margin_x
             draw.text((x, y), line, fill=text_color, font=body_font)
             y += line_height
+            page_has_body = True
         y += block_gap
     save_page()
 

@@ -7,6 +7,15 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.29] - 2026-05-25
+
+### Corrections
+- Scan-Manga :
+  - amélioration de la mise en page des chapitres Novel générés en JPG,
+  - retour à une police serif plus proche du lecteur Novel,
+  - conservation de certains espacements HTML (`br`, paragraphes vides),
+  - évite les pages de titre isolées quand le contenu peut tenir sur la première page.
+
 ## [11.15.28] - 2026-05-25
 
 ### Corrections
