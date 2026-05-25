@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.31] - 2026-05-25
+
+### Corrections
+- Scan-Manga :
+  - conservation de la ponctuation source dans le rendu Novel, notamment les deux-points,
+  - ajout d'une police de secours pour les symboles (`☆☆☆`, `◇`, chiffres cerclés),
+  - centrage par défaut des images intégrées aux chapitres Novel.
+
 ## [11.15.30] - 2026-05-25
 
 ### Corrections

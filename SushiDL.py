@@ -651,8 +651,8 @@ def is_text_page_url(url):
 
 def _text_block_text(block):
     if isinstance(block, dict):
-        return normalize_metadata_text(block.get("text", ""))
-    return normalize_metadata_text(block)
+        return normalize_novel_text(block.get("text", ""))
+    return normalize_novel_text(block)
 
 
 def _text_block_align(block):
@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.30"
+APP_VERSION = "11.15.31"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2747,6 +2747,12 @@ def normalize_metadata_text(value):
     return text
 
 
+def normalize_novel_text(value):
+    """Nettoie un texte Novel sans supprimer sa ponctuation source."""
+    text = repair_mojibake_text(strip_html_tags(html.unescape(str(value or ""))))
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def split_metadata_values(value):
     """Decoupe une valeur auteur/genre tout en gardant l'ordre source."""
     text = normalize_metadata_text(value)
@@ -3511,7 +3517,7 @@ def extract_scanmanga_novel_chapter(html_content):
         return None
 
     title_node = article.select_one(".ln_c_title")
-    title = normalize_metadata_text(title_node.get_text(" ", strip=True) if title_node else "")
+    title = normalize_novel_text(title_node.get_text(" ", strip=True) if title_node else "")
     blocks = []
     seen = set()
 
@@ -3532,7 +3538,7 @@ def extract_scanmanga_novel_chapter(html_content):
         return "left"
 
     def add_block(text, align="left"):
-        text = normalize_metadata_text(text)
+        text = normalize_novel_text(text)
         if not text:
             return
         dedupe_key = text.lower()
@@ -3561,7 +3567,8 @@ def extract_scanmanga_novel_chapter(html_content):
         src = image_source(node)
         if not src:
             return
-        alt = normalize_metadata_text(node.get("alt", "") if hasattr(node, "get") else "")
+        alt = normalize_novel_text(node.get("alt", "") if hasattr(node, "get") else "")
+        final_align = align if align in {"center", "right"} else "center"
         dedupe_key = f"image:{src}".lower()
         if dedupe_key in seen:
             return
@@ -3571,7 +3578,7 @@ def extract_scanmanga_novel_chapter(html_content):
                 "kind": "image",
                 "src": src,
                 "alt": alt,
-                "align": align if align in {"left", "center", "right"} else "center",
+                "align": final_align,
             }
         )
 
@@ -3597,7 +3604,7 @@ def extract_scanmanga_novel_chapter(html_content):
             add_spacer(18)
 
     if not blocks:
-        raw_text = normalize_metadata_text(content_node.get_text("\n", strip=True))
+        raw_text = normalize_novel_text(content_node.get_text("\n", strip=True))
         blocks = [{"text": line.strip(), "align": "left"} for line in raw_text.splitlines() if line.strip()]
 
     total_text_len = sum(len(_text_block_text(block)) for block in blocks if _text_block_kind(block) == "text")
@@ -3627,6 +3634,58 @@ def _load_text_render_font(size, bold=False):
     return ImageFont.load_default()
 
 
+def _load_text_symbol_font(size):
+    font_candidates = [
+        r"C:\Windows\Fonts\seguisym.ttf",
+        r"C:\Windows\Fonts\SegoeIcons.ttf",
+        r"C:\Windows\Fonts\ARIALUNI.ttf",
+        r"C:\Windows\Fonts\DejaVuSans.ttf",
+    ]
+    for font_path in font_candidates:
+        try:
+            if font_path and os.path.exists(font_path):
+                return ImageFont.truetype(font_path, size=size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _font_size(font):
+    return int(getattr(font, "size", 30) or 30)
+
+
+def _is_symbol_char(char):
+    if not char:
+        return False
+    if char in "☆★◇◆○●◎◯□■△▲▽▼①②③④⑤⑥⑦⑧⑨⑩":
+        return True
+    return unicodedata.category(char) in {"So", "Sm"}
+
+
+def _font_for_char(char, font):
+    if _is_symbol_char(char):
+        return _load_text_symbol_font(_font_size(font))
+    return font
+
+
+def _split_font_runs(text, font):
+    runs = []
+    current_font = None
+    current_text = []
+    for char in str(text or ""):
+        char_font = _font_for_char(char, font)
+        if current_font is not None and getattr(char_font, "path", None) == getattr(current_font, "path", None):
+            current_text.append(char)
+            continue
+        if current_text:
+            runs.append(("".join(current_text), current_font))
+        current_font = char_font
+        current_text = [char]
+    if current_text:
+        runs.append(("".join(current_text), current_font))
+    return runs
+
+
 def _text_bbox(draw, text, font):
     try:
         return draw.textbbox((0, 0), text, font=font)
@@ -3636,8 +3695,18 @@ def _text_bbox(draw, text, font):
 
 
 def _text_width(draw, text, font):
-    bbox = _text_bbox(draw, text, font)
-    return max(0, bbox[2] - bbox[0])
+    total = 0
+    for run_text, run_font in _split_font_runs(text, font):
+        bbox = _text_bbox(draw, run_text, run_font)
+        total += max(0, bbox[2] - bbox[0])
+    return total
+
+
+def _draw_text_with_fallback(draw, xy, text, fill, font):
+    x, y = xy
+    for run_text, run_font in _split_font_runs(text, font):
+        draw.text((x, y), run_text, fill=fill, font=run_font)
+        x += _text_width(draw, run_text, run_font)
 
 
 def _wrap_text_for_width(draw, text, font, max_width):
@@ -3761,7 +3830,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
                     {
                         "kind": "image",
                         "src": src,
-                        "alt": normalize_metadata_text(block.get("alt", "")),
+                        "alt": normalize_novel_text(block.get("alt", "")),
                         "align": _text_block_align(block) or "center",
                     }
                 )
@@ -3814,7 +3883,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
         if page_number == 1:
             title_lines = _wrap_text_for_width(draw, clean_title, title_font, max_text_width)
             for line in title_lines[:4]:
-                draw.text((margin_x, y), line, fill=title_color, font=title_font)
+                _draw_text_with_fallback(draw, (margin_x, y), line, fill=title_color, font=title_font)
                 y += 56
             draw.line((margin_x, y + 8, width - margin_x, y + 8), fill=rule_color, width=2)
             y += 48
@@ -3824,7 +3893,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
             return
         footer = f"{page_number}"
         footer_width = _text_width(draw, footer, footer_font)
-        draw.text(((width - footer_width) / 2, height - 62), footer, fill=(110, 110, 110), font=footer_font)
+        _draw_text_with_fallback(draw, ((width - footer_width) / 2, height - 62), footer, fill=(110, 110, 110), font=footer_font)
         buffer = BytesIO()
         page.save(buffer, "JPEG", quality=92, optimize=True)
         page_bytes.append(buffer.getvalue())
@@ -3860,9 +3929,9 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
                 fitted = _fit_image_to_page(fitted, max_text_width, usable_bottom - margin_y)
                 image_width, image_height = fitted.size
             align = block["align"]
-            if align == "left":
+            if align == "left" and block.get("explicit_align"):
                 x = margin_x
-            elif align == "right":
+            elif align == "right" and block.get("explicit_align"):
                 x = max(margin_x, width - margin_x - image_width)
             else:
                 x = max(margin_x, int((width - image_width) / 2))
@@ -3889,7 +3958,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
                 x = max(margin_x, width - margin_x - line_width)
             else:
                 x = margin_x
-            draw.text((x, y), line, fill=text_color, font=body_font)
+            _draw_text_with_fallback(draw, (x, y), line, fill=text_color, font=body_font)
             y += line_height
             page_has_body = True
         y += block_gap
@@ -14255,6 +14324,17 @@ def run_self_test():
         "scan-manga novel alignement centre",
         bool(centered_chapter and centered_chapter[1][0].get("align") == "center"),
     )
+    punctuation_chapter = extract_scanmanga_novel_chapter(
+        """
+        <article class="aLN"><h2 class="ln_c_title">Titre ③</h2><div class="ln_c_content">
+          <p>Phrase avant citation :</p><p>Texte assez long pour que le mode Novel soit valide et conserve la ponctuation finale.</p>
+        </div></article>
+        """
+    )
+    check(
+        "scan-manga novel ponctuation conservee",
+        bool(punctuation_chapter and punctuation_chapter[1][0].get("text", "").endswith(":")),
+    )
     image_buffer = BytesIO()
     Image.new("RGB", (320, 160), (40, 120, 220)).save(image_buffer, "PNG")
     data_image = "data:image/png;base64," + base64.b64encode(image_buffer.getvalue()).decode("ascii")
@@ -14266,6 +14346,7 @@ def run_self_test():
     """
     image_chapter = extract_scanmanga_novel_chapter(scanmanga_novel_image_html)
     check("scan-manga novel image detectee", bool(image_chapter and image_chapter[1][-1].get("kind") == "image"))
+    check("scan-manga novel image centree", bool(image_chapter and image_chapter[1][-1].get("align") == "center"))
     image_urls = render_scanmanga_novel_pages(image_chapter[0], image_chapter[1], "local-image-test") if image_chapter else []
     image_page = get_text_page_bytes(image_urls[0]) if image_urls else None
     check("scan-manga novel image rendue", bool(image_page and image_page[:2] == b"\xff\xd8"))

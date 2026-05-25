@@ -138,6 +138,12 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.31
+- Scan-Manga :
+  - correction des deux-points et ponctuations de fin de ligne dans le rendu Novel,
+  - rendu des symboles Novel (`☆☆☆`, `◇`, chiffres cerclés) avec police de secours,
+  - centrage par défaut des images intégrées au texte Novel.
+
 ### 11.15.30
 - Scan-Manga :
   - correction de la détection Novel sur les pages live dont le HTML est mal imbriqué autour des balises `<br>`,
