@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.28
+- Scan-Manga :
+  - validation sur un vrai chapitre Novel contenant une image intégrée,
+  - chargement des images Novel depuis les exports HTML locaux en plus des URLs web.
+
 ### 11.15.27
 - Scan-Manga :
   - les images présentes dans les chapitres Novel sont intégrées au rendu CBZ avec le texte,

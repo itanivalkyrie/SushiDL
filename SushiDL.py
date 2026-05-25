@@ -955,7 +955,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.27"
+APP_VERSION = "11.15.28"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3675,6 +3675,15 @@ def _resolve_scanmanga_novel_image_url(src, source_url=""):
         return f"https:{value}"
     if value.startswith("data:image/"):
         return value
+    source_text = str(source_url or "").strip()
+    is_windows_path = bool(re.match(r"^[A-Za-z]:[\\/]", source_text))
+    if source_text and (is_windows_path or os.path.exists(source_text) or not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", source_text)):
+        try:
+            base_path = Path(source_text)
+            base_dir = base_path.parent if base_path.suffix else base_path
+            return str((base_dir / value).resolve())
+        except Exception:
+            pass
     return urljoin(source_url or "https://www.scan-manga.com/", value)
 
 
@@ -3691,19 +3700,31 @@ def _load_scanmanga_novel_image(src, source_url="", cookie="", ua=""):
         else:
             raw = unquote(payload).encode("latin-1", errors="ignore")
     else:
-        image_host = normalize_hostname(urlparse(image_url).hostname)
-        if image_host in SCANMANGA_IMAGE_HOSTS:
-            result = fetch_scanmanga_image_with_browser(image_url, source_url, ua or DEFAULT_USER_AGENT)
-            raw = base64.b64decode((result or {}).get("body") or "")
+        if os.path.exists(image_url):
+            raw = Path(image_url).read_bytes()
         else:
-            headers = build_request_headers(
-                image_url,
-                cookie,
-                ua or DEFAULT_USER_AGENT,
-                accept="image/avif,image/webp,image/jpeg,image/png,*/*;q=0.8",
-                referer_url=source_url or get_site_root_url(image_url) or "https://www.scan-manga.com/",
-            )
-            raw = robust_download_image(image_url, headers, max_try=2, delay=1)
+            parsed_image = urlparse(image_url)
+            if parsed_image.scheme == "file":
+                file_path = parsed_image.path
+                if os.name == "nt" and re.match(r"^/[A-Za-z]:/", file_path):
+                    file_path = file_path[1:]
+                raw = Path(unquote(file_path)).read_bytes()
+            elif not parsed_image.scheme and os.path.exists(image_url):
+                raw = Path(image_url).read_bytes()
+            else:
+                image_host = normalize_hostname(parsed_image.hostname)
+                if image_host in SCANMANGA_IMAGE_HOSTS:
+                    result = fetch_scanmanga_image_with_browser(image_url, source_url, ua or DEFAULT_USER_AGENT)
+                    raw = base64.b64decode((result or {}).get("body") or "")
+                else:
+                    headers = build_request_headers(
+                        image_url,
+                        cookie,
+                        ua or DEFAULT_USER_AGENT,
+                        accept="image/avif,image/webp,image/jpeg,image/png,*/*;q=0.8",
+                        referer_url=source_url or get_site_root_url(image_url) or "https://www.scan-manga.com/",
+                    )
+                    raw = robust_download_image(image_url, headers, max_try=2, delay=1)
     image = Image.open(BytesIO(raw))
     image = ImageOps.exif_transpose(image)
     if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
