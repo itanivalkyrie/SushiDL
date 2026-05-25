@@ -662,10 +662,20 @@ def _text_block_align(block):
     return "left"
 
 
+def _text_block_kind(block):
+    if isinstance(block, dict):
+        kind = str(block.get("kind") or "text").strip().lower()
+        return kind if kind in {"text", "image"} else "text"
+    return "text"
+
+
 def _text_page_cache_key(source_url, title, paragraphs):
     block_payload = []
     for block in paragraphs or []:
-        block_payload.append(f"{_text_block_align(block)}:{_text_block_text(block)}")
+        if _text_block_kind(block) == "image" and isinstance(block, dict):
+            block_payload.append(f"image:{_text_block_align(block)}:{block.get('src', '')}")
+        else:
+            block_payload.append(f"text:{_text_block_align(block)}:{_text_block_text(block)}")
     payload = "\n".join([(source_url or "").strip(), (title or "").strip(), "\n".join(block_payload)])
     return hashlib.sha1(payload.encode("utf-8", errors="replace")).hexdigest()[:20]
 
@@ -945,7 +955,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.26"
+APP_VERSION = "11.15.27"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3527,19 +3537,59 @@ def extract_scanmanga_novel_chapter(html_content):
         if dedupe_key in seen:
             return
         seen.add(dedupe_key)
-        blocks.append({"text": text, "align": align if align in {"left", "center", "right"} else "left"})
+        blocks.append({"kind": "text", "text": text, "align": align if align in {"left", "center", "right"} else "left"})
+
+    def image_source(node):
+        if not node or not hasattr(node, "get"):
+            return ""
+        for attr in ("data-src", "data-original", "data-lazy-src", "src"):
+            value = str(node.get(attr) or "").strip()
+            if value:
+                return value
+        srcset = str(node.get("srcset") or node.get("data-srcset") or "").strip()
+        if srcset:
+            first_candidate = srcset.split(",", 1)[0].strip()
+            return first_candidate.split(" ", 1)[0].strip()
+        return ""
+
+    def add_image(node, align="center"):
+        src = image_source(node)
+        if not src:
+            return
+        alt = normalize_metadata_text(node.get("alt", "") if hasattr(node, "get") else "")
+        dedupe_key = f"image:{src}".lower()
+        if dedupe_key in seen:
+            return
+        seen.add(dedupe_key)
+        blocks.append(
+            {
+                "kind": "image",
+                "src": src,
+                "alt": alt,
+                "align": align if align in {"left", "center", "right"} else "center",
+            }
+        )
 
     for child in content_node.children:
         child_name = getattr(child, "name", None)
         if child_name == "br":
             continue
         if child_name == "center":
+            for img in child.find_all("img", recursive=True):
+                add_image(img, "center")
             add_block(child.get_text(" ", strip=True), "center")
             continue
+        if child_name == "img":
+            add_image(child, node_align(child))
+            continue
         if child_name in {"p", "h1", "h2", "h3", "blockquote", "li"}:
+            for img in child.find_all("img", recursive=True):
+                add_image(img, node_align(child))
             add_block(child.get_text(" ", strip=True), node_align(child))
             continue
         if child_name:
+            for img in child.find_all("img", recursive=True):
+                add_image(img, node_align(img))
             for node in child.find_all(["p", "h1", "h2", "h3", "blockquote", "li"], recursive=True):
                 add_block(node.get_text(" ", strip=True), node_align(node))
             continue
@@ -3549,8 +3599,9 @@ def extract_scanmanga_novel_chapter(html_content):
         raw_text = normalize_metadata_text(content_node.get_text("\n", strip=True))
         blocks = [{"text": line.strip(), "align": "left"} for line in raw_text.splitlines() if line.strip()]
 
-    total_text_len = sum(len(_text_block_text(block)) for block in blocks)
-    if total_text_len < 80:
+    total_text_len = sum(len(_text_block_text(block)) for block in blocks if _text_block_kind(block) == "text")
+    image_count = sum(1 for block in blocks if _text_block_kind(block) == "image")
+    if total_text_len < 80 and not image_count:
         return None
     return title or "Chapitre texte", blocks
 
@@ -3616,14 +3667,85 @@ def _wrap_text_for_width(draw, text, font, max_width):
     return lines
 
 
-def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
+def _resolve_scanmanga_novel_image_url(src, source_url=""):
+    value = str(src or "").strip()
+    if not value:
+        return ""
+    if value.startswith("//"):
+        return f"https:{value}"
+    if value.startswith("data:image/"):
+        return value
+    return urljoin(source_url or "https://www.scan-manga.com/", value)
+
+
+def _load_scanmanga_novel_image(src, source_url="", cookie="", ua=""):
+    image_url = _resolve_scanmanga_novel_image_url(src, source_url)
+    if not image_url:
+        return None
+    if image_url.startswith("data:image/"):
+        header, _, payload = image_url.partition(",")
+        if not payload:
+            return None
+        if ";base64" in header.lower():
+            raw = base64.b64decode(payload)
+        else:
+            raw = unquote(payload).encode("latin-1", errors="ignore")
+    else:
+        image_host = normalize_hostname(urlparse(image_url).hostname)
+        if image_host in SCANMANGA_IMAGE_HOSTS:
+            result = fetch_scanmanga_image_with_browser(image_url, source_url, ua or DEFAULT_USER_AGENT)
+            raw = base64.b64decode((result or {}).get("body") or "")
+        else:
+            headers = build_request_headers(
+                image_url,
+                cookie,
+                ua or DEFAULT_USER_AGENT,
+                accept="image/avif,image/webp,image/jpeg,image/png,*/*;q=0.8",
+                referer_url=source_url or get_site_root_url(image_url) or "https://www.scan-manga.com/",
+            )
+            raw = robust_download_image(image_url, headers, max_try=2, delay=1)
+    image = Image.open(BytesIO(raw))
+    image = ImageOps.exif_transpose(image)
+    if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+        bg = Image.new("RGB", image.size, (253, 250, 244))
+        bg.paste(image.convert("RGBA"), mask=image.convert("RGBA").split()[-1])
+        return bg
+    return image.convert("RGB")
+
+
+def _fit_image_to_page(image, max_width, max_height):
+    if image is None:
+        return None
+    width, height = image.size
+    if width <= 0 or height <= 0:
+        return None
+    scale = min(max_width / width, max_height / height, 1.0)
+    target_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+    if target_size == image.size:
+        return image
+    return image.resize(target_size, Image.Resampling.LANCZOS)
+
+
+def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua=""):
     """Rend un chapitre Novel Scan-Manga en pages JPG utilisables par le pipeline CBZ."""
     clean_title = normalize_metadata_text(title or "Chapitre texte")
     clean_blocks = []
     for block in paragraphs or []:
+        if _text_block_kind(block) == "image" and isinstance(block, dict):
+            src = _resolve_scanmanga_novel_image_url(block.get("src", ""), source_url)
+            if src:
+                clean_blocks.append(
+                    {
+                        "kind": "image",
+                        "src": src,
+                        "alt": normalize_metadata_text(block.get("alt", "")),
+                        "align": _text_block_align(block) or "center",
+                    }
+                )
+            continue
         text = _text_block_text(block)
         if text:
-            clean_blocks.append({"text": text, "align": _text_block_align(block)})
+            clean_blocks.append({"kind": "text", "text": text, "align": _text_block_align(block)})
     if not clean_blocks:
         return []
 
@@ -3640,6 +3762,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
     line_height = 43
     paragraph_gap = 20
     centered_paragraph_gap = 26
+    image_gap = 28
     page_bytes = []
     page = None
     draw = None
@@ -3673,6 +3796,36 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
     new_page()
     usable_bottom = height - 110
     for block in clean_blocks:
+        if block["kind"] == "image":
+            try:
+                source_image = _load_scanmanga_novel_image(block["src"], source_url, cookie, ua)
+                fitted = _fit_image_to_page(source_image, max_text_width, usable_bottom - margin_y)
+                if fitted is None:
+                    continue
+            except Exception as exc:
+                runtime_log(
+                    f"Image Novel Scan-Manga ignorée: {exc}",
+                    level="warning",
+                    context={"action": "novel_image", "url": block.get("src", "")},
+                )
+                continue
+            image_width, image_height = fitted.size
+            if y + image_height + image_gap > usable_bottom and y > margin_y + 40:
+                save_page()
+                new_page()
+            if image_height > usable_bottom - margin_y:
+                fitted = _fit_image_to_page(fitted, max_text_width, usable_bottom - margin_y)
+                image_width, image_height = fitted.size
+            align = block["align"]
+            if align == "left":
+                x = margin_x
+            elif align == "right":
+                x = max(margin_x, width - margin_x - image_width)
+            else:
+                x = max(margin_x, int((width - image_width) / 2))
+            page.paste(fitted, (int(x), int(y)))
+            y += image_height + image_gap
+            continue
         paragraph = block["text"]
         align = block["align"]
         lines = _wrap_text_for_width(draw, paragraph, body_font, max_text_width)
@@ -3743,7 +3896,7 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
     novel_chapter = extract_scanmanga_novel_chapter(page_html)
     if novel_chapter:
         novel_title, paragraphs = novel_chapter
-        images = render_scanmanga_novel_pages(novel_title, paragraphs, chapter_url)
+        images = render_scanmanga_novel_pages(novel_title, paragraphs, chapter_url, cookie, ua)
         if max_images:
             images = images[:max_images]
         if emit_logs:
@@ -14057,6 +14210,20 @@ def run_self_test():
         "scan-manga novel alignement centre",
         bool(centered_chapter and centered_chapter[1][0].get("align") == "center"),
     )
+    image_buffer = BytesIO()
+    Image.new("RGB", (320, 160), (40, 120, 220)).save(image_buffer, "PNG")
+    data_image = "data:image/png;base64," + base64.b64encode(image_buffer.getvalue()).decode("ascii")
+    scanmanga_novel_image_html = f"""
+    <article class="aLN">
+      <h2 class="ln_c_title">Titre image</h2>
+      <div class="ln_c_content"><p>Intro avant image suffisamment longue pour activer le rendu Novel.</p><center><img src="{data_image}" alt="image test"/></center></div>
+    </article>
+    """
+    image_chapter = extract_scanmanga_novel_chapter(scanmanga_novel_image_html)
+    check("scan-manga novel image detectee", bool(image_chapter and image_chapter[1][-1].get("kind") == "image"))
+    image_urls = render_scanmanga_novel_pages(image_chapter[0], image_chapter[1], "local-image-test") if image_chapter else []
+    image_page = get_text_page_bytes(image_urls[0]) if image_urls else None
+    check("scan-manga novel image rendue", bool(image_page and image_page[:2] == b"\xff\xd8"))
 
     failed = [(name, detail) for name, ok, detail in checks if not ok]
     for name, ok, detail in checks:

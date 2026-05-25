@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.27] - 2026-05-25
+
+### Ameliorations
+- Scan-Manga :
+  - intégration des images contenues dans les chapitres Novel au rendu JPG/CBZ,
+  - prise en charge des images relatives, lazy-load et `srcset` dans `.ln_c_content`,
+  - conservation de l'alignement des images dans le flux texte.
+
 ## [11.15.26] - 2026-05-25
 
 ### Ameliorations

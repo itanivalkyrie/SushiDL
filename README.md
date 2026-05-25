@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.27
+- Scan-Manga :
+  - les images présentes dans les chapitres Novel sont intégrées au rendu CBZ avec le texte,
+  - support des images relatives, lazy-load et `srcset` dans le contenu `.ln_c_content`.
+
 ### 11.15.26
 - Scan-Manga :
   - rendu Novel plus fidèle au HTML source avec conservation des blocs centrés,
