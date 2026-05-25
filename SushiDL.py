@@ -247,6 +247,15 @@ def normalize_tome_label(label):
 
     number_pattern = r"([0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)"
 
+    tome_composite_match = re.match(
+        rf"(?i)^(?:tome|volume)\s*[-._:# ]*{number_pattern}(?:\s*\([^)]*\))?\s*[-–—:]\s*(.+)$",
+        cleaned,
+    )
+    if tome_composite_match:
+        tome_number = tome_composite_match.group(1).replace(",", ".").strip()
+        child_label = normalize_tome_label(tome_composite_match.group(2))
+        return f"Tome {tome_number} - {child_label or tome_composite_match.group(2).strip()}".strip()
+
     chapter_match = re.match(
         rf"(?i)^(?:ep|episode|chapitre|chapter)\s*[-._:# ]*\s*{number_pattern}\b",
         cleaned,
@@ -851,7 +860,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.18"
+APP_VERSION = "11.15.19"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -898,7 +907,7 @@ CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
 ANALYSIS_CACHE_LOCK = threading.Lock()
 ANALYSIS_CACHE_MEMORY = None
-ANALYSIS_CACHE_SCHEMA_VERSION = 2
+ANALYSIS_CACHE_SCHEMA_VERSION = 3
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -3134,6 +3143,39 @@ def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
     if not chapter_anchors:
         chapter_anchors = soup.select('a[href*="/lecture-en-ligne/"]')
 
+    def scanmanga_volume_label(anchor):
+        volume_node = anchor.find_parent(class_=lambda value: value and "volume_manga" in str(value).split())
+        if volume_node is None:
+            return ""
+        title_node = volume_node.select_one(".titre_volume_manga h3")
+        raw_title = title_node.get_text(" ", strip=True) if title_node else ""
+        return normalize_tome_label(raw_title)
+
+    def scanmanga_chapter_text(anchor, fallback_label):
+        chapter_node = anchor.find_parent(class_=lambda value: value and "chapitre_nom" in str(value).split())
+        raw_text = chapter_node.get_text(" ", strip=True) if chapter_node else anchor.get_text(" ", strip=True)
+        raw_text = normalize_metadata_text(raw_text)
+        fallback = normalize_tome_label(fallback_label or raw_text)
+        fallback_lower = fallback.lower()
+        if raw_text and (fallback_lower in {"chapitre", "chapitre extra"} or fallback_lower.startswith("chapitre extra.")):
+            return normalize_tome_label(raw_text)
+        return fallback
+
+    def scanmanga_display_label(anchor, full_link):
+        path_name = urlparse(full_link).path.rsplit("/", 1)[-1]
+        match_label = re.search(r"-Chapitre-([^_]+?)-FR_", path_name, flags=re.IGNORECASE)
+        if match_label:
+            url_label = normalize_tome_label(f"Chapitre {match_label.group(1).replace('-', '.')}")
+        else:
+            url_label = ""
+        chapter_label = scanmanga_chapter_text(anchor, url_label)
+        if not chapter_label:
+            chapter_label = "Chapitre"
+        volume_label = scanmanga_volume_label(anchor)
+        if volume_label:
+            return normalize_tome_label(f"{volume_label} - {chapter_label}"), volume_label, chapter_label
+        return chapter_label, "", chapter_label
+
     for a in chapter_anchors:
         href = (a.get("href") or "").strip()
         full_link = urljoin(source_root, href)
@@ -3143,18 +3185,15 @@ def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
             continue
         seen_links.add(full_link)
 
-        path_name = urlparse(full_link).path.rsplit("/", 1)[-1]
-        match_label = re.search(r"-Chapitre-([^_]+?)-FR_", path_name, flags=re.IGNORECASE)
-        if match_label:
-            label = normalize_tome_label(f"Chapitre {match_label.group(1).replace('-', '.')}")
-        else:
-            label = normalize_tome_label(a.get_text(" ", strip=True))
-        if not label:
-            label = "Chapitre"
+        label, volume_label, chapter_label = scanmanga_display_label(a, full_link)
 
         pairs.append((label, full_link))
         match_id = chapter_pattern.match(full_link)
-        metadata[full_link] = {"chapter_id": int(match_id.group(1)) if match_id else None}
+        metadata[full_link] = {
+            "chapter_id": int(match_id.group(1)) if match_id else None,
+            "volume_label": volume_label,
+            "chapter_label": chapter_label,
+        }
 
     if not pairs:
         raw_links = re.findall(
@@ -13463,6 +13502,32 @@ def run_self_test():
         globals()["make_request"] = old_make
         globals()["parse_manga_data_from_html"] = old_parse
         globals()["extract_series_metadata_from_html"] = old_meta
+
+    scanmanga_html = """
+    <div class="volume_manga"><div class="titre_volume_manga"><h3>Volume 2</h3></div>
+      <div class="chapitre_nom"><a href="https://www.scan-manga.com/lecture-en-ligne/Test-Chapitre-Extra-FR_102.html">Chapitre Extra</a> : Bonus 2</div>
+      <div class="chapitre_nom"><a href="https://www.scan-manga.com/lecture-en-ligne/Test-Chapitre-1-1-FR_101.html">Chapitre 1-1</a></div>
+    </div>
+    <div class="volume_manga"><div class="titre_volume_manga"><h3>Volume 1</h3></div>
+      <div class="chapitre_nom"><a href="https://www.scan-manga.com/lecture-en-ligne/Test-Chapitre-1-1-FR_100.html">Chapitre 1-1</a></div>
+    </div>
+    """
+    scanmanga_pairs, _scanmanga_meta = parse_scanmanga_chapters_from_html(
+        "https://www.scan-manga.com/1/Test.html",
+        BeautifulSoup(scanmanga_html, "html.parser"),
+        scanmanga_html,
+    )
+    scanmanga_labels = [label for label, _link in scanmanga_pairs]
+    check(
+        "scan-manga labels tome chapitre",
+        scanmanga_labels
+        == [
+            "Tome 2 - Chapitre Extra : Bonus 2",
+            "Tome 2 - Chapitre 1.1",
+            "Tome 1 - Chapitre 1.1",
+        ],
+    )
+    check("scan-manga labels uniques", len(scanmanga_labels) == len(set(scanmanga_labels)))
 
     failed = [(name, detail) for name, ok, detail in checks if not ok]
     for name, ok, detail in checks:

@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.18`
+Version actuelle : `11.15.19`
 
 ## Ce qui change sur `main`
 
@@ -137,6 +137,12 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.19
+- Scan-Manga :
+  - les chapitres listés dans des volumes sont nommés `Tome X - Chapitre Y` pour éviter les collisions de CBZ,
+  - les labels ambigus comme `Chapitre Extra` conservent leur détail quand il est présent sur la page,
+  - le cache d'analyse est invalidé pour recalculer les nouveaux noms.
 
 ### 11.15.18
 - Interface :
