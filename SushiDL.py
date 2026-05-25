@@ -851,7 +851,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.17"
+APP_VERSION = "11.15.18"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -11880,18 +11880,24 @@ class MangaApp:
         window.grid_columnconfigure(0, weight=1)
         window.grid_rowconfigure(1, weight=1)
 
+        header_frame = ctk.CTkFrame(window, fg_color="transparent")
+        header_frame.grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 10))
+        header_frame.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
-            window,
+            header_frame,
             text="File d'attente de téléchargements",
             text_color=self.palette["text"],
             font=("Segoe UI Semibold", 15),
-        ).grid(row=0, column=0, sticky="w", padx=18, pady=(16, 4))
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew")
         ctk.CTkLabel(
-            window,
+            header_frame,
             text="Une URL catalogue par ligne. SushiDL analysera chaque source et téléchargera tous les éléments non premium.",
             text_color=self.palette["muted"],
             font=("Segoe UI", 10),
-        ).grid(row=0, column=0, sticky="sw", padx=18, pady=(42, 8))
+            anchor="w",
+            wraplength=700,
+        ).grid(row=1, column=0, sticky="ew", pady=(6, 0))
 
         urls_box = ctk.CTkTextbox(
             window,

@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.18] - 2026-05-25
+
+### Corrections
+- Interface :
+  - correction du titre tronqué dans la fenêtre `File d'attente` en séparant le titre et le texte d'aide dans un en-tête dédié.
+
 ## [11.15.17] - 2026-05-24
 
 ### Corrections
