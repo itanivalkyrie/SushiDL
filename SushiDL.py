@@ -883,7 +883,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.22"
+APP_VERSION = "11.15.23"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -931,7 +931,7 @@ CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
 ANALYSIS_CACHE_LOCK = threading.Lock()
 ANALYSIS_CACHE_MEMORY = None
-ANALYSIS_CACHE_SCHEMA_VERSION = 5
+ANALYSIS_CACHE_SCHEMA_VERSION = 6
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -2211,6 +2211,15 @@ def is_chapter_label(label):
     return normalize_tome_label(label).lower().startswith("chapitre ")
 
 
+def get_archive_label_for_link(label, link, metadata_by_url=None):
+    """Retourne le libellé à utiliser pour le nom du CBZ."""
+    metadata = {}
+    if isinstance(metadata_by_url, dict):
+        metadata = metadata_by_url.get((link or "").strip()) or {}
+    archive_label = (metadata.get("archive_label") or "").strip() if isinstance(metadata, dict) else ""
+    return archive_label or label
+
+
 COMICINFO_SOURCE_LABELS = {
     "fr": "sushiscan.fr",
     "net": "sushiscan.net",
@@ -3195,13 +3204,20 @@ def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
             url_label = normalize_tome_label(f"Chapitre {match_label.group(1).replace('-', '.')}")
         else:
             url_label = ""
-        chapter_label = scanmanga_chapter_text(anchor, url_label)
-        if not chapter_label:
-            chapter_label = "Chapitre"
+        full_chapter_label = scanmanga_chapter_text(anchor, url_label)
+        if not full_chapter_label:
+            full_chapter_label = "Chap"
+        short_chapter_label = full_chapter_label.split(" : ", 1)[0].strip() or full_chapter_label
         volume_label = scanmanga_volume_label(anchor)
         if volume_label:
-            return f"{volume_label} - {chapter_label}", volume_label, chapter_label
-        return chapter_label, "", chapter_label
+            return (
+                f"{volume_label} - {short_chapter_label}",
+                f"{volume_label} - {full_chapter_label}",
+                volume_label,
+                short_chapter_label,
+                full_chapter_label,
+            )
+        return short_chapter_label, full_chapter_label, "", short_chapter_label, full_chapter_label
 
     for a in chapter_anchors:
         href = (a.get("href") or "").strip()
@@ -3212,7 +3228,7 @@ def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
             continue
         seen_links.add(full_link)
 
-        label, volume_label, chapter_label = scanmanga_display_label(a, full_link)
+        label, archive_label, volume_label, chapter_label, full_chapter_label = scanmanga_display_label(a, full_link)
 
         pairs.append((label, full_link))
         match_id = chapter_pattern.match(full_link)
@@ -3220,6 +3236,8 @@ def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
             "chapter_id": int(match_id.group(1)) if match_id else None,
             "volume_label": volume_label,
             "chapter_label": chapter_label,
+            "full_chapter_label": full_chapter_label,
+            "archive_label": archive_label,
         }
 
     if not pairs:
@@ -4289,14 +4307,17 @@ def download_volume(
     series_metadata=None,
     cover_url=None,
     download_threads=None,
+    archive_label=None,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
         return None
 
     tome_label = normalize_tome_label(volume)
+    archive_tome_label = normalize_tome_label(archive_label or volume)
     clean_title = sanitize_folder_name(title)
     clean_tome = sanitize_folder_name(tome_label)
+    clean_archive_tome = sanitize_folder_name(archive_tome_label)
     base_output_dir = os.fspath(output_root) if output_root else ROOT_FOLDER
     base_output_dir = str(base_output_dir).strip() or ROOT_FOLDER
     base_output_dir = os.path.abspath(base_output_dir)
@@ -4640,9 +4661,9 @@ def download_volume(
                     level="warning",
                 )
 
-        if archive_cbz(folder, title, tome_label, remove_source=True):
+        if archive_cbz(folder, title, archive_tome_label, remove_source=True):
             cbz_path = os.path.join(
-                base_output_dir, clean_title, f"{clean_title} - {clean_tome}.cbz"
+                base_output_dir, clean_title, f"{clean_title} - {clean_archive_tome}.cbz"
             )
             try:
                 size_mb = round(os.path.getsize(cbz_path) / (1024 * 1024), 2)
@@ -12246,6 +12267,7 @@ class MangaApp:
                             series_metadata=series_metadata,
                             cover_url=(series_metadata or {}).get("cover_url", ""),
                             download_threads=queue_threads,
+                            archive_label=get_archive_label_for_link(vol, link, metadata_by_url),
                         )
                         if result is False:
                             self.log(f"File: élément non finalisé: {vol}", level="warning")
@@ -12839,7 +12861,7 @@ class MangaApp:
         existing_cbz = 0
         clean_title = sanitize_folder_name(self.title)
         for vol, _link in selected:
-            clean_tome = sanitize_folder_name(normalize_tome_label(vol))
+            clean_tome = sanitize_folder_name(normalize_tome_label(get_archive_label_for_link(vol, _link, getattr(self, "volume_meta_by_url", {}) or {})))
             cbz_path = os.path.join(output_root, clean_title, f"{clean_title} - {clean_tome}.cbz")
             if os.path.exists(cbz_path) and os.path.getsize(cbz_path) > 10_000:
                 existing_cbz += 1
@@ -13146,6 +13168,7 @@ class MangaApp:
                         series_metadata=getattr(self, "series_metadata", {}),
                         cover_url=getattr(self, "cover_url", ""),
                         download_threads=download_threads,
+                        archive_label=get_archive_label_for_link(vol, link, getattr(self, "volume_meta_by_url", {}) or {}),
                     )
                     if dl_result is None and self.cancel_event.is_set():
                         break
@@ -13268,6 +13291,7 @@ class MangaApp:
                             series_metadata=getattr(self, "series_metadata", {}),
                             cover_url=getattr(self, "cover_url", ""),
                             download_threads=download_threads,
+                            archive_label=get_archive_label_for_link(vol, link, getattr(self, "volume_meta_by_url", {}) or {}),
                         )
                         if retry_result is False:
                             if not retry_error_state["reported"]:
@@ -13465,6 +13489,7 @@ class SushiCliBackend:
         download_threads=None,
         total_count=None,
         series_metadata=None,
+        volume_metadata=None,
     ):
         return download_volume(
             item.label,
@@ -13488,6 +13513,7 @@ class SushiCliBackend:
             series_metadata=series_metadata,
             cover_url=(series_metadata or {}).get("cover_url", "") if isinstance(series_metadata, dict) else "",
             download_threads=download_threads,
+            archive_label=get_archive_label_for_link(item.label, item.url, volume_metadata or {}),
         )
 
 
@@ -13631,7 +13657,7 @@ def run_self_test():
       <div class="chapitre_nom"><a href="https://www.scan-manga.com/lecture-en-ligne/Test-Chapitre-1-1-FR_100.html">Chapitre 1-1</a></div>
     </div>
     """
-    scanmanga_pairs, _scanmanga_meta = parse_scanmanga_chapters_from_html(
+    scanmanga_pairs, scanmanga_meta = parse_scanmanga_chapters_from_html(
         "https://www.scan-manga.com/1/Test.html",
         BeautifulSoup(scanmanga_html, "html.parser"),
         scanmanga_html,
@@ -13641,12 +13667,17 @@ def run_self_test():
         "scan-manga labels tome chapitre",
         scanmanga_labels
         == [
-            "Tome 2 - Chap Extra : Bonus 2",
+            "Tome 2 - Chap Extra",
             "Tome 2 - Chap 1-1",
             "Tome 1 - Chap 1-1",
         ],
     )
     check("scan-manga labels uniques", len(scanmanga_labels) == len(set(scanmanga_labels)))
+    first_extra_url = scanmanga_pairs[0][1]
+    check(
+        "scan-manga archive label complet",
+        scanmanga_meta.get(first_extra_url, {}).get("archive_label") == "Tome 2 - Chap Extra : Bonus 2",
+    )
 
     failed = [(name, detail) for name, ok, detail in checks if not ok]
     for name, ok, detail in checks:
@@ -13813,6 +13844,7 @@ def run_batch_cli(argv, backend=None):
         state.current_title = title
         state.current_domain = domain
         state.series_metadata = dict(series_metadata or {})
+        state.volume_metadata = dict(metadata or {})
         state.detected_items = [
             CliItem(
                 index=idx + 1,

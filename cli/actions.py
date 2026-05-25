@@ -61,6 +61,7 @@ def analyze_current_url(backend: CliBackend, state: CliState) -> None:
     state.current_title = title
     state.current_domain = domain
     state.series_metadata = dict(series_metadata or {})
+    state.volume_metadata = dict(metadata or {})
     state.detected_items = [
         CliItem(
             index=idx + 1,

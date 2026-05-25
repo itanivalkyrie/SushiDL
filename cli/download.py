@@ -229,6 +229,7 @@ class CliDownloadController:
                 download_threads=getattr(self.state, "download_threads", 3),
                 total_count=len(self.state.detected_items),
                 series_metadata=self.state.series_metadata,
+                volume_metadata=getattr(self.state, "volume_metadata", {}),
             )
 
             with self._lock:

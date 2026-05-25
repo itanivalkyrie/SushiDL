@@ -55,6 +55,7 @@ class CliState:
     current_title: str = ""
     current_domain: str = ""
     series_metadata: dict[str, object] = field(default_factory=dict)
+    volume_metadata: dict[str, object] = field(default_factory=dict)
     detected_items: list[CliItem] = field(default_factory=list)
     filtered_indices: list[int] = field(default_factory=list)
     selected_urls: set[str] = field(default_factory=set)
@@ -67,6 +68,7 @@ class CliState:
         self.current_title = ""
         self.current_domain = ""
         self.series_metadata = {}
+        self.volume_metadata = {}
         self.detected_items = []
         self.filtered_indices = []
         self.selected_urls.clear()
