@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.22] - 2026-05-25
+
+### Ameliorations
+- Scan-Manga :
+  - labels de chapitres volumés raccourcis au format `Tome X - Chap Y-Z`,
+  - conservation des tirets de sous-chapitres pour rendre les parties visibles dans la grille compacte,
+  - invalidation du cache d'analyse pour recalculer les labels.
+
 ## [11.15.21] - 2026-05-25
 
 ### Corrections

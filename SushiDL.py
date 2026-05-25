@@ -245,7 +245,7 @@ def normalize_chapter_label_preserve_title(label):
         return ""
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—|:")
     match = re.match(
-        r"(?i)^(?:ep|episode|chapitre|chapter)\s*[-._:# ]*(extra(?:\s*[-._ ]*\s*\d+)?|[0-9]+(?:[-.,][0-9]+)*(?:\s*[A-Za-z])?)\b\s*(?::\s*(.+))?$",
+        r"(?i)^(?:ep|episode|chapitre|chapter|chap)\s*[-._:# ]*(extra(?:\s*[-._ ]*\s*\d+)?|[0-9]+(?:[-.,][0-9]+)*(?:\s*[A-Za-z])?)\b\s*(?::\s*(.+))?$",
         cleaned,
     )
     if not match:
@@ -254,9 +254,9 @@ def normalize_chapter_label_preserve_title(label):
     if raw_number.lower().startswith("extra"):
         number = re.sub(r"(?i)^extra\s*[-._ ]*\s*(\d+)$", r"Extra \1", raw_number).strip()
     else:
-        number = raw_number.replace(",", ".").replace("-", ".").strip()
+        number = raw_number.replace(",", ".").strip()
     suffix = (match.group(2) or "").strip()
-    chapter_label = f"Chapitre {number}".strip()
+    chapter_label = f"Chap {number}".strip()
     return f"{chapter_label} : {suffix}" if suffix else chapter_label
 
 
@@ -883,7 +883,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.21"
+APP_VERSION = "11.15.22"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -931,7 +931,7 @@ CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
 ANALYSIS_CACHE_LOCK = threading.Lock()
 ANALYSIS_CACHE_MEMORY = None
-ANALYSIS_CACHE_SCHEMA_VERSION = 4
+ANALYSIS_CACHE_SCHEMA_VERSION = 5
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -13641,9 +13641,9 @@ def run_self_test():
         "scan-manga labels tome chapitre",
         scanmanga_labels
         == [
-            "Tome 2 - Chapitre Extra : Bonus 2",
-            "Tome 2 - Chapitre 1.1",
-            "Tome 1 - Chapitre 1.1",
+            "Tome 2 - Chap Extra : Bonus 2",
+            "Tome 2 - Chap 1-1",
+            "Tome 1 - Chap 1-1",
         ],
     )
     check("scan-manga labels uniques", len(scanmanga_labels) == len(set(scanmanga_labels)))
