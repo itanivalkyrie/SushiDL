@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.30
+- Scan-Manga :
+  - correction de la détection Novel sur les pages live dont le HTML est mal imbriqué autour des balises `<br>`,
+  - le téléchargement réel ne retombe plus à tort sur le parseur lecteur image `idc/sml/sme`.
+
 ### 11.15.29
 - Scan-Manga :
   - rendu Novel plus lisible avec police serif, espacements HTML et paragraphes mieux séparés,

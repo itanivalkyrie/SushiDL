@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.29"
+APP_VERSION = "11.15.30"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3575,35 +3575,26 @@ def extract_scanmanga_novel_chapter(html_content):
             }
         )
 
-    for child in content_node.children:
-        child_name = getattr(child, "name", None)
-        if child_name == "br":
+    for node in content_node.find_all(["center", "p", "h1", "h2", "h3", "blockquote", "li", "img", "br"], recursive=True):
+        node_name = getattr(node, "name", None)
+        if node_name == "br":
             add_spacer(18)
             continue
-        if child_name == "center":
-            for img in child.find_all("img", recursive=True):
+        if node_name == "center":
+            for img in node.find_all("img", recursive=True):
                 add_image(img, "center")
-            add_block(child.get_text(" ", strip=True), "center")
+            add_block(node.get_text(" ", strip=True), "center")
             continue
-        if child_name == "img":
-            add_image(child, node_align(child))
+        if node_name == "img":
+            add_image(node, node_align(node))
             continue
-        if child_name in {"p", "h1", "h2", "h3", "blockquote", "li"}:
-            for img in child.find_all("img", recursive=True):
-                add_image(img, node_align(child))
-            text = child.get_text(" ", strip=True)
-            if text:
-                add_block(text, node_align(child))
-            elif not child.find_all("img", recursive=True):
-                add_spacer(18)
-            continue
-        if child_name:
-            for img in child.find_all("img", recursive=True):
-                add_image(img, node_align(img))
-            for node in child.find_all(["p", "h1", "h2", "h3", "blockquote", "li"], recursive=True):
-                add_block(node.get_text(" ", strip=True), node_align(node))
-            continue
-        add_block(str(child).strip(), "left")
+        for img in node.find_all("img", recursive=True):
+            add_image(img, node_align(node))
+        text = node.get_text(" ", strip=True)
+        if text:
+            add_block(text, node_align(node))
+        elif not node.find_all("img", recursive=True):
+            add_spacer(18)
 
     if not blocks:
         raw_text = normalize_metadata_text(content_node.get_text("\n", strip=True))
@@ -3785,6 +3776,10 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url="", cookie="", ua
         text = _text_block_text(block)
         if text:
             clean_blocks.append({"kind": "text", "text": text, "align": _text_block_align(block)})
+    while clean_blocks and clean_blocks[0].get("kind") == "spacer":
+        clean_blocks.pop(0)
+    while clean_blocks and clean_blocks[-1].get("kind") == "spacer":
+        clean_blocks.pop()
     if not clean_blocks:
         return []
 

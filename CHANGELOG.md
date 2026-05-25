@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.30] - 2026-05-25
+
+### Corrections
+- Scan-Manga :
+  - correction de l'extraction Novel sur les pages live dont le HTML est mal imbriqué après des balises `<br>`,
+  - évite le fallback erroné vers le lecteur image et l'erreur `Variables lecteur Scan-Manga introuvables`.
+
 ## [11.15.29] - 2026-05-25
 
 ### Corrections
