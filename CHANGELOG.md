@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.21] - 2026-05-25
+
+### Corrections
+- Interface :
+  - conservation de la virtualisation sur les très gros catalogues Scan-Manga au lieu de créer tous les widgets pour les séparateurs par tome,
+  - réduction du freeze après parsing et du lag au scroll dans la fenêtre de choix des chapitres.
+
 ## [11.15.20] - 2026-05-25
 
 ### Ameliorations

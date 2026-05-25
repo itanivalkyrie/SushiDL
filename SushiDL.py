@@ -883,7 +883,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.20"
+APP_VERSION = "11.15.21"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -901,6 +901,7 @@ VOLUME_FAST_WIDGET_THRESHOLD = 2400  # Fallback ultime pour des catalogues excep
 VOLUME_VIRTUALIZATION_THRESHOLD = 280  # En auto dense, n'instancie que la fenetre visible
 VOLUME_VIRTUALIZATION_THRESHOLD_DENSE = 60  # En mode Dense explicite, virtualise plus tot pour fluidifier le switch
 VOLUME_VIRTUALIZATION_THRESHOLD_COMFORT = 60  # En mode Confort explicite, virtualise aussi pour limiter le cout du switch
+VOLUME_GROUP_HEADER_MAX_ITEMS = 220  # Au-delà, garde la virtualisation plutôt que créer tous les widgets de groupe
 VOLUME_VIRTUALIZATION_BUFFER_ROWS = 4
 VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT = 36
 VOLUME_VIRTUAL_ROW_HEIGHT_CARD = 62
@@ -6072,6 +6073,9 @@ class MangaApp:
         return normalize_tome_label(match.group(1))
 
     def _should_group_volume_display(self):
+        total = len(getattr(self, "pairs", []) or [])
+        if total <= 0 or total > VOLUME_GROUP_HEADER_MAX_ITEMS:
+            return False
         current_url = ""
         if hasattr(self, "url"):
             try:
