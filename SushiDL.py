@@ -238,6 +238,28 @@ def interruptible_sleep(cancel_event, duration):
     return cancel_event.wait(duration)
 
 
+def normalize_chapter_label_preserve_title(label):
+    """Normalise un label chapitre en conservant son titre après deux-points."""
+    cleaned = repair_mojibake_text((label or "").strip())
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—|:")
+    match = re.match(
+        r"(?i)^(?:ep|episode|chapitre|chapter)\s*[-._:# ]*(extra(?:\s*[-._ ]*\s*\d+)?|[0-9]+(?:[-.,][0-9]+)*(?:\s*[A-Za-z])?)\b\s*(?::\s*(.+))?$",
+        cleaned,
+    )
+    if not match:
+        return ""
+    raw_number = re.sub(r"\s+", " ", match.group(1).strip())
+    if raw_number.lower().startswith("extra"):
+        number = re.sub(r"(?i)^extra\s*[-._ ]*\s*(\d+)$", r"Extra \1", raw_number).strip()
+    else:
+        number = raw_number.replace(",", ".").replace("-", ".").strip()
+    suffix = (match.group(2) or "").strip()
+    chapter_label = f"Chapitre {number}".strip()
+    return f"{chapter_label} : {suffix}" if suffix else chapter_label
+
+
 def normalize_tome_label(label):
     """Normalise les labels en standardisant épisode/chapitre/tome et en retirant les titres redondants."""
     cleaned = repair_mojibake_text((label or "").strip())
@@ -253,7 +275,8 @@ def normalize_tome_label(label):
     )
     if tome_composite_match:
         tome_number = tome_composite_match.group(1).replace(",", ".").strip()
-        child_label = normalize_tome_label(tome_composite_match.group(2))
+        child_raw = tome_composite_match.group(2).strip()
+        child_label = normalize_chapter_label_preserve_title(child_raw) or normalize_tome_label(child_raw)
         return f"Tome {tome_number} - {child_label or tome_composite_match.group(2).strip()}".strip()
 
     chapter_match = re.match(
@@ -860,7 +883,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.19"
+APP_VERSION = "11.15.20"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -907,7 +930,7 @@ CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
 ANALYSIS_CACHE_LOCK = threading.Lock()
 ANALYSIS_CACHE_MEMORY = None
-ANALYSIS_CACHE_SCHEMA_VERSION = 3
+ANALYSIS_CACHE_SCHEMA_VERSION = 4
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -3155,6 +3178,9 @@ def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
         chapter_node = anchor.find_parent(class_=lambda value: value and "chapitre_nom" in str(value).split())
         raw_text = chapter_node.get_text(" ", strip=True) if chapter_node else anchor.get_text(" ", strip=True)
         raw_text = normalize_metadata_text(raw_text)
+        full_label = normalize_chapter_label_preserve_title(raw_text)
+        if full_label:
+            return full_label
         fallback = normalize_tome_label(fallback_label or raw_text)
         fallback_lower = fallback.lower()
         if raw_text and (fallback_lower in {"chapitre", "chapitre extra"} or fallback_lower.startswith("chapitre extra.")):
@@ -3173,7 +3199,7 @@ def parse_scanmanga_chapters_from_html(url, soup, html_content=""):
             chapter_label = "Chapitre"
         volume_label = scanmanga_volume_label(anchor)
         if volume_label:
-            return normalize_tome_label(f"{volume_label} - {chapter_label}"), volume_label, chapter_label
+            return f"{volume_label} - {chapter_label}", volume_label, chapter_label
         return chapter_label, "", chapter_label
 
     for a in chapter_anchors:
@@ -6039,6 +6065,80 @@ class MangaApp:
             col = start_col + (absolute_visible_index % columns)
         return row_offset + row, col
 
+    def _volume_group_label_from_text(self, label):
+        match = re.match(r"(?i)^\s*(Tome\s+[0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)\s+-\s+", str(label or ""))
+        if not match:
+            return ""
+        return normalize_tome_label(match.group(1))
+
+    def _should_group_volume_display(self):
+        current_url = ""
+        if hasattr(self, "url"):
+            try:
+                current_url = self.url.get()
+            except Exception:
+                current_url = ""
+        if self.get_domain_from_url(current_url) != "scanmanga":
+            return False
+        groups = [self._volume_group_label_from_text(label) for label, _link in getattr(self, "pairs", []) or []]
+        return len({group for group in groups if group}) >= 2
+
+    def _create_volume_group_header(self, parent, group_label):
+        frame = ctk.CTkFrame(parent, fg_color=self.palette["card_alt"], corner_radius=4, border_width=1, border_color=self.palette["border"])
+        frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            frame,
+            text=group_label,
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 11),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+        return frame
+
+    def _get_volume_group_header(self, group_label):
+        headers = getattr(self, "volume_group_header_widgets", None)
+        if headers is None:
+            headers = {}
+            self.volume_group_header_widgets = headers
+        if group_label not in headers or not headers[group_label].winfo_exists():
+            headers[group_label] = self._create_volume_group_header(self.vol_frame, group_label)
+        return headers[group_label]
+
+    def _grid_grouped_volume_widgets(self, visible_indices, columns, kind):
+        for header in (getattr(self, "volume_group_header_widgets", {}) or {}).values():
+            try:
+                header.grid_remove()
+            except Exception:
+                pass
+        for chk, _label in getattr(self, "check_items", []) or []:
+            try:
+                chk.grid_remove()
+            except Exception:
+                pass
+
+        row = 0
+        col = 0
+        last_group = None
+        for absolute_index in visible_indices:
+            if absolute_index >= len(getattr(self, "check_items", []) or []):
+                continue
+            label = self.pairs[absolute_index][0] if absolute_index < len(getattr(self, "pairs", []) or []) else ""
+            group = self._volume_group_label_from_text(label)
+            if group and group != last_group:
+                if col:
+                    row += 1
+                    col = 0
+                header = self._get_volume_group_header(group)
+                header.grid(row=row, column=0, columnspan=max(1, columns), sticky="ew", padx=10, pady=(10 if row else 4, 4))
+                row += 1
+                last_group = group
+            chk, _label = self.check_items[absolute_index]
+            self._grid_virtual_volume_pool_item(chk, kind, row, col)
+            col += 1
+            if col >= columns:
+                col = 0
+                row += 1
+
     def _cancel_virtual_volume_refresh(self):
         after_id = getattr(self, "volume_virtual_refresh_after_id", None)
         if after_id:
@@ -7343,6 +7443,8 @@ class MangaApp:
             self._finalize_volume_render()
             return
         columns = getattr(self, "volume_grid_columns", self._get_volume_grid_columns(total))
+        if getattr(self, "volume_grouped", False):
+            columns = min(columns, 3)
         kind = "compact" if getattr(self, "use_compact_volume_mode", False) else "card"
         self._configure_volume_grid_columns(columns, kind=kind)
         end_index = min(start_index + getattr(self, "volume_render_batch_size", VOLUME_RENDER_BATCH_SIZE), total)
@@ -7354,10 +7456,13 @@ class MangaApp:
             var = tk.BooleanVar(value=selected_by_default)
             self.check_vars.append(var)
             chk = self._create_volume_item(self.vol_frame, vol, var, i)
-            row, col = self._get_centered_volume_grid_position(i, total, columns)
-            self._grid_virtual_volume_pool_item(chk, kind, row, col)
+            if not getattr(self, "volume_grouped", False):
+                row, col = self._get_centered_volume_grid_position(i, total, columns)
+                self._grid_virtual_volume_pool_item(chk, kind, row, col)
             self.check_items.append((chk, vol))
 
+        if getattr(self, "volume_grouped", False):
+            self._grid_grouped_volume_widgets(list(range(end_index)), columns, kind)
         self._update_volume_render_badges(end_index, total)
         self._update_volume_canvas_window(0)
         self._update_volume_canvas_scrollregion()
@@ -7387,6 +7492,7 @@ class MangaApp:
         self.volume_virtual_widget_pool = []
         self.volume_virtual_widget_pools = {}
         self.volume_virtual_widget_pool_mode = None
+        self.volume_group_header_widgets = {}
         self.volume_canvas_render_active = False
         self._hide_canvas_volume_pool()
         self._set_volume_canvas_render_mode(False)
@@ -7395,9 +7501,13 @@ class MangaApp:
         self.volume_last_canvas_yview = None
         self.last_applied_filter_raw = None
         total = len(self.pairs)
+        self.volume_grouped = self._should_group_volume_display()
         self.use_fast_volume_widgets = self._should_use_fast_volume_widgets(total)
         self.use_compact_volume_mode = self._should_use_compact_volume_mode(total)
         self.volume_virtualized = self._should_virtualize_volume_mode(total)
+        if getattr(self, "volume_grouped", False):
+            self.use_fast_volume_widgets = False
+            self.volume_virtualized = False
         self._refresh_volume_layout_mode_button()
         self.volume_label_cache_lower = [str(vol or "").lower() for vol, _link in self.pairs]
         self.volume_render_selection_state = list(selection_state or [])
@@ -12627,6 +12737,8 @@ class MangaApp:
             return
 
         columns = max(1, int(getattr(self, "volume_grid_columns", self._get_volume_grid_columns(len(self.check_items) or 0)) or 1))
+        if getattr(self, "volume_grouped", False):
+            columns = min(columns, 3)
         is_compact = bool(getattr(self, "use_compact_volume_mode", False))
         kind = "compact" if is_compact else "card"
         self._configure_volume_grid_columns(columns, kind=kind)
@@ -12641,10 +12753,13 @@ class MangaApp:
                 visible_indices.append(index)
             else:
                 chk.grid_remove()
-        for visible_pos, index in enumerate(visible_indices):
-            chk, _label = self.check_items[index]
-            row, col = self._get_centered_volume_grid_position(visible_pos, len(visible_indices), columns)
-            self._grid_virtual_volume_pool_item(chk, kind, row, col)
+        if getattr(self, "volume_grouped", False):
+            self._grid_grouped_volume_widgets(visible_indices, columns, kind)
+        else:
+            for visible_pos, index in enumerate(visible_indices):
+                chk, _label = self.check_items[index]
+                row, col = self._get_centered_volume_grid_position(visible_pos, len(visible_indices), columns)
+                self._grid_virtual_volume_pool_item(chk, kind, row, col)
         self.filtered_volume_indices = visible_indices
         self._update_volume_canvas_window(0)
         self._update_volume_canvas_scrollregion()
