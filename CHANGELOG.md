@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.25] - 2026-05-25
+
+### Ameliorations
+- Scan-Manga :
+  - détection des chapitres Novel dont le lecteur contient du texte au lieu d'images,
+  - rendu automatique du texte en pages JPG pour conserver la sortie CBZ habituelle,
+  - évite les erreurs de récupération d'images sur les chapitres sans galerie image.
+
 ## [11.15.24] - 2026-05-25
 
 ### Corrections

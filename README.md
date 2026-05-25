@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.25
+- Scan-Manga :
+  - support des chapitres Novel en texte : le contenu est rendu en pages JPG puis archivé en CBZ,
+  - évite les erreurs de téléchargement quand un lecteur Scan-Manga ne fournit pas d'images.
+
 ### 11.15.24
 - Interface :
   - affichage compact des chapitres Scan-Manga dans la grille (`T9 C4-1`, `T9 CEx2`) pour tenir sur une seule ligne,

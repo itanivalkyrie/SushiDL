@@ -40,7 +40,7 @@ import customtkinter as ctk
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 from io import BytesIO
-from PIL import Image, ImageOps, ImageSequence, ImageTk
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence, ImageTk
 from curl_cffi import requests
 from zipfile import ZipFile
 
@@ -645,6 +645,52 @@ def validate_image_file(path):
         image.verify()
 
 
+def is_text_page_url(url):
+    return str(url or "").startswith(TEXT_PAGE_URL_PREFIX)
+
+
+def _text_page_cache_key(source_url, title, paragraphs):
+    payload = "\n".join([(source_url or "").strip(), (title or "").strip(), "\n".join(paragraphs or [])])
+    return hashlib.sha1(payload.encode("utf-8", errors="replace")).hexdigest()[:20]
+
+
+def store_text_page_bytes(key, page_bytes):
+    safe_key = (key or "").strip()
+    if not safe_key:
+        return
+    with TEXT_PAGE_CACHE_LOCK:
+        TEXT_PAGE_CACHE[safe_key] = list(page_bytes or [])
+        if safe_key in TEXT_PAGE_CACHE_ORDER:
+            TEXT_PAGE_CACHE_ORDER.remove(safe_key)
+        TEXT_PAGE_CACHE_ORDER.append(safe_key)
+        while len(TEXT_PAGE_CACHE_ORDER) > TEXT_PAGE_CACHE_MAX_ITEMS:
+            old_key = TEXT_PAGE_CACHE_ORDER.pop(0)
+            TEXT_PAGE_CACHE.pop(old_key, None)
+
+
+def get_text_page_bytes(url):
+    if not is_text_page_url(url):
+        return None
+    parsed = urlparse(url)
+    key = (parsed.netloc or "").strip()
+    page_name = (parsed.path or "").strip("/").rsplit("/", 1)[-1]
+    page_number_text = page_name.rsplit(".", 1)[0]
+    try:
+        page_index = int(page_number_text) - 1
+    except (TypeError, ValueError):
+        return None
+    with TEXT_PAGE_CACHE_LOCK:
+        pages = TEXT_PAGE_CACHE.get(key)
+        if pages is None:
+            return None
+        if key in TEXT_PAGE_CACHE_ORDER:
+            TEXT_PAGE_CACHE_ORDER.remove(key)
+        TEXT_PAGE_CACHE_ORDER.append(key)
+        if 0 <= page_index < len(pages):
+            return pages[page_index]
+    return None
+
+
 def _image_url_cache_key(link, max_images=None):
     safe_link = (link or "").strip()
     try:
@@ -883,7 +929,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.24"
+APP_VERSION = "11.15.25"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -935,6 +981,11 @@ ANALYSIS_CACHE_SCHEMA_VERSION = 6
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
+TEXT_PAGE_URL_PREFIX = "sushidl-textpage://"
+TEXT_PAGE_CACHE = {}
+TEXT_PAGE_CACHE_LOCK = threading.Lock()
+TEXT_PAGE_CACHE_MAX_ITEMS = 128
+TEXT_PAGE_CACHE_ORDER = []
 SCANMANGA_BROWSER_LOCK = threading.Lock()
 SCANMANGA_BROWSER_THREAD = None
 SCANMANGA_BROWSER_TASKS = None
@@ -2446,6 +2497,43 @@ def download_image(
         register_failure("cancelled", "Annulation demandée avant téléchargement.")
         return
 
+    if is_text_page_url(normalized_url):
+        filename = os.path.join(folder, f"{str(i + 1).zfill(number_len)}.jpg")
+        tmp_filename = f"{filename}.part-text-{threading.get_ident()}"
+        try:
+            raw = get_text_page_bytes(normalized_url)
+            if not raw:
+                raise ImageDownloadError(
+                    "Page texte générée introuvable en cache.",
+                    kind="missing",
+                    phase="text-page",
+                )
+            os.makedirs(folder, exist_ok=True)
+            with open(tmp_filename, "wb") as out:
+                out.write(raw)
+            validate_image_file(tmp_filename)
+            os.replace(tmp_filename, filename)
+            if progress_callback:
+                progress_callback(i + 1)
+            return
+        except ImageDownloadError as exc:
+            register_failure(exc.kind, str(exc), status_code=exc.status_code)
+            return
+        except Exception as exc:
+            register_failure("retryable", str(exc))
+            runtime_log(
+                f"Ecriture page texte Scan-Manga échouée: {exc}",
+                level="warning",
+                context={"action": "download_text_page", "url": normalized_url},
+            )
+            return
+        finally:
+            try:
+                if os.path.exists(tmp_filename):
+                    os.remove(tmp_filename)
+            except OSError:
+                pass
+
     # Configuration des en-têtes HTTP
     referer = referer_url or get_site_root_url(normalized_url) or "https://sushiscan.net/"
     if normalize_hostname(urlparse(normalized_url).hostname) in SCANMANGA_IMAGE_HOSTS:
@@ -3386,6 +3474,166 @@ def build_scanmanga_image_urls(data):
     return images
 
 
+def extract_scanmanga_novel_chapter(html_content):
+    """Extrait un chapitre texte Scan-Manga (Novel) depuis le lecteur HTML."""
+    soup = BeautifulSoup(html_content or "", "html.parser")
+    article = soup.select_one("article.aLN")
+    content_node = soup.select_one(".ln_c_content")
+    if not article or not content_node:
+        return None
+
+    title_node = article.select_one(".ln_c_title")
+    title = normalize_metadata_text(title_node.get_text(" ", strip=True) if title_node else "")
+    paragraphs = []
+    seen = set()
+    for node in content_node.find_all(["p", "h1", "h2", "h3", "blockquote", "li"], recursive=True):
+        text = normalize_metadata_text(node.get_text(" ", strip=True))
+        if not text:
+            continue
+        dedupe_key = text.lower()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        paragraphs.append(text)
+
+    if not paragraphs:
+        raw_text = normalize_metadata_text(content_node.get_text("\n", strip=True))
+        paragraphs = [line.strip() for line in raw_text.splitlines() if line.strip()]
+
+    total_text_len = sum(len(paragraph) for paragraph in paragraphs)
+    if total_text_len < 80:
+        return None
+    return title or "Chapitre texte", paragraphs
+
+
+def _load_text_render_font(size, bold=False):
+    font_candidates = [
+        r"C:\Windows\Fonts\georgiab.ttf" if bold else r"C:\Windows\Fonts\georgia.ttf",
+        r"C:\Windows\Fonts\timesbd.ttf" if bold else r"C:\Windows\Fonts\times.ttf",
+        r"C:\Windows\Fonts\arialbd.ttf" if bold else r"C:\Windows\Fonts\arial.ttf",
+    ]
+    for font_path in font_candidates:
+        try:
+            if font_path and os.path.exists(font_path):
+                return ImageFont.truetype(font_path, size=size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def _text_bbox(draw, text, font):
+    try:
+        return draw.textbbox((0, 0), text, font=font)
+    except Exception:
+        width, height = draw.textsize(text, font=font)
+        return (0, 0, width, height)
+
+
+def _text_width(draw, text, font):
+    bbox = _text_bbox(draw, text, font)
+    return max(0, bbox[2] - bbox[0])
+
+
+def _wrap_text_for_width(draw, text, font, max_width):
+    words = str(text or "").split()
+    if not words:
+        return [""]
+    lines = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if not current or _text_width(draw, candidate, font) <= max_width:
+            current = candidate
+            continue
+        lines.append(current)
+        if _text_width(draw, word, font) <= max_width:
+            current = word
+            continue
+        chunk = ""
+        for char in word:
+            candidate_chunk = f"{chunk}{char}"
+            if not chunk or _text_width(draw, candidate_chunk, font) <= max_width:
+                chunk = candidate_chunk
+            else:
+                lines.append(chunk)
+                chunk = char
+        current = chunk
+    if current:
+        lines.append(current)
+    return lines
+
+
+def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
+    """Rend un chapitre Novel Scan-Manga en pages JPG utilisables par le pipeline CBZ."""
+    clean_title = normalize_metadata_text(title or "Chapitre texte")
+    clean_paragraphs = [normalize_metadata_text(paragraph) for paragraph in (paragraphs or []) if normalize_metadata_text(paragraph)]
+    if not clean_paragraphs:
+        return []
+
+    width, height = 1200, 1700
+    margin_x, margin_y = 90, 100
+    background = (253, 250, 244)
+    title_color = (38, 49, 64)
+    text_color = (32, 32, 32)
+    rule_color = (202, 190, 171)
+    title_font = _load_text_render_font(42, bold=True)
+    body_font = _load_text_render_font(32, bold=False)
+    footer_font = _load_text_render_font(20, bold=False)
+    max_text_width = width - (margin_x * 2)
+    line_height = 43
+    paragraph_gap = 20
+    page_bytes = []
+    page = None
+    draw = None
+    y = 0
+    page_number = 0
+
+    def new_page():
+        nonlocal page, draw, y, page_number
+        page_number += 1
+        page = Image.new("RGB", (width, height), background)
+        draw = ImageDraw.Draw(page)
+        y = margin_y
+        if page_number == 1:
+            title_lines = _wrap_text_for_width(draw, clean_title, title_font, max_text_width)
+            for line in title_lines[:4]:
+                draw.text((margin_x, y), line, fill=title_color, font=title_font)
+                y += 56
+            draw.line((margin_x, y + 8, width - margin_x, y + 8), fill=rule_color, width=2)
+            y += 48
+
+    def save_page():
+        if page is None:
+            return
+        footer = f"{page_number}"
+        footer_width = _text_width(draw, footer, footer_font)
+        draw.text(((width - footer_width) / 2, height - 62), footer, fill=(110, 110, 110), font=footer_font)
+        buffer = BytesIO()
+        page.save(buffer, "JPEG", quality=92, optimize=True)
+        page_bytes.append(buffer.getvalue())
+
+    new_page()
+    usable_bottom = height - 110
+    for paragraph in clean_paragraphs:
+        lines = _wrap_text_for_width(draw, paragraph, body_font, max_text_width)
+        needed = max(1, len(lines)) * line_height + paragraph_gap
+        if y + needed > usable_bottom and y > margin_y + 40:
+            save_page()
+            new_page()
+        for line in lines:
+            if y + line_height > usable_bottom:
+                save_page()
+                new_page()
+            draw.text((margin_x, y), line, fill=text_color, font=body_font)
+            y += line_height
+        y += paragraph_gap
+    save_page()
+
+    key = _text_page_cache_key(source_url, clean_title, clean_paragraphs)
+    store_text_page_bytes(key, page_bytes)
+    return [f"{TEXT_PAGE_URL_PREFIX}{key}/{idx + 1}.jpg" for idx in range(len(page_bytes))]
+
+
 def request_scanmanga_reader_api(api_url, chapter_url, reader_vars, api_body, ua):
     """Appelle l'API lecteur Scan-Manga depuis une session vierge.
 
@@ -3423,7 +3671,22 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
     if status_code != 200:
         raise AuthError(f"Scan-Manga: page lecteur inaccessible (HTTP {status_code}).")
 
-    reader_vars = extract_scanmanga_reader_vars(page_response.text or "")
+    page_html = page_response.text or ""
+    novel_chapter = extract_scanmanga_novel_chapter(page_html)
+    if novel_chapter:
+        novel_title, paragraphs = novel_chapter
+        images = render_scanmanga_novel_pages(novel_title, paragraphs, chapter_url)
+        if max_images:
+            images = images[:max_images]
+        if emit_logs:
+            runtime_log(
+                f"{len(images)} page(s) texte Scan-Manga générée(s) depuis le chapitre Novel.",
+                level="info",
+                context={"action": "extract_text_pages", "domain": "scanmanga"},
+            )
+        return images
+
+    reader_vars = extract_scanmanga_reader_vars(page_html)
     fingerprint = {"gpu": "IC", "connection": "IC"}
     api_body = {
         "a": reader_vars["sme"],
@@ -13696,6 +13959,25 @@ def run_self_test():
         "scan-manga archive label complet",
         scanmanga_meta.get(first_extra_url, {}).get("archive_label") == "Tome 2 - Chap Extra : Bonus 2",
     )
+    scanmanga_novel_html = """
+    <article class="aLN">
+      <h2 class="ln_c_title">Tome 18 - Chapitre 10-2 - Douleur partagée</h2>
+      <div class="ln_c_content">
+        <p>Premier paragraphe de test pour un chapitre Novel Scan-Manga.</p>
+        <p>Deuxieme paragraphe assez long pour verifier le rendu en page image et le cache interne.</p>
+        <p>Troisieme paragraphe avec assez de texte pour depasser le seuil minimal de detection du mode texte.</p>
+      </div>
+    </article>
+    """
+    novel_chapter = extract_scanmanga_novel_chapter(scanmanga_novel_html)
+    check("scan-manga novel detecte", bool(novel_chapter and len(novel_chapter[1]) == 3))
+    novel_urls = render_scanmanga_novel_pages(
+        novel_chapter[0],
+        novel_chapter[1],
+        "https://www.scan-manga.com/lecture-en-ligne/Test-Chapitre-10-2-FR_1.html",
+    ) if novel_chapter else []
+    first_novel_page = get_text_page_bytes(novel_urls[0]) if novel_urls else None
+    check("scan-manga novel page jpg", bool(first_novel_page and first_novel_page[:2] == b"\xff\xd8"))
 
     failed = [(name, detail) for name, ok, detail in checks if not ok]
     for name, ok, detail in checks:
