@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.32"
+APP_VERSION = "11.15.33"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -965,14 +965,14 @@ MIN_DOWNLOAD_THREADS = 1
 MAX_DOWNLOAD_THREADS = 8
 THREADS = DEFAULT_DOWNLOAD_THREADS  # Compatibilite interne historique.
 UI_CALL_TIMEOUT_SECONDS = 15  # Timeout max pour un appel synchrone vers le thread UI
-UI_QUEUE_BATCH_LIMIT = 120
-UI_QUEUE_TIME_BUDGET_SECONDS = 0.012
+UI_QUEUE_BATCH_LIMIT = 90
+UI_QUEUE_TIME_BUDGET_SECONDS = 0.009
 VOLUME_RENDER_BATCH_SIZE = 36  # Rendu progressif des gros listings pour eviter les timeouts UI
 GUI_LOG_FLUSH_INTERVAL_MS = 70
-GUI_LOG_FLUSH_MAX_BATCH = 180
+GUI_LOG_FLUSH_MAX_BATCH = 120
 VOLUME_COMPACT_MODE_THRESHOLD = 180  # Au-dela, bascule vers un rendu compact plus rapide
 VOLUME_FAST_WIDGET_THRESHOLD = 2400  # Fallback ultime pour des catalogues exceptionnellement grands
-VOLUME_VIRTUALIZATION_THRESHOLD = 280  # En auto dense, n'instancie que la fenetre visible
+VOLUME_VIRTUALIZATION_THRESHOLD = 180  # En auto dense, n'instancie que la fenetre visible
 VOLUME_VIRTUALIZATION_THRESHOLD_DENSE = 60  # En mode Dense explicite, virtualise plus tot pour fluidifier le switch
 VOLUME_VIRTUALIZATION_THRESHOLD_COMFORT = 60  # En mode Confort explicite, virtualise aussi pour limiter le cout du switch
 VOLUME_GROUP_HEADER_MAX_ITEMS = 220  # Au-delà, garde la virtualisation plutôt que créer tous les widgets de groupe
@@ -985,6 +985,7 @@ VOLUME_COMPACT_COLUMN_WIDTH = 236
 VOLUME_FAST_COLUMN_WIDTH = 236
 PREVIEW_PAGE_LIMIT = 5
 PREVIEW_CACHE_MAX_ITEMS = 3
+PREVIEW_SCANMANGA_PAGE_LIMIT = 1
 PREVIEW_MAX_IMAGE_DIMENSION = 1600
 COVER_ANIMATION_MAX_FRAMES = 24
 IMAGE_URL_CACHE_MAX_ITEMS = 512
@@ -2290,6 +2291,52 @@ def is_chapter_label(label):
     return normalize_tome_label(label).lower().startswith("chapitre ")
 
 
+def build_high_res_cover_candidates(cover_url):
+    """Retourne des variantes possibles de meilleure qualite, sans reseau."""
+    safe_url = normalize_image_url((cover_url or "").strip())
+    if not safe_url:
+        return []
+    candidates = [safe_url]
+    parsed = urlparse(safe_url)
+    path = parsed.path or ""
+    variants = []
+    for pattern in (
+        r"-(?:\d{2,5})x(?:\d{2,5})(\.[A-Za-z0-9]{3,5})$",
+        r"_\d{3,6}(\.[A-Za-z0-9]{3,5})$",
+    ):
+        new_path = re.sub(pattern, r"\1", path)
+        if new_path != path:
+            variants.append(urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment)))
+    for variant in variants:
+        normalized = normalize_image_url(variant)
+        if normalized and normalized not in candidates:
+            candidates.insert(0, normalized)
+    return candidates
+
+
+def robust_download_cover_best(cover_url, cookie, ua, referer_url=None, max_try=2, delay=1):
+    """Telecharge la meilleure variante de couverture disponible, avec fallback."""
+    last_exc = None
+    base_referer = referer_url or get_site_root_url(cover_url) or cover_url
+    for candidate in build_high_res_cover_candidates(cover_url):
+        headers = build_request_headers(
+            candidate,
+            cookie,
+            ua or DEFAULT_USER_AGENT,
+            accept="image/avif,image/webp,image/jpeg,image/png,*/*;q=0.8",
+            referer_url=base_referer,
+        )
+        try:
+            raw = robust_download_image(candidate, headers, max_try=max_try, delay=delay)
+            return candidate, raw
+        except Exception as exc:
+            last_exc = exc
+            continue
+    if last_exc:
+        raise last_exc
+    raise ImageDownloadError("Couverture introuvable.", kind="missing", phase="cover")
+
+
 def get_archive_label_for_link(label, link, metadata_by_url=None):
     """Retourne le libellé à utiliser pour le nom du CBZ."""
     metadata = {}
@@ -2466,15 +2513,14 @@ def write_chapter_cover_page(folder_path, cover_url, cookie, ua, referer_url=Non
         except OSError:
             pass
 
-    headers = build_request_headers(
+    _used_cover_url, raw = robust_download_cover_best(
         safe_cover_url,
         cookie,
         (ua or DEFAULT_USER_AGENT).strip(),
-        accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
         referer_url=referer_url or get_site_root_url(safe_cover_url) or safe_cover_url,
+        max_try=2,
+        delay=1,
     )
-
-    raw = robust_download_image(safe_cover_url, headers, max_try=2, delay=1)
     image = Image.open(BytesIO(raw))
     image = ImageOps.exif_transpose(image)
     if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
@@ -4010,11 +4056,13 @@ def request_scanmanga_reader_api(api_url, chapter_url, reader_vars, api_body, ua
     return response, int(getattr(response, "status_code", 0) or 0)
 
 
-def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
+def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True, cancel_event=None):
     """Récupère les images Scan-Manga via l'API bqj, sans navigateur."""
     chapter_url = (link or "").strip()
     if not chapter_url:
         return []
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
     session = requests.Session()
     page_response = session.get(
         chapter_url,
@@ -4025,6 +4073,8 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
     status_code = int(getattr(page_response, "status_code", 0) or 0)
     if status_code != 200:
         raise AuthError(f"Scan-Manga: page lecteur inaccessible (HTTP {status_code}).")
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
 
     page_html = page_response.text or ""
     novel_chapter = extract_scanmanga_novel_chapter(page_html)
@@ -4049,6 +4099,8 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
         return images
 
     reader_vars = extract_scanmanga_reader_vars(page_html)
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
     fingerprint = {"gpu": "IC", "connection": "IC"}
     api_body = {
         "a": reader_vars["sme"],
@@ -4067,6 +4119,8 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
             timeout=20,
         )
         if int(getattr(retry_page, "status_code", 0) or 0) == 200:
+            if cancel_event is not None and cancel_event.is_set():
+                raise DownloadCancelled("Téléchargement annulé.")
             retry_vars = extract_scanmanga_reader_vars(retry_page.text or "")
             retry_body = {
                 "a": retry_vars["sme"],
@@ -4083,6 +4137,8 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True):
             reader_vars = retry_vars
     if api_status != 200:
         raise AuthError(f"Scan-Manga: API lecteur inaccessible (HTTP {api_status}).")
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
 
     data = decode_scanmanga_data_api(api_response.text or "", reader_vars["idc"])
     images = build_scanmanga_image_urls(data)
@@ -4798,6 +4854,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                 ua,
                 max_images=max_images,
                 emit_logs=emit_logs,
+                cancel_event=cancel_event,
             )
             if images:
                 store_cached_image_urls(link, images, max_images=max_images)
@@ -5650,28 +5707,67 @@ def extract_cover_url_from_html(page_url, html_content):
             return normalize_image_url(urljoin(site_root, candidate))
         return ""
 
-    def extract_src_from_srcset(raw_srcset):
+    def extract_srcset_entries(raw_srcset):
         srcset = (raw_srcset or "").strip()
         if not srcset:
-            return ""
+            return []
         entries = [part.strip() for part in srcset.split(",") if part.strip()]
-        if not entries:
-            return ""
-        # Prend la dernière entrée (souvent la meilleure résolution).
-        last_entry = entries[-1]
-        return (last_entry.split()[0] if last_entry.split() else "").strip()
+        candidates = []
+        for entry in entries:
+            parts = entry.split()
+            if not parts:
+                continue
+            raw_url = parts[0].strip()
+            weight = 0
+            if len(parts) > 1:
+                descriptor = parts[1].strip().lower()
+                if descriptor.endswith("w") and descriptor[:-1].isdigit():
+                    weight = int(descriptor[:-1])
+                elif descriptor.endswith("x"):
+                    try:
+                        weight = int(float(descriptor[:-1]) * 1000)
+                    except ValueError:
+                        weight = 0
+            candidates.append((raw_url, weight))
+        candidates.sort(key=lambda item: item[1])
+        return [url for url, _weight in candidates if url]
+
+    def cover_candidate_score(url, source=""):
+        value = (url or "").lower()
+        score = 0
+        if "cover" in value or "couverture" in value or "manga" in value:
+            score += 30
+        if source in ("srcset", "meta"):
+            score += 10
+        match = re.search(r"-(\d{2,5})x(\d{2,5})(?:\.[a-z0-9]{3,5})(?:$|[?#])", value)
+        if match:
+            try:
+                score += int(match.group(1)) * int(match.group(2)) / 10000
+            except Exception:
+                pass
+        return score
+
+    candidates = []
+
+    def add_candidate(raw_candidate, source=""):
+        candidate = resolve_cover_candidate(raw_candidate)
+        if not candidate:
+            return
+        candidates.append((candidate, cover_candidate_score(candidate, source)))
 
     def extract_cover_from_img(tag):
         if tag is None:
             return ""
+        for attr_name in ("data-srcset", "srcset"):
+            for candidate in extract_srcset_entries(tag.get(attr_name)):
+                add_candidate(candidate, "srcset")
         for attr_name in ("data-src", "data-lazy-src", "src", "data-cfsrc"):
             candidate = resolve_cover_candidate(tag.get(attr_name))
             if candidate:
+                add_candidate(candidate, attr_name)
                 return candidate
-        for attr_name in ("data-srcset", "srcset"):
-            candidate = resolve_cover_candidate(extract_src_from_srcset(tag.get(attr_name)))
-            if candidate:
-                return candidate
+        if candidates:
+            return candidates[-1][0]
         return ""
 
     cover_selectors = (
@@ -5703,6 +5799,7 @@ def extract_cover_url_from_html(page_url, html_content):
                 continue
             candidate = resolve_cover_candidate(match.group(1))
             if candidate:
+                add_candidate(candidate, "style")
                 img_url = candidate
                 break
 
@@ -5711,6 +5808,7 @@ def extract_cover_url_from_html(page_url, html_content):
             if tag["property"] in ["og:image", "og:image:secure_url"]:
                 candidate = resolve_cover_candidate((tag.get("content") or "").strip())
                 if candidate:
+                    add_candidate(candidate, "meta")
                     img_url = candidate
                     break
     if not img_url:
@@ -5718,8 +5816,15 @@ def extract_cover_url_from_html(page_url, html_content):
             if (tag.get("name") or "").strip().lower() in ("twitter:image", "twitter:image:src"):
                 candidate = resolve_cover_candidate((tag.get("content") or "").strip())
                 if candidate:
+                    add_candidate(candidate, "meta")
                     img_url = candidate
                     break
+
+    if candidates:
+        seen = {}
+        for candidate, score in candidates:
+            seen[candidate] = max(score, seen.get(candidate, 0))
+        img_url = max(seen.items(), key=lambda item: item[1])[0]
 
     if not img_url:
         return ""
@@ -5747,20 +5852,17 @@ def get_cover_image(r_text):
             referer_url = get_site_root_url(img_url) or "https://sushiscan.fr/"
 
         cookie = app.get_cookie(img_url)
-        headers = build_request_headers(
+        selected_img_url, raw = robust_download_cover_best(
             img_url,
             cookie,
             app.get_request_user_agent_for_url(img_url),
-            accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
             referer_url=referer_url,
-        )
-
-        raw = robust_download_image(
-            normalize_image_url(img_url),
-            headers,
             max_try=2,
             delay=1,
         )
+        if selected_img_url and selected_img_url != img_url:
+            img_url = selected_img_url
+            app.cover_url = selected_img_url
         runtime_log(
             "Téléchargement couverture OK via accès direct.",
             level="debug",
@@ -9760,6 +9862,9 @@ class MangaApp:
         self.preview_spinner_message = ""
         self.preview_cache = {}
         self.preview_cache_order = []
+        self.gui_log_compact_entry = None
+        self.gui_log_compact_count = 0
+        self.gui_log_compact_updated_at = 0.0
         self.perf_records = []
         self.analysis_spinner_after_id = None
         self.analysis_spinner_running = False
@@ -9908,10 +10013,13 @@ class MangaApp:
 
     def _queue_gui_log_entry(self, entry):
         """Regroupe les logs GUI pour éviter une action Tk par message."""
-        try:
-            self.gui_log_queue.put_nowait(dict(entry))
-        except Exception:
-            return
+        entry = dict(entry)
+        entry = self._compact_repetitive_gui_log(entry)
+        if entry is not None:
+            try:
+                self.gui_log_queue.put_nowait(entry)
+            except Exception:
+                return
         should_schedule = False
         with self.gui_log_flush_lock:
             if not self.gui_log_flush_scheduled:
@@ -9920,12 +10028,81 @@ class MangaApp:
         if should_schedule:
             self.run_on_ui(self._flush_gui_log_entries)
 
+    def _compact_repetitive_gui_log(self, entry):
+        """Compacte les logs tres bavards sans masquer les erreurs uniques."""
+        message = repair_mojibake_text(entry.get("message", ""))
+        context = entry.get("context") if isinstance(entry.get("context"), dict) else {}
+        action = str(context.get("action") or "").strip()
+        compactable = (
+            action in {"image_retry", "download", "get_images_cache"}
+            or message.startswith("Progression image:")
+            or "Tentative " in message and "échouée" in message
+        )
+        if not compactable:
+            previous = getattr(self, "gui_log_compact_entry", None)
+            count = int(getattr(self, "gui_log_compact_count", 0) or 0)
+            if previous is not None and count > 1:
+                previous = dict(previous)
+                previous["message"] = f"{previous.get('message', '')} (x{count})"
+                try:
+                    self.gui_log_queue.put_nowait(previous)
+                except Exception:
+                    pass
+            self.gui_log_compact_entry = None
+            self.gui_log_compact_count = 0
+            return entry
+
+        key = (
+            normalize_log_level(entry.get("level", "info")),
+            action,
+            re.sub(r"https?://\S+", "<url>", message),
+        )
+        previous = getattr(self, "gui_log_compact_entry", None)
+        previous_key = previous.get("_compact_key") if isinstance(previous, dict) else None
+        now = time.time()
+        if previous is not None and previous_key == key and now - float(getattr(self, "gui_log_compact_updated_at", 0.0) or 0.0) < 2.0:
+            self.gui_log_compact_count = int(getattr(self, "gui_log_compact_count", 1) or 1) + 1
+            self.gui_log_compact_updated_at = now
+            return None
+        if previous is not None:
+            count = int(getattr(self, "gui_log_compact_count", 0) or 0)
+            if count > 1:
+                previous = dict(previous)
+                previous["message"] = f"{previous.get('message', '')} (x{count})"
+                try:
+                    self.gui_log_queue.put_nowait(previous)
+                except Exception:
+                    pass
+            else:
+                try:
+                    self.gui_log_queue.put_nowait(previous)
+                except Exception:
+                    pass
+        entry["_compact_key"] = key
+        self.gui_log_compact_entry = entry
+        self.gui_log_compact_count = 1
+        self.gui_log_compact_updated_at = now
+        return None
+
     def _flush_gui_log_entries(self):
         """Insère un lot de logs dans le widget journal en une seule mise à jour."""
         if not getattr(self, "log_ready", False) or not hasattr(self, "log_text"):
             with self.gui_log_flush_lock:
                 self.gui_log_flush_scheduled = False
             return
+
+        compact_entry = getattr(self, "gui_log_compact_entry", None)
+        compact_count = int(getattr(self, "gui_log_compact_count", 0) or 0)
+        if compact_entry is not None and time.time() - float(getattr(self, "gui_log_compact_updated_at", 0.0) or 0.0) >= 0.5:
+            compact_entry = dict(compact_entry)
+            if compact_count > 1:
+                compact_entry["message"] = f"{compact_entry.get('message', '')} (x{compact_count})"
+            try:
+                self.gui_log_queue.put_nowait(compact_entry)
+            except Exception:
+                pass
+            self.gui_log_compact_entry = None
+            self.gui_log_compact_count = 0
 
         drained = []
         for _ in range(GUI_LOG_FLUSH_MAX_BATCH):
@@ -14230,6 +14407,11 @@ def run_self_test():
     check("headers user-agent", headers.get("User-Agent") == "UA-test")
     check("headers cookie", headers.get("Cookie") == "cf_clearance=abc123")
     check("headers referer", headers.get("Referer") == "https://sushiscan.net/")
+    check(
+        "cover haute resolution candidate",
+        build_high_res_cover_candidates("https://example.test/covers/title-300x450.jpg")[0]
+        == "https://example.test/covers/title.jpg",
+    )
     check_raises("suppression racine refusee", ValueError, lambda: remove_tree_safely(".", expected_parent="."))
 
     with tempfile.TemporaryDirectory() as tmp:

@@ -7,6 +7,20 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.33] - 2026-05-25
+
+### Ameliorations
+- Interface :
+  - virtualisation déclenchée plus tôt sur les gros catalogues,
+  - lots UI plus courts pour améliorer la réactivité,
+  - compactage des logs répétitifs dans le journal GUI.
+- Scan-Manga :
+  - preview Novel limitée à une page pour éviter un rendu complet inutile,
+  - annulation plus réactive pendant l'extraction lecteur/Novel.
+- Couvertures :
+  - extraction améliorée des meilleures sources (`srcset`, lazy-load, `og:image`, `twitter:image`),
+  - tentative de variante haute résolution avec fallback sur l'URL originale.
+
 ## [11.15.32] - 2026-05-25
 
 ### Corrections

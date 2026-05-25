@@ -138,6 +138,18 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.33
+- Interface :
+  - virtualisation plus agressive des gros catalogues,
+  - traitement UI par lots plus courts pour rendre la main plus vite,
+  - compactage des logs répétitifs pendant les téléchargements bavards.
+- Scan-Manga :
+  - preview Novel limitée à une page et réutilisation du cache de rendu,
+  - annulation plus réactive pendant l'extraction des pages Scan-Manga.
+- Couvertures :
+  - meilleure sélection depuis `srcset`, métadonnées sociales et attributs lazy-load,
+  - tentative prudente de variante haute résolution avec fallback automatique.
+
 ### 11.15.32
 - Scan-Manga :
   - preview des chapitres Novel en générant uniquement la première page texte en image,
