@@ -649,8 +649,24 @@ def is_text_page_url(url):
     return str(url or "").startswith(TEXT_PAGE_URL_PREFIX)
 
 
+def _text_block_text(block):
+    if isinstance(block, dict):
+        return normalize_metadata_text(block.get("text", ""))
+    return normalize_metadata_text(block)
+
+
+def _text_block_align(block):
+    if isinstance(block, dict):
+        align = str(block.get("align") or "left").strip().lower()
+        return align if align in {"left", "center", "right"} else "left"
+    return "left"
+
+
 def _text_page_cache_key(source_url, title, paragraphs):
-    payload = "\n".join([(source_url or "").strip(), (title or "").strip(), "\n".join(paragraphs or [])])
+    block_payload = []
+    for block in paragraphs or []:
+        block_payload.append(f"{_text_block_align(block)}:{_text_block_text(block)}")
+    payload = "\n".join([(source_url or "").strip(), (title or "").strip(), "\n".join(block_payload)])
     return hashlib.sha1(payload.encode("utf-8", errors="replace")).hexdigest()[:20]
 
 
@@ -929,7 +945,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.25"
+APP_VERSION = "11.15.26"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3484,32 +3500,69 @@ def extract_scanmanga_novel_chapter(html_content):
 
     title_node = article.select_one(".ln_c_title")
     title = normalize_metadata_text(title_node.get_text(" ", strip=True) if title_node else "")
-    paragraphs = []
+    blocks = []
     seen = set()
-    for node in content_node.find_all(["p", "h1", "h2", "h3", "blockquote", "li"], recursive=True):
-        text = normalize_metadata_text(node.get_text(" ", strip=True))
+
+    def node_align(node):
+        if not node:
+            return "left"
+        if getattr(node, "name", "") == "center":
+            return "center"
+        style = str(node.get("style") or "").lower() if hasattr(node, "get") else ""
+        if "text-align" in style:
+            if "center" in style:
+                return "center"
+            if "right" in style:
+                return "right"
+        parent = getattr(node, "parent", None)
+        if getattr(parent, "name", "") == "center":
+            return "center"
+        return "left"
+
+    def add_block(text, align="left"):
+        text = normalize_metadata_text(text)
         if not text:
-            continue
+            return
         dedupe_key = text.lower()
         if dedupe_key in seen:
-            continue
+            return
         seen.add(dedupe_key)
-        paragraphs.append(text)
+        blocks.append({"text": text, "align": align if align in {"left", "center", "right"} else "left"})
 
-    if not paragraphs:
+    for child in content_node.children:
+        child_name = getattr(child, "name", None)
+        if child_name == "br":
+            continue
+        if child_name == "center":
+            add_block(child.get_text(" ", strip=True), "center")
+            continue
+        if child_name in {"p", "h1", "h2", "h3", "blockquote", "li"}:
+            add_block(child.get_text(" ", strip=True), node_align(child))
+            continue
+        if child_name:
+            for node in child.find_all(["p", "h1", "h2", "h3", "blockquote", "li"], recursive=True):
+                add_block(node.get_text(" ", strip=True), node_align(node))
+            continue
+        add_block(str(child).strip(), "left")
+
+    if not blocks:
         raw_text = normalize_metadata_text(content_node.get_text("\n", strip=True))
-        paragraphs = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        blocks = [{"text": line.strip(), "align": "left"} for line in raw_text.splitlines() if line.strip()]
 
-    total_text_len = sum(len(paragraph) for paragraph in paragraphs)
+    total_text_len = sum(len(_text_block_text(block)) for block in blocks)
     if total_text_len < 80:
         return None
-    return title or "Chapitre texte", paragraphs
+    return title or "Chapitre texte", blocks
 
 
 def _load_text_render_font(size, bold=False):
     font_candidates = [
+        r"C:\Windows\Fonts\ARIALUNI.ttf",
+        r"C:\Windows\Fonts\NotoSerif-Bold.ttf" if bold else r"C:\Windows\Fonts\NotoSerif-Regular.ttf",
+        r"C:\Windows\Fonts\DejaVuSerif-Bold.ttf" if bold else r"C:\Windows\Fonts\DejaVuSerif.ttf",
         r"C:\Windows\Fonts\georgiab.ttf" if bold else r"C:\Windows\Fonts\georgia.ttf",
         r"C:\Windows\Fonts\timesbd.ttf" if bold else r"C:\Windows\Fonts\times.ttf",
+        r"C:\Windows\Fonts\seguisym.ttf",
         r"C:\Windows\Fonts\arialbd.ttf" if bold else r"C:\Windows\Fonts\arial.ttf",
     ]
     for font_path in font_candidates:
@@ -3566,8 +3619,12 @@ def _wrap_text_for_width(draw, text, font, max_width):
 def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
     """Rend un chapitre Novel Scan-Manga en pages JPG utilisables par le pipeline CBZ."""
     clean_title = normalize_metadata_text(title or "Chapitre texte")
-    clean_paragraphs = [normalize_metadata_text(paragraph) for paragraph in (paragraphs or []) if normalize_metadata_text(paragraph)]
-    if not clean_paragraphs:
+    clean_blocks = []
+    for block in paragraphs or []:
+        text = _text_block_text(block)
+        if text:
+            clean_blocks.append({"text": text, "align": _text_block_align(block)})
+    if not clean_blocks:
         return []
 
     width, height = 1200, 1700
@@ -3582,6 +3639,7 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
     max_text_width = width - (margin_x * 2)
     line_height = 43
     paragraph_gap = 20
+    centered_paragraph_gap = 26
     page_bytes = []
     page = None
     draw = None
@@ -3614,9 +3672,12 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
 
     new_page()
     usable_bottom = height - 110
-    for paragraph in clean_paragraphs:
+    for block in clean_blocks:
+        paragraph = block["text"]
+        align = block["align"]
         lines = _wrap_text_for_width(draw, paragraph, body_font, max_text_width)
-        needed = max(1, len(lines)) * line_height + paragraph_gap
+        block_gap = centered_paragraph_gap if align == "center" else paragraph_gap
+        needed = max(1, len(lines)) * line_height + block_gap
         if y + needed > usable_bottom and y > margin_y + 40:
             save_page()
             new_page()
@@ -3624,12 +3685,19 @@ def render_scanmanga_novel_pages(title, paragraphs, source_url=""):
             if y + line_height > usable_bottom:
                 save_page()
                 new_page()
-            draw.text((margin_x, y), line, fill=text_color, font=body_font)
+            line_width = _text_width(draw, line, body_font)
+            if align == "center":
+                x = max(margin_x, (width - line_width) / 2)
+            elif align == "right":
+                x = max(margin_x, width - margin_x - line_width)
+            else:
+                x = margin_x
+            draw.text((x, y), line, fill=text_color, font=body_font)
             y += line_height
-        y += paragraph_gap
+        y += block_gap
     save_page()
 
-    key = _text_page_cache_key(source_url, clean_title, clean_paragraphs)
+    key = _text_page_cache_key(source_url, clean_title, clean_blocks)
     store_text_page_bytes(key, page_bytes)
     return [f"{TEXT_PAGE_URL_PREFIX}{key}/{idx + 1}.jpg" for idx in range(len(page_bytes))]
 
@@ -13978,6 +14046,17 @@ def run_self_test():
     ) if novel_chapter else []
     first_novel_page = get_text_page_bytes(novel_urls[0]) if novel_urls else None
     check("scan-manga novel page jpg", bool(first_novel_page and first_novel_page[:2] == b"\xff\xd8"))
+    scanmanga_center_html = """
+    <article class="aLN">
+      <h2 class="ln_c_title">Titre</h2>
+      <div class="ln_c_content"><center><p>☆☆☆</p></center><p>Texte de test suffisamment long pour valider le mode Novel et conserver l'alignement HTML dans le rendu final.</p></div>
+    </article>
+    """
+    centered_chapter = extract_scanmanga_novel_chapter(scanmanga_center_html)
+    check(
+        "scan-manga novel alignement centre",
+        bool(centered_chapter and centered_chapter[1][0].get("align") == "center"),
+    )
 
     failed = [(name, detail) for name, ok, detail in checks if not ok]
     for name, ok, detail in checks:

@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.26
+- Scan-Manga :
+  - rendu Novel plus fidèle au HTML source avec conservation des blocs centrés,
+  - police Unicode plus complète pour éviter les caractères manquants dans les pages générées.
+
 ### 11.15.25
 - Scan-Manga :
   - support des chapitres Novel en texte : le contenu est rendu en pages JPG puis archivé en CBZ,
