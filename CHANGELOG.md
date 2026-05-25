@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.24] - 2026-05-25
+
+### Corrections
+- Interface :
+  - affichage compact des labels Scan-Manga dans la grille pour éviter les retours à la ligne,
+  - conservation des labels complets pour le filtre, le téléchargement et le nommage CBZ.
+
 ## [11.15.23] - 2026-05-25
 
 ### Ameliorations

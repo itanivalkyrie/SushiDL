@@ -883,7 +883,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.23"
+APP_VERSION = "11.15.24"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -6093,6 +6093,21 @@ class MangaApp:
             return ""
         return normalize_tome_label(match.group(1))
 
+    def _compact_display_label(self, label):
+        text = str(label or "").strip()
+        match = re.match(
+            r"(?i)^\s*Tome\s+([0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)\s+-\s+Chap\s+(.+?)\s*$",
+            text,
+        )
+        if match:
+            tome = match.group(1).replace(",", ".").replace(" ", "")
+            chapter = match.group(2).strip()
+            chapter = chapter.split(" : ", 1)[0].strip()
+            chapter = re.sub(r"(?i)^Extra\b", "Ex", chapter).strip()
+            chapter = re.sub(r"(?i)^Ex\s+", "Ex", chapter)
+            return f"T{tome} C{chapter}"
+        return text
+
     def _should_group_volume_display(self):
         total = len(getattr(self, "pairs", []) or [])
         if total <= 0 or total > VOLUME_GROUP_HEADER_MAX_ITEMS:
@@ -6417,7 +6432,8 @@ class MangaApp:
         checkbox_fill = self.palette["accent"] if selected else self.palette["canvas_bg"]
         checkbox_outline = self.palette["accent"] if selected else self.palette["border"]
         premium = self.is_volume_premium(index=absolute_index)
-        title_text = f"{absolute_index + 1}. {vol}" if kind == "fast" else str(vol)
+        display_vol = self._compact_display_label(vol)
+        title_text = f"{absolute_index + 1}. {display_vol}" if kind == "fast" else str(display_vol)
         index_text = "" if kind == "fast" else str(absolute_index + 1)
         title_x = card_x + 14
         if kind != "fast":
@@ -7127,8 +7143,9 @@ class MangaApp:
         card.volume_var = var
         card.volume_index = index
         premium = self.is_volume_premium(index=index)
+        display_label = self._compact_display_label(volume_label)
         if hasattr(card, "volume_title_label"):
-            card.volume_title_label.configure(text=volume_label)
+            card.volume_title_label.configure(text=display_label)
         if hasattr(card, "volume_index_label"):
             card.volume_index_label.configure(text=str(index + 1))
         if hasattr(card, "volume_premium_badge"):
@@ -7240,8 +7257,9 @@ class MangaApp:
         item.volume_var = var
         item.volume_index = index
         premium = self.is_volume_premium(index=index)
+        display_label = self._compact_display_label(volume_label)
         if hasattr(item, "volume_title_label"):
-            item.volume_title_label.configure(text=volume_label)
+            item.volume_title_label.configure(text=display_label)
         if hasattr(item, "volume_index_label"):
             item.volume_index_label.configure(text=str(index + 1))
         if hasattr(item, "volume_premium_badge"):
