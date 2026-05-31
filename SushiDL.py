@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.33"
+APP_VERSION = "11.15.34"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2300,13 +2300,14 @@ def build_high_res_cover_candidates(cover_url):
     parsed = urlparse(safe_url)
     path = parsed.path or ""
     variants = []
-    for pattern in (
-        r"-(?:\d{2,5})x(?:\d{2,5})(\.[A-Za-z0-9]{3,5})$",
-        r"_\d{3,6}(\.[A-Za-z0-9]{3,5})$",
-    ):
-        new_path = re.sub(pattern, r"\1", path)
-        if new_path != path:
-            variants.append(urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment)))
+    size_suffix_path = re.sub(r"-(?:\d{2,5})x(?:\d{2,5})(\.[A-Za-z0-9]{3,5})$", r"\1", path)
+    if size_suffix_path != path:
+        variants.append(urlunparse((parsed.scheme, parsed.netloc, size_suffix_path, parsed.params, parsed.query, parsed.fragment)))
+    # Ne jamais retirer les suffixes numeriques Scan-Manga: ils font partie de la vraie couverture.
+    if normalize_hostname(parsed.hostname) != "static.scan-manga.com":
+        numeric_suffix_path = re.sub(r"_\d{3,6}(\.[A-Za-z0-9]{3,5})$", r"\1", path)
+        if numeric_suffix_path != path:
+            variants.append(urlunparse((parsed.scheme, parsed.netloc, numeric_suffix_path, parsed.params, parsed.query, parsed.fragment)))
     for variant in variants:
         normalized = normalize_image_url(variant)
         if normalized and normalized not in candidates:
@@ -2318,6 +2319,7 @@ def robust_download_cover_best(cover_url, cookie, ua, referer_url=None, max_try=
     """Telecharge la meilleure variante de couverture disponible, avec fallback."""
     last_exc = None
     base_referer = referer_url or get_site_root_url(cover_url) or cover_url
+    best = None
     for candidate in build_high_res_cover_candidates(cover_url):
         headers = build_request_headers(
             candidate,
@@ -2328,10 +2330,16 @@ def robust_download_cover_best(cover_url, cookie, ua, referer_url=None, max_try=
         )
         try:
             raw = robust_download_image(candidate, headers, max_try=max_try, delay=delay)
-            return candidate, raw
+            with Image.open(BytesIO(raw)) as image:
+                width, height = image.size
+            area = max(0, int(width or 0) * int(height or 0))
+            if best is None or area > best[0]:
+                best = (area, candidate, raw)
         except Exception as exc:
             last_exc = exc
             continue
+    if best is not None:
+        return best[1], best[2]
     if last_exc:
         raise last_exc
     raise ImageDownloadError("Couverture introuvable.", kind="missing", phase="cover")
@@ -14411,6 +14419,11 @@ def run_self_test():
         "cover haute resolution candidate",
         build_high_res_cover_candidates("https://example.test/covers/title-300x450.jpg")[0]
         == "https://example.test/covers/title.jpg",
+    )
+    check(
+        "cover scan-manga suffix preserve",
+        build_high_res_cover_candidates("https://static.scan-manga.com/img/manga/Infinite_Evolution_Starting_from_Zero_1_7111.jpg")[0]
+        == "https://static.scan-manga.com/img/manga/Infinite_Evolution_Starting_from_Zero_1_7111.jpg",
     )
     check_raises("suppression racine refusee", ValueError, lambda: remove_tree_safely(".", expected_parent="."))
 

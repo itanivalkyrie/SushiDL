@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.34] - 2026-05-31
+
+### Corrections
+- Couvertures :
+  - conservation des suffixes numériques Scan-Manga comme `_7111` dans les URLs de couverture,
+  - choix de la meilleure variante selon les dimensions réelles téléchargées pour éviter une image parasite plus petite.
+
 ## [11.15.33] - 2026-05-25
 
 ### Ameliorations

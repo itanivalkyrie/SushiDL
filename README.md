@@ -138,6 +138,11 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.34
+- Couvertures :
+  - correction des couvertures Scan-Manga dont le suffixe numérique fait partie de l'URL réelle,
+  - sélection plus prudente de la meilleure variante téléchargée selon la taille réelle de l'image.
+
 ### 11.15.33
 - Interface :
   - virtualisation plus agressive des gros catalogues,
