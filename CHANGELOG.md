@@ -7,6 +7,15 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.35] - 2026-06-14
+
+### Ameliorations
+- Suivi :
+  - ajout de `catalog_state.json` pour conserver l'état connu des catalogues entre deux démarrages,
+  - comparaison automatique des chapitres/tomes après chaque analyse réussie,
+  - affichage/log des nouveautés détectées dans le flux d'analyse classique,
+  - ajout du socle `watchlist.json` pour le futur planificateur.
+
 ## [11.15.34] - 2026-05-31
 
 ### Corrections

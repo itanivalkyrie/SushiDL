@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.34"
+APP_VERSION = "11.15.35"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1004,9 +1004,17 @@ APP_ICON_PATH = BASE_DIR / "assets" / "sushidl.ico"
 COOKIE_CACHE_PATH = BASE_DIR / "cookie_cache.json"  # Fichier de cache pour les cookies
 CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
+CATALOG_STATE_PATH = BASE_DIR / "catalog_state.json"
+WATCHLIST_PATH = BASE_DIR / "watchlist.json"
 ANALYSIS_CACHE_LOCK = threading.Lock()
 ANALYSIS_CACHE_MEMORY = None
 ANALYSIS_CACHE_SCHEMA_VERSION = 6
+CATALOG_STATE_LOCK = threading.Lock()
+CATALOG_STATE_MEMORY = None
+CATALOG_STATE_SCHEMA_VERSION = 1
+WATCHLIST_LOCK = threading.Lock()
+WATCHLIST_MEMORY = None
+WATCHLIST_SCHEMA_VERSION = 1
 IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
@@ -1253,6 +1261,179 @@ def store_cached_analysis(url, ua, title, pairs, volume_metadata=None, series_me
     with ANALYSIS_CACHE_LOCK:
         ANALYSIS_CACHE_MEMORY = dict(cache)
         _write_json_file(ANALYSIS_CACHE_PATH, cache)
+
+
+def _catalog_state_key(url):
+    safe_url = normalize_image_url((url or "").strip())
+    return safe_url.rstrip("/")
+
+
+def _read_catalog_state():
+    global CATALOG_STATE_MEMORY
+    with CATALOG_STATE_LOCK:
+        if CATALOG_STATE_MEMORY is not None:
+            return dict(CATALOG_STATE_MEMORY)
+        if not CATALOG_STATE_PATH.exists():
+            CATALOG_STATE_MEMORY = {"schema_version": CATALOG_STATE_SCHEMA_VERSION, "catalogues": {}}
+            return dict(CATALOG_STATE_MEMORY)
+        try:
+            with CATALOG_STATE_PATH.open("r", encoding="utf-8-sig") as handle:
+                data = json.load(handle)
+            if not isinstance(data, dict):
+                data = {}
+            if int(data.get("schema_version") or 0) != CATALOG_STATE_SCHEMA_VERSION:
+                data = {"schema_version": CATALOG_STATE_SCHEMA_VERSION, "catalogues": {}}
+            data.setdefault("catalogues", {})
+            if not isinstance(data.get("catalogues"), dict):
+                data["catalogues"] = {}
+            CATALOG_STATE_MEMORY = data
+            return dict(CATALOG_STATE_MEMORY)
+        except Exception as exc:
+            runtime_log(f"Etat catalogue illisible: {exc}", level="debug")
+            CATALOG_STATE_MEMORY = {"schema_version": CATALOG_STATE_SCHEMA_VERSION, "catalogues": {}}
+            return dict(CATALOG_STATE_MEMORY)
+
+
+def _write_catalog_state(data):
+    global CATALOG_STATE_MEMORY
+    safe_data = data if isinstance(data, dict) else {}
+    safe_data["schema_version"] = CATALOG_STATE_SCHEMA_VERSION
+    safe_data.setdefault("catalogues", {})
+    with CATALOG_STATE_LOCK:
+        CATALOG_STATE_MEMORY = dict(safe_data)
+        _write_json_file(CATALOG_STATE_PATH, safe_data)
+
+
+def update_catalog_state(url, title, pairs, domain="", volume_metadata=None):
+    """Memorise l'etat d'un catalogue et retourne le delta depuis la derniere analyse."""
+    key = _catalog_state_key(url)
+    if not key:
+        return {}
+    current_items = {}
+    for label, link in pairs or []:
+        safe_link = (link or "").strip()
+        if not safe_link:
+            continue
+        current_items[safe_link] = normalize_tome_label(label) or safe_link
+    state = _read_catalog_state()
+    catalogues = state.setdefault("catalogues", {})
+    previous = catalogues.get(key) if isinstance(catalogues.get(key), dict) else {}
+    previous_items = previous.get("known_items") if isinstance(previous.get("known_items"), dict) else {}
+    first_seen = not bool(previous_items)
+    new_urls = [link for link in current_items if link not in previous_items]
+    removed_urls = [link for link in previous_items if link not in current_items]
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    new_items = [{"label": current_items[link], "url": link} for link in new_urls]
+    removed_items = [{"label": previous_items.get(link, link), "url": link} for link in removed_urls]
+    catalogues[key] = {
+        "schema_version": CATALOG_STATE_SCHEMA_VERSION,
+        "url": key,
+        "title": normalize_metadata_text(title) or previous.get("title") or "",
+        "domain": (domain or get_cookie_domain_from_url(key) or "").strip(),
+        "last_checked_at": now_iso,
+        "last_count": len(current_items),
+        "known_items": current_items,
+        "last_new_items": new_items if not first_seen else [],
+        "last_removed_items": removed_items if not first_seen else [],
+        "volume_metadata": volume_metadata if isinstance(volume_metadata, dict) else {},
+    }
+    _write_catalog_state(state)
+    return {
+        "url": key,
+        "title": catalogues[key]["title"],
+        "first_seen": first_seen,
+        "previous_count": len(previous_items) if previous_items else int(previous.get("last_count") or 0),
+        "current_count": len(current_items),
+        "new_count": 0 if first_seen else len(new_items),
+        "removed_count": 0 if first_seen else len(removed_items),
+        "new_items": [] if first_seen else new_items,
+        "removed_items": [] if first_seen else removed_items,
+        "last_checked_at": now_iso,
+    }
+
+
+def format_catalog_state_summary(summary):
+    if not summary:
+        return ""
+    current_count = int(summary.get("current_count") or 0)
+    if summary.get("first_seen"):
+        return f"Etat catalogue mémorisé: {current_count} élément(s)."
+    new_count = int(summary.get("new_count") or 0)
+    removed_count = int(summary.get("removed_count") or 0)
+    if new_count or removed_count:
+        parts = []
+        if new_count:
+            parts.append(f"+{new_count} nouveau(x)")
+        if removed_count:
+            parts.append(f"-{removed_count} retiré(s)")
+        return f"Evolution catalogue: {current_count} élément(s), {' / '.join(parts)}."
+    return f"Aucune nouveauté depuis la dernière analyse ({current_count} élément(s))."
+
+
+def _read_watchlist():
+    global WATCHLIST_MEMORY
+    with WATCHLIST_LOCK:
+        if WATCHLIST_MEMORY is not None:
+            return dict(WATCHLIST_MEMORY)
+        if not WATCHLIST_PATH.exists():
+            WATCHLIST_MEMORY = {
+                "schema_version": WATCHLIST_SCHEMA_VERSION,
+                "settings": {"interval_minutes": 360, "auto_download": False, "notify_only": True},
+                "items": [],
+            }
+            return dict(WATCHLIST_MEMORY)
+        try:
+            with WATCHLIST_PATH.open("r", encoding="utf-8-sig") as handle:
+                data = json.load(handle)
+            if not isinstance(data, dict) or int(data.get("schema_version") or 0) != WATCHLIST_SCHEMA_VERSION:
+                data = {
+                    "schema_version": WATCHLIST_SCHEMA_VERSION,
+                    "settings": {"interval_minutes": 360, "auto_download": False, "notify_only": True},
+                    "items": [],
+                }
+            data.setdefault("settings", {"interval_minutes": 360, "auto_download": False, "notify_only": True})
+            data.setdefault("items", [])
+            WATCHLIST_MEMORY = data
+            return dict(WATCHLIST_MEMORY)
+        except Exception as exc:
+            runtime_log(f"Watchlist illisible: {exc}", level="debug")
+            WATCHLIST_MEMORY = {
+                "schema_version": WATCHLIST_SCHEMA_VERSION,
+                "settings": {"interval_minutes": 360, "auto_download": False, "notify_only": True},
+                "items": [],
+            }
+            return dict(WATCHLIST_MEMORY)
+
+
+def add_or_update_watchlist_url(url, title="", enabled=True):
+    """Ajoute une URL a suivre. L'interface planificateur utilisera ce socle."""
+    safe_url = _catalog_state_key(url)
+    if not safe_url:
+        return False
+    data = _read_watchlist()
+    items = data.setdefault("items", [])
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    for item in items:
+        if isinstance(item, dict) and _catalog_state_key(item.get("url")) == safe_url:
+            item["title"] = normalize_metadata_text(title) or item.get("title", "")
+            item["enabled"] = bool(enabled)
+            item["updated_at"] = now_iso
+            break
+    else:
+        items.append(
+            {
+                "url": safe_url,
+                "title": normalize_metadata_text(title),
+                "enabled": bool(enabled),
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            }
+        )
+    global WATCHLIST_MEMORY
+    with WATCHLIST_LOCK:
+        WATCHLIST_MEMORY = dict(data)
+        _write_json_file(WATCHLIST_PATH, data)
+    return True
 
 
 def get_fragile_site_settings(domain):
@@ -8211,7 +8392,16 @@ class MangaApp:
         self._update_volume_render_badges(built_count, len(self.pairs))
         if has_pairs and feedback_enabled:
             self.log("Liste chargée avec succès.", level="success")
-            self._set_analysis_status_label(f"Analyse terminée: {len(self.pairs)} éléments.", success=True)
+            summary = getattr(self, "catalog_state_summary", None) or {}
+            if summary and not summary.get("first_seen") and int(summary.get("new_count") or 0) > 0:
+                self._set_analysis_status_label(
+                    f"Analyse terminée: {len(self.pairs)} éléments (+{int(summary.get('new_count') or 0)} nouveaux).",
+                    success=True,
+                )
+            elif summary and summary.get("first_seen"):
+                self._set_analysis_status_label(f"Analyse terminée: {len(self.pairs)} éléments mémorisés.", success=True)
+            else:
+                self._set_analysis_status_label(f"Analyse terminée: {len(self.pairs)} éléments.", success=True)
         elif not has_pairs and feedback_enabled:
             self._show_volume_empty_state("Aucun tome détecté pour cette URL.", tone="warning")
             self.log("Aucun tome détecté.", level="warning")
@@ -9850,6 +10040,7 @@ class MangaApp:
         self.cover_url = ""
         self.volume_meta_by_url = {}
         self.series_metadata = {}
+        self.catalog_state_summary = {}
         self.preview_window = None
         self.cookie_refresh_prompt_window = None
         self.preview_header_label = None
@@ -13245,6 +13436,7 @@ class MangaApp:
         self._refresh_source_title_label("")
         self.volume_meta_by_url = {}
         self.series_metadata = {}
+        self.catalog_state_summary = {}
         self.cover_url = ""
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
@@ -13376,6 +13568,7 @@ class MangaApp:
             self._refresh_source_title_label("")
             self.volume_meta_by_url = {}
             self.series_metadata = {}
+            self.catalog_state_summary = {}
             self.toast("Impossible de charger la liste")
             finish_analysis()
 
@@ -13425,6 +13618,24 @@ class MangaApp:
                 self.pairs = pairs
                 self.volume_meta_by_url = dict(analysis.volume_metadata or {})
                 self.series_metadata = dict(analysis.series_metadata or {})
+                catalog_summary = update_catalog_state(
+                    url,
+                    title,
+                    pairs,
+                    domain=domain,
+                    volume_metadata=analysis.volume_metadata,
+                )
+                self.catalog_state_summary = dict(catalog_summary or {})
+                catalog_message = format_catalog_state_summary(catalog_summary)
+                if catalog_message:
+                    log_level = "success" if int((catalog_summary or {}).get("new_count") or 0) else "info"
+                    self.log(catalog_message, level=log_level)
+                    new_items = list((catalog_summary or {}).get("new_items") or [])[:5]
+                    for item in new_items:
+                        self.log(f"Nouveau: {item.get('label')}", level="success")
+                    remaining_new = int((catalog_summary or {}).get("new_count") or 0) - len(new_items)
+                    if remaining_new > 0:
+                        self.log(f"... {remaining_new} autre(s) nouveauté(s).", level="success")
                 log_perf(self.log, "analyse catalogue", analysis_started_at, domaine=domain, elements=len(pairs))
                 self.ua_runtime_validity = bool((ua_for_url or "").strip())
                 self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
@@ -14291,6 +14502,13 @@ class SushiCliBackend:
             safe_ua,
             emit_logs=False,
         )
+        update_catalog_state(
+            safe_url,
+            analysis.title,
+            analysis.pairs,
+            domain=domain,
+            volume_metadata=analysis.volume_metadata,
+        )
         return (
             analysis.title,
             domain,
@@ -14439,12 +14657,20 @@ def run_self_test():
         check("archive finale presente", (tmp_root / "Title" / "Title - Chapitre 1.cbz").exists())
         check("archive tmp absente", not (tmp_root / "Title" / "Title - Chapitre 1.cbz.tmp").exists())
 
-    global ANALYSIS_CACHE_PATH, ANALYSIS_CACHE_MEMORY
+    global ANALYSIS_CACHE_PATH, ANALYSIS_CACHE_MEMORY, CATALOG_STATE_PATH, CATALOG_STATE_MEMORY, WATCHLIST_PATH, WATCHLIST_MEMORY
     old_cache_path = ANALYSIS_CACHE_PATH
     old_cache_memory = ANALYSIS_CACHE_MEMORY
+    old_catalog_state_path = CATALOG_STATE_PATH
+    old_catalog_state_memory = CATALOG_STATE_MEMORY
+    old_watchlist_path = WATCHLIST_PATH
+    old_watchlist_memory = WATCHLIST_MEMORY
     with tempfile.TemporaryDirectory() as tmp:
         ANALYSIS_CACHE_PATH = Path(tmp) / "analysis_cache.json"
+        CATALOG_STATE_PATH = Path(tmp) / "catalog_state.json"
+        WATCHLIST_PATH = Path(tmp) / "watchlist.json"
         ANALYSIS_CACHE_MEMORY = None
+        CATALOG_STATE_MEMORY = None
+        WATCHLIST_MEMORY = None
         store_cached_analysis(
             "https://sushiscan.net/catalogue/test/",
             "UA",
@@ -14468,8 +14694,37 @@ def run_self_test():
             }
         }
         check("cache analyse ancien schema ignore", get_cached_analysis("https://sushiscan.net/catalogue/stale/", "UA") is None)
+        first_state = update_catalog_state(
+            "https://sushiscan.net/catalogue/test/",
+            "Titre",
+            [("Chapitre 1", "https://sushiscan.net/test/1/")],
+            domain="net",
+        )
+        check("etat catalogue premiere analyse", bool(first_state.get("first_seen") and first_state.get("current_count") == 1))
+        second_state = update_catalog_state(
+            "https://sushiscan.net/catalogue/test/",
+            "Titre",
+            [("Chapitre 1", "https://sushiscan.net/test/1/")],
+            domain="net",
+        )
+        check("etat catalogue sans nouveaute", bool(not second_state.get("first_seen") and second_state.get("new_count") == 0))
+        third_state = update_catalog_state(
+            "https://sushiscan.net/catalogue/test/",
+            "Titre",
+            [
+                ("Chapitre 1", "https://sushiscan.net/test/1/"),
+                ("Chapitre 2", "https://sushiscan.net/test/2/"),
+            ],
+            domain="net",
+        )
+        check("etat catalogue nouveaute", bool(third_state.get("new_count") == 1 and third_state.get("new_items", [{}])[0].get("label") == "Chapitre 2"))
+        check("watchlist ajout url", add_or_update_watchlist_url("https://sushiscan.net/catalogue/test/", "Titre", enabled=True))
     ANALYSIS_CACHE_PATH = old_cache_path
     ANALYSIS_CACHE_MEMORY = old_cache_memory
+    CATALOG_STATE_PATH = old_catalog_state_path
+    CATALOG_STATE_MEMORY = old_catalog_state_memory
+    WATCHLIST_PATH = old_watchlist_path
+    WATCHLIST_MEMORY = old_watchlist_memory
 
     class FakeResponse:
         status_code = 200

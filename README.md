@@ -138,6 +138,12 @@ Captures d'ecran :
 
 ## Nouveautes recentes
 
+### 11.15.35
+- Suivi :
+  - ajout de `catalog_state.json` pour mémoriser durablement l'état connu des catalogues entre deux démarrages,
+  - comparaison automatique après chaque analyse pour signaler les nouveaux chapitres/tomes,
+  - base `watchlist.json` préparée pour le futur planificateur.
+
 ### 11.15.34
 - Couvertures :
   - correction des couvertures Scan-Manga dont le suffixe numérique fait partie de l'URL réelle,
