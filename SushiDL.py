@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.38"
+APP_VERSION = "11.15.39"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -7065,7 +7065,10 @@ class MangaApp:
         return row_offset + row, col
 
     def _volume_group_label_from_text(self, label):
-        match = re.match(r"(?i)^\s*(Tome\s+[0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)\s+-\s+", str(label or ""))
+        match = re.match(
+            r"(?i)^\s*((?:Tome|Webtoon)\s+[0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)\s+-\s+",
+            str(label or ""),
+        )
         if not match:
             return ""
         return normalize_tome_label(match.group(1))
@@ -7073,16 +7076,17 @@ class MangaApp:
     def _compact_display_label(self, label):
         text = str(label or "").strip()
         match = re.match(
-            r"(?i)^\s*Tome\s+([0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)\s+-\s+Chap\s+(.+?)\s*$",
+            r"(?i)^\s*(Tome|Webtoon)\s+([0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)\s+-\s+Chap\s+(.+?)\s*$",
             text,
         )
         if match:
-            tome = match.group(1).replace(",", ".").replace(" ", "")
-            chapter = match.group(2).strip()
+            prefix = "W" if match.group(1).lower() == "webtoon" else "T"
+            tome = match.group(2).replace(",", ".").replace(" ", "")
+            chapter = match.group(3).strip()
             chapter = chapter.split(" : ", 1)[0].strip()
             chapter = re.sub(r"(?i)^Extra\b", "Ex", chapter).strip()
             chapter = re.sub(r"(?i)^Ex\s+", "Ex", chapter)
-            return f"T{tome} C{chapter}"
+            return f"{prefix}{tome} C{chapter}"
         return text
 
     def _should_group_volume_display(self):
@@ -15442,6 +15446,9 @@ def run_self_test():
         "scan-manga archive label complet",
         scanmanga_meta.get(first_extra_url, {}).get("archive_label") == "Tome 2 - Chap Extra : Bonus 2",
     )
+    dummy_app = object.__new__(MangaApp)
+    check("scan-manga groupe webtoon", dummy_app._volume_group_label_from_text("Webtoon 1 - Chap 12") == "Webtoon 1")
+    check("scan-manga compact webtoon", dummy_app._compact_display_label("Webtoon 1 - Chap 12") == "W1 C12")
     scanmanga_novel_html = """
     <article class="aLN">
       <h2 class="ln_c_title">Tome 18 - Chapitre 10-2 - Douleur partagée</h2>

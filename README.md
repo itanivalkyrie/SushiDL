@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.38`
+Version actuelle : `11.15.39`
 
 ## Ce qui change sur `main`
 
@@ -137,6 +137,11 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.39
+- Scan-Manga :
+  - séparation visuelle des catalogues `Webtoon X` comme les `Tome X`,
+  - affichage compact des chapitres webtoon en `W1 C12` pour éviter les retours à la ligne.
 
 ### 11.15.38
 - Interface :

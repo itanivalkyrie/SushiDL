@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.39] - 2026-06-27
+
+### Ameliorations
+- Scan-Manga :
+  - détection des groupes `Webtoon X` dans la liste des chapitres,
+  - affichage compact `W1 C12` pour les chapitres webtoon.
+
 ## [11.15.38] - 2026-06-27
 
 ### Ameliorations
