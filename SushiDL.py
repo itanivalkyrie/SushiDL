@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.35"
+APP_VERSION = "11.15.36"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -977,6 +977,9 @@ VOLUME_VIRTUALIZATION_THRESHOLD_DENSE = 60  # En mode Dense explicite, virtualis
 VOLUME_VIRTUALIZATION_THRESHOLD_COMFORT = 60  # En mode Confort explicite, virtualise aussi pour limiter le cout du switch
 VOLUME_GROUP_HEADER_MAX_ITEMS = 220  # Au-delà, garde la virtualisation plutôt que créer tous les widgets de groupe
 VOLUME_VIRTUALIZATION_BUFFER_ROWS = 4
+VOLUME_GROUP_VIRTUALIZATION_THRESHOLD = 30
+VOLUME_VIRTUAL_HEADER_ROW_HEIGHT = 42
+VOLUME_VIRTUAL_REFRESH_THROTTLE_MS = 12
 VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT = 36
 VOLUME_VIRTUAL_ROW_HEIGHT_CARD = 62
 VOLUME_MAX_GRID_COLUMNS = 4
@@ -7244,6 +7247,7 @@ class MangaApp:
         self.volume_canvas_render_active = bool(enabled)
         if not enabled:
             self._hide_canvas_volume_pool()
+            self._hide_canvas_volume_headers()
 
     def _hide_canvas_volume_pool(self):
         canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
@@ -7257,6 +7261,82 @@ class MangaApp:
                     canvas.itemconfigure(item_id, state="hidden")
                 except Exception:
                     pass
+
+    def _hide_canvas_volume_headers(self):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return
+        for entry in getattr(self, "volume_canvas_header_pool", []) or []:
+            entry["group_label"] = None
+            for item_id in entry.get("item_ids", ()):
+                try:
+                    canvas.itemconfigure(item_id, state="hidden")
+                except Exception:
+                    pass
+
+    def _create_canvas_volume_header_entry(self, slot_index):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None:
+            return None
+        tag = f"volume_canvas_header_{slot_index}"
+        bg_id = canvas.create_rectangle(
+            0,
+            0,
+            0,
+            0,
+            width=1,
+            outline=self.palette["border"],
+            fill=self.palette["card_alt"],
+            state="hidden",
+            tags=(tag, "volume_canvas_header"),
+        )
+        text_id = canvas.create_text(
+            0,
+            0,
+            text="",
+            anchor="w",
+            fill=self.palette["text"],
+            font=("Segoe UI Semibold", 11),
+            state="hidden",
+            tags=(tag, "volume_canvas_header"),
+        )
+        return {
+            "slot_index": slot_index,
+            "group_label": None,
+            "item_ids": (bg_id, text_id),
+            "bg_id": bg_id,
+            "text_id": text_id,
+        }
+
+    def _ensure_canvas_volume_header_pool(self, capacity):
+        pool = getattr(self, "volume_canvas_header_pool", None)
+        if pool is None:
+            pool = []
+            self.volume_canvas_header_pool = pool
+        while len(pool) < capacity:
+            entry = self._create_canvas_volume_header_entry(len(pool))
+            if entry is None:
+                break
+            pool.append(entry)
+        return pool
+
+    def _render_canvas_volume_header(self, entry, group_label, row_index, columns, metrics):
+        canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
+        if canvas is None or entry is None:
+            return
+        width = (columns * metrics["card_width"]) + max(0, columns - 1) * metrics["gap_x"]
+        x1 = metrics["left_margin"]
+        x2 = x1 + width
+        y1 = (row_index * metrics["row_height"]) + 5
+        y2 = y1 + 34
+        try:
+            canvas.coords(entry["bg_id"], x1, y1, x2, y2)
+            canvas.itemconfigure(entry["bg_id"], state="normal")
+            canvas.coords(entry["text_id"], x1 + 10, (y1 + y2) / 2.0)
+            canvas.itemconfigure(entry["text_id"], text=group_label, state="normal")
+            entry["group_label"] = group_label
+        except Exception:
+            pass
 
     def _create_canvas_volume_pool_entry(self, slot_index):
         canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
@@ -7338,18 +7418,21 @@ class MangaApp:
             "left_margin": left_margin,
         }
 
-    def _render_canvas_volume_entry(self, entry, absolute_index, visible_position, total_visible, columns, metrics, kind):
+    def _render_canvas_volume_entry(self, entry, absolute_index, visible_position, total_visible, columns, metrics, kind, grid_row=None, grid_col=None):
         canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
         if canvas is None:
             return
         vol, _link = self.pairs[absolute_index]
         var = self.check_vars[absolute_index]
-        row, col = self._get_centered_volume_grid_position(
-            visible_position,
-            total_visible,
-            columns,
-            absolute_visible_index=visible_position,
-        )
+        if grid_row is None or grid_col is None:
+            row, col = self._get_centered_volume_grid_position(
+                visible_position,
+                total_visible,
+                columns,
+                absolute_visible_index=visible_position,
+            )
+        else:
+            row, col = int(grid_row), int(grid_col)
         card_x = metrics["left_margin"] + (col * (metrics["card_width"] + metrics["gap_x"]))
         card_y = (row * metrics["row_height"]) + metrics["top_padding"]
         card_x2 = card_x + metrics["card_width"]
@@ -7615,6 +7698,8 @@ class MangaApp:
         self.volume_grid_columns = new_columns
         if getattr(self, "volume_virtualized", False):
             self.volume_virtual_window = None
+            self.volume_grouped_virtual_rows_cache_key = None
+            self.volume_grouped_virtual_rows_cache = []
             self._refresh_virtualized_volume_view(force=True, reset_scroll=False)
         else:
             self.apply_filter()
@@ -7652,7 +7737,11 @@ class MangaApp:
             except Exception:
                 pass
         if delay_ms <= 1:
-            self.volume_virtual_refresh_after_id = self.root.after_idle(self._process_virtual_volume_refresh)
+            now = time.perf_counter()
+            last_refresh = float(getattr(self, "volume_virtual_last_refresh_at", 0.0) or 0.0)
+            throttle_seconds = max(0.001, VOLUME_VIRTUAL_REFRESH_THROTTLE_MS / 1000.0)
+            wait_ms = 0 if now - last_refresh >= throttle_seconds else max(1, int((throttle_seconds - (now - last_refresh)) * 1000))
+            self.volume_virtual_refresh_after_id = self.root.after(wait_ms, self._process_virtual_volume_refresh)
         else:
             self.volume_virtual_refresh_after_id = self.root.after(delay_ms, self._process_virtual_volume_refresh)
 
@@ -7660,24 +7749,32 @@ class MangaApp:
         self.volume_virtual_refresh_after_id = None
         if not getattr(self, "volume_virtualized", False):
             return
+        if getattr(self, "volume_virtual_refresh_processing", False):
+            self._schedule_virtual_volume_refresh(delay_ms=VOLUME_VIRTUAL_REFRESH_THROTTLE_MS)
+            return
         canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
         if canvas is None:
             return
-        force = bool(getattr(self, "_pending_virtual_volume_force", False))
-        reset_scroll = bool(getattr(self, "_pending_virtual_volume_reset_scroll", False))
-        self._pending_virtual_volume_force = False
-        self._pending_virtual_volume_reset_scroll = False
+        self.volume_virtual_refresh_processing = True
         try:
-            current_yview = tuple(round(float(value), 6) for value in canvas.yview())
-        except Exception:
-            current_yview = None
-        last_yview = getattr(self, "volume_last_canvas_yview", None)
-        if force or reset_scroll or current_yview != last_yview:
-            self._refresh_virtualized_volume_view(force=force, reset_scroll=reset_scroll)
+            force = bool(getattr(self, "_pending_virtual_volume_force", False))
+            reset_scroll = bool(getattr(self, "_pending_virtual_volume_reset_scroll", False))
+            self._pending_virtual_volume_force = False
+            self._pending_virtual_volume_reset_scroll = False
             try:
-                self.volume_last_canvas_yview = tuple(round(float(value), 6) for value in canvas.yview())
+                current_yview = tuple(round(float(value), 6) for value in canvas.yview())
             except Exception:
-                self.volume_last_canvas_yview = current_yview
+                current_yview = None
+            last_yview = getattr(self, "volume_last_canvas_yview", None)
+            if force or reset_scroll or current_yview != last_yview:
+                self._refresh_virtualized_volume_view(force=force, reset_scroll=reset_scroll)
+                self.volume_virtual_last_refresh_at = time.perf_counter()
+                try:
+                    self.volume_last_canvas_yview = tuple(round(float(value), 6) for value in canvas.yview())
+                except Exception:
+                    self.volume_last_canvas_yview = current_yview
+        finally:
+            self.volume_virtual_refresh_processing = False
 
     def _get_virtual_volume_row_window(self, total_rows, canvas_height, row_height, scroll_top, min_visible_rows=6):
         visible_rows = max(min_visible_rows, int(math.ceil(canvas_height / float(max(1, row_height)))))
@@ -7691,6 +7788,135 @@ class MangaApp:
         )
         return first_row, last_row, visible_rows
 
+    def _build_grouped_volume_virtual_rows(self, filtered_indices, columns):
+        cache_key = (int(columns or 1), tuple(filtered_indices or ()))
+        if cache_key == getattr(self, "volume_grouped_virtual_rows_cache_key", None):
+            return list(getattr(self, "volume_grouped_virtual_rows_cache", []) or [])
+        rows = []
+        current_group = None
+        current_indices = []
+
+        def flush_items():
+            nonlocal current_indices
+            while current_indices:
+                rows.append({"type": "items", "indices": current_indices[:columns]})
+                current_indices = current_indices[columns:]
+
+        for absolute_index in filtered_indices:
+            label = self.pairs[absolute_index][0] if absolute_index < len(getattr(self, "pairs", []) or []) else ""
+            group_label = self._volume_group_label_from_text(label) or "Sans tome"
+            if group_label != current_group:
+                flush_items()
+                rows.append({"type": "header", "group": group_label})
+                current_group = group_label
+            current_indices.append(absolute_index)
+            if len(current_indices) >= columns:
+                flush_items()
+        flush_items()
+        self.volume_grouped_virtual_rows_cache_key = cache_key
+        self.volume_grouped_virtual_rows_cache = list(rows)
+        return rows
+
+    def _refresh_grouped_canvas_volume_view(self, filtered_indices, total_visible, columns, canvas, force=False, reset_scroll=False):
+        if reset_scroll:
+            try:
+                canvas.yview_moveto(0)
+            except Exception:
+                pass
+
+        kind = self._get_virtual_volume_pool_kind()
+        if not self._use_canvas_volume_pool(kind):
+            return False
+
+        self._set_volume_canvas_render_mode(True)
+        rows = self._build_grouped_volume_virtual_rows(filtered_indices, columns)
+        total_rows = len(rows)
+        if total_visible <= 0 or total_rows <= 0:
+            self._hide_canvas_volume_pool()
+            self._hide_canvas_volume_headers()
+            self.check_items = []
+            self.volume_index_to_widget = {}
+            self.volume_virtual_window = None
+            self._update_volume_canvas_window(0)
+            self._update_volume_canvas_scrollregion(0)
+            self._update_selection_status()
+            self._refresh_volume_empty_state()
+            return True
+
+        metrics = self._get_canvas_volume_item_metrics(columns, kind)
+        metrics["row_height"] = max(int(metrics.get("row_height") or 0), VOLUME_VIRTUAL_HEADER_ROW_HEIGHT)
+        row_height = metrics["row_height"]
+        canvas_height = max(1, int(canvas.winfo_height() or 1))
+        scroll_top = max(0.0, float(canvas.canvasy(0)))
+        first_row, last_row, _visible_rows = self._get_virtual_volume_row_window(
+            total_rows,
+            canvas_height,
+            row_height,
+            scroll_top,
+            min_visible_rows=8,
+        )
+        window = (first_row, last_row, total_visible, columns, kind, "grouped")
+        if not force and window == getattr(self, "volume_virtual_window", None):
+            return True
+        self.volume_virtual_window = window
+
+        visible_rows = rows[first_row:last_row]
+        item_count = sum(len(row.get("indices", ())) for row in visible_rows if row.get("type") == "items")
+        header_count = sum(1 for row in visible_rows if row.get("type") == "header")
+        item_pool = self._ensure_canvas_volume_pool(item_count)
+        header_pool = self._ensure_canvas_volume_header_pool(header_count)
+        self._update_volume_canvas_window(0)
+        self._update_volume_canvas_scrollregion(total_rows * row_height)
+        self.check_items = []
+        self.volume_index_to_widget = {}
+
+        item_slot = 0
+        header_slot = 0
+        for offset, row_data in enumerate(visible_rows):
+            row_index = first_row + offset
+            if row_data.get("type") == "header":
+                if header_slot < len(header_pool):
+                    self._render_canvas_volume_header(header_pool[header_slot], row_data.get("group") or "", row_index, columns, metrics)
+                header_slot += 1
+                continue
+            for col, absolute_index in enumerate(row_data.get("indices") or []):
+                if item_slot >= len(item_pool):
+                    continue
+                entry = item_pool[item_slot]
+                self._render_canvas_volume_entry(
+                    entry,
+                    absolute_index,
+                    absolute_index,
+                    total_visible,
+                    columns,
+                    metrics,
+                    kind,
+                    grid_row=row_index,
+                    grid_col=col,
+                )
+                self.volume_index_to_widget[absolute_index] = entry
+                item_slot += 1
+
+        for extra_entry in item_pool[item_slot:]:
+            extra_entry["absolute_index"] = None
+            extra_entry["visible_position"] = None
+            for item_id in extra_entry.get("item_ids", ()):
+                try:
+                    canvas.itemconfigure(item_id, state="hidden")
+                except Exception:
+                    pass
+        for extra_header in header_pool[header_slot:]:
+            extra_header["group_label"] = None
+            for item_id in extra_header.get("item_ids", ()):
+                try:
+                    canvas.itemconfigure(item_id, state="hidden")
+                except Exception:
+                    pass
+
+        self._update_selection_status()
+        self._refresh_volume_empty_state()
+        return True
+
     def _refresh_pooled_virtualized_volume_view(self, filtered_indices, total_visible, columns, canvas, force=False, reset_scroll=False):
         if reset_scroll:
             try:
@@ -7701,9 +7927,21 @@ class MangaApp:
         kind = self._get_virtual_volume_pool_kind()
         use_canvas_pool = self._use_canvas_volume_pool(kind)
         self._set_volume_canvas_render_mode(use_canvas_pool)
+        if getattr(self, "volume_grouped", False) and use_canvas_pool:
+            handled = self._refresh_grouped_canvas_volume_view(
+                filtered_indices,
+                total_visible,
+                columns,
+                canvas,
+                force=force,
+                reset_scroll=reset_scroll,
+            )
+            if handled:
+                return
 
         if total_visible <= 0:
             self._hide_canvas_volume_pool()
+            self._hide_canvas_volume_headers()
             for pool in (getattr(self, "volume_virtual_widget_pools", None) or {}).values():
                 for widget in pool:
                     try:
@@ -7765,6 +8003,7 @@ class MangaApp:
                         canvas.itemconfigure(item_id, state="hidden")
                     except Exception:
                         pass
+            self._hide_canvas_volume_headers()
             self._update_selection_status()
             self._refresh_volume_empty_state()
             return
@@ -8465,6 +8704,9 @@ class MangaApp:
         self.volume_render_feedback_enabled = bool(feedback)
         for widget in self.vol_frame.winfo_children():
             widget.destroy()
+        self._hide_canvas_volume_pool()
+        self._hide_canvas_volume_headers()
+        self._set_volume_canvas_render_mode(False)
 
         self.check_vars = []
         self.check_items = []
@@ -8475,12 +8717,15 @@ class MangaApp:
         self.volume_virtual_widget_pools = {}
         self.volume_virtual_widget_pool_mode = None
         self.volume_group_header_widgets = {}
+        self.volume_canvas_header_pool = []
         self.volume_canvas_render_active = False
-        self._hide_canvas_volume_pool()
-        self._set_volume_canvas_render_mode(False)
         self.volume_virtual_top_spacer = None
         self.volume_virtual_bottom_spacer = None
         self.volume_last_canvas_yview = None
+        self.volume_virtual_last_refresh_at = 0.0
+        self.volume_virtual_refresh_processing = False
+        self.volume_grouped_virtual_rows_cache_key = None
+        self.volume_grouped_virtual_rows_cache = []
         self.last_applied_filter_raw = None
         total = len(self.pairs)
         self.volume_grouped = self._should_group_volume_display()
@@ -8489,7 +8734,11 @@ class MangaApp:
         self.volume_virtualized = self._should_virtualize_volume_mode(total)
         if getattr(self, "volume_grouped", False):
             self.use_fast_volume_widgets = False
-            self.volume_virtualized = False
+            if total >= VOLUME_GROUP_VIRTUALIZATION_THRESHOLD:
+                self.use_compact_volume_mode = True
+                self.volume_virtualized = True
+            else:
+                self.volume_virtualized = False
         self._refresh_volume_layout_mode_button()
         self.volume_label_cache_lower = [str(vol or "").lower() for vol, _link in self.pairs]
         self.volume_render_selection_state = list(selection_state or [])
@@ -10091,9 +10340,14 @@ class MangaApp:
         self.volume_virtual_widget_pools = {}
         self.volume_virtual_widget_pool_mode = None
         self.volume_canvas_item_pool = []
+        self.volume_canvas_header_pool = []
         self.volume_canvas_render_active = False
         self.volume_virtual_top_spacer = None
         self.volume_virtual_bottom_spacer = None
+        self.volume_virtual_last_refresh_at = 0.0
+        self.volume_virtual_refresh_processing = False
+        self.volume_grouped_virtual_rows_cache_key = None
+        self.volume_grouped_virtual_rows_cache = []
         self.filtered_volume_indices = []
         self.volume_index_to_widget = {}
         self.volume_label_cache_lower = []
@@ -13810,6 +14064,8 @@ class MangaApp:
         if getattr(self, "volume_virtualized", False):
             self.filtered_volume_indices = self._compute_filtered_volume_indices(raw)
             self.volume_virtual_window = None
+            self.volume_grouped_virtual_rows_cache_key = None
+            self.volume_grouped_virtual_rows_cache = []
             self._refresh_virtualized_volume_view(force=True, reset_scroll=True)
             self._update_selection_status()
             self._refresh_volume_empty_state()

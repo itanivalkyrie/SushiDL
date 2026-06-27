@@ -7,6 +7,16 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.36] - 2026-06-27
+
+### Corrections
+- Interface :
+  - rendu virtualisé des catalogues Scan-Manga groupés par tome pour éviter les traînées visuelles pendant le scroll rapide,
+  - ajout d'un pool d'en-têtes de tome dessiné sur canvas,
+  - cadence de rafraîchissement canvas plus régulière pendant les scrolls rapides,
+  - cache du découpage virtuel des tomes pour réduire les recalculs,
+  - nettoyage renforcé des éléments canvas au rechargement de la liste.
+
 ## [11.15.35] - 2026-06-14
 
 ### Ameliorations
