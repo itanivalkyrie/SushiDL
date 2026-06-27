@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.37`
+Version actuelle : `11.15.38`
 
 ## Ce qui change sur `main`
 
@@ -137,6 +137,13 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.38
+- Interface :
+  - liste des tomes/chapitres rendue en canvas virtualisé pour tous les catalogues,
+  - suppression du rendu widgets pour les vues `Dense`, `Confort` et les petits catalogues,
+  - mode `Confort` porté sur canvas avec une grille plus aérée,
+  - libellés de statut adaptés au rendu canvas permanent.
 
 ### 11.15.37
 - Suivi :

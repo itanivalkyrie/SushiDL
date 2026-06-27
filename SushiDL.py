@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.37"
+APP_VERSION = "11.15.38"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -972,12 +972,8 @@ GUI_LOG_FLUSH_INTERVAL_MS = 70
 GUI_LOG_FLUSH_MAX_BATCH = 120
 VOLUME_COMPACT_MODE_THRESHOLD = 180  # Au-dela, bascule vers un rendu compact plus rapide
 VOLUME_FAST_WIDGET_THRESHOLD = 2400  # Fallback ultime pour des catalogues exceptionnellement grands
-VOLUME_VIRTUALIZATION_THRESHOLD = 180  # En auto dense, n'instancie que la fenetre visible
-VOLUME_VIRTUALIZATION_THRESHOLD_DENSE = 60  # En mode Dense explicite, virtualise plus tot pour fluidifier le switch
-VOLUME_VIRTUALIZATION_THRESHOLD_COMFORT = 60  # En mode Confort explicite, virtualise aussi pour limiter le cout du switch
-VOLUME_GROUP_HEADER_MAX_ITEMS = 220  # Au-delà, garde la virtualisation plutôt que créer tous les widgets de groupe
+VOLUME_GROUP_HEADER_MAX_ITEMS = 220  # Au-dela, garde une grille canvas simple sans en-tetes de groupe.
 VOLUME_VIRTUALIZATION_BUFFER_ROWS = 4
-VOLUME_GROUP_VIRTUALIZATION_THRESHOLD = 30
 VOLUME_VIRTUAL_HEADER_ROW_HEIGHT = 42
 VOLUME_VIRTUAL_REFRESH_THROTTLE_MS = 12
 VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT = 36
@@ -7017,19 +7013,7 @@ class MangaApp:
     def _should_virtualize_volume_mode(self, total_items=None):
         if total_items is None:
             total_items = len(getattr(self, "pairs", []) or [])
-        if self._should_use_fast_volume_widgets(total_items):
-            return True
-        layout_mode = (getattr(self, "volume_layout_mode", None).get() if hasattr(self, "volume_layout_mode") else "Auto") or "Auto"
-        layout_mode = str(layout_mode).strip().lower()
-        if layout_mode == "dense":
-            threshold = VOLUME_VIRTUALIZATION_THRESHOLD_DENSE
-        elif layout_mode == "confort":
-            threshold = VOLUME_VIRTUALIZATION_THRESHOLD_COMFORT
-        else:
-            if not self._should_use_compact_volume_mode(total_items):
-                return False
-            threshold = VOLUME_VIRTUALIZATION_THRESHOLD
-        return total_items >= threshold
+        return int(total_items or 0) > 0
 
     def _get_volume_layout_mode_name(self):
         mode = (getattr(self, "volume_layout_mode", None).get() if hasattr(self, "volume_layout_mode") else "Dense") or "Dense"
@@ -7294,7 +7278,7 @@ class MangaApp:
 
     def _use_canvas_volume_pool(self, kind=None):
         kind = kind or self._get_virtual_volume_pool_kind()
-        return kind in {"fast", "compact"}
+        return kind in {"fast", "compact", "card"}
 
     def _set_volume_canvas_render_mode(self, enabled):
         canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
@@ -7461,6 +7445,12 @@ class MangaApp:
             card_height = 26
             usable_width = max(210, viewport_width - 32)
             card_width = min(250, max(210, int((usable_width - ((columns - 1) * gap_x)) / max(1, columns))))
+        elif kind == "card":
+            row_height = VOLUME_VIRTUAL_ROW_HEIGHT_CARD
+            card_height = 46
+            usable_width = max(260, viewport_width - 32)
+            adaptive_width = max(260, int((usable_width - ((columns - 1) * gap_x)) / max(1, columns)))
+            card_width = min(VOLUME_CARD_COLUMN_WIDTH, adaptive_width)
         else:
             row_height = VOLUME_VIRTUAL_ROW_HEIGHT_COMPACT
             card_height = 28
@@ -8794,11 +8784,8 @@ class MangaApp:
         self.volume_virtualized = self._should_virtualize_volume_mode(total)
         if getattr(self, "volume_grouped", False):
             self.use_fast_volume_widgets = False
-            if total >= VOLUME_GROUP_VIRTUALIZATION_THRESHOLD:
-                self.use_compact_volume_mode = True
-                self.volume_virtualized = True
-            else:
-                self.volume_virtualized = False
+            self.use_compact_volume_mode = True
+            self.volume_virtualized = total > 0
         self._refresh_volume_layout_mode_button()
         self.volume_label_cache_lower = [str(vol or "").lower() for vol, _link in self.pairs]
         self.volume_render_selection_state = list(selection_state or [])
@@ -14398,6 +14385,7 @@ class MangaApp:
                 badge_text = f"{total} éléments"
             self.volume_count_badge.configure(text=badge_text)
         if hasattr(self, "volume_layout_chip"):
+            layout_name = self._get_volume_layout_mode_name()
             effective_mode = "Dense" if getattr(self, "use_compact_volume_mode", False) else "Confort"
             chip_text = effective_mode if layout_name == "Auto" else layout_name
             chip_color = self.palette["accent_soft"] if effective_mode == "Confort" else self.palette["accent"]
@@ -14409,7 +14397,7 @@ class MangaApp:
             elif visible_total != total and visible_total > 0:
                 hint_text = f"Filtre actif : {visible_total} élément(s) visibles."
             elif getattr(self, "volume_virtualized", False):
-                hint_text = "Grand catalogue : rendu virtualisé actif."
+                hint_text = "Rendu canvas virtualisé actif."
             else:
                 hint_text = "Sélectionne les tomes ou chapitres à télécharger."
             self.selection_hint_label.configure(text=hint_text)

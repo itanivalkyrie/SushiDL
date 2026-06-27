@@ -7,6 +7,15 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.38] - 2026-06-27
+
+### Ameliorations
+- Interface :
+  - rendu canvas virtualisé activé pour toutes les listes de tomes/chapitres,
+  - prise en charge canvas du mode `Confort/card`,
+  - suppression du seuil qui faisait encore utiliser des widgets Tk sur les petites listes,
+  - statut de sélection adapté au rendu canvas permanent.
+
 ## [11.15.37] - 2026-06-27
 
 ### Ameliorations
