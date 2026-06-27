@@ -7,6 +7,16 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.15.37] - 2026-06-27
+
+### Ameliorations
+- Suivi :
+  - ajout d'un onglet `Suivi` pour gérer les catalogues à surveiller,
+  - ajout/suppression d'URLs dans `watchlist.json` depuis l'interface,
+  - vérification manuelle d'une entrée ou de toute la liste sans téléchargement automatique,
+  - affichage du dernier nombre connu, de la date de vérification et des nouveautés détectées,
+  - rafraîchissement du cache d'analyse après une vérification réseau fraîche.
+
 ## [11.15.36] - 2026-06-27
 
 ### Corrections

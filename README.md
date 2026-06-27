@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.15.36`
+Version actuelle : `11.15.37`
 
 ## Ce qui change sur `main`
 
@@ -137,6 +137,14 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.15.37
+- Suivi :
+  - ajout d'un onglet `Suivi` pour gérer les catalogues surveillés,
+  - ajout de l'URL courante ou d'une URL manuelle dans `watchlist.json`,
+  - vérification manuelle d'un catalogue ou de toute la liste sans téléchargement,
+  - affichage du dernier état connu, du nombre d'éléments et des nouveautés détectées,
+  - mise à jour du cache d'analyse après une vérification fraîche.
 
 ### 11.15.36
 - Interface :

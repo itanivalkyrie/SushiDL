@@ -957,7 +957,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.36"
+APP_VERSION = "11.15.37"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1408,6 +1408,19 @@ def _read_watchlist():
             return dict(WATCHLIST_MEMORY)
 
 
+def _write_watchlist(data):
+    global WATCHLIST_MEMORY
+    safe_data = data if isinstance(data, dict) else {}
+    safe_data["schema_version"] = WATCHLIST_SCHEMA_VERSION
+    safe_data.setdefault("settings", {"interval_minutes": 360, "auto_download": False, "notify_only": True})
+    safe_data.setdefault("items", [])
+    if not isinstance(safe_data.get("items"), list):
+        safe_data["items"] = []
+    with WATCHLIST_LOCK:
+        WATCHLIST_MEMORY = dict(safe_data)
+        _write_json_file(WATCHLIST_PATH, safe_data)
+
+
 def add_or_update_watchlist_url(url, title="", enabled=True):
     """Ajoute une URL a suivre. L'interface planificateur utilisera ce socle."""
     safe_url = _catalog_state_key(url)
@@ -1432,11 +1445,58 @@ def add_or_update_watchlist_url(url, title="", enabled=True):
                 "updated_at": now_iso,
             }
         )
-    global WATCHLIST_MEMORY
-    with WATCHLIST_LOCK:
-        WATCHLIST_MEMORY = dict(data)
-        _write_json_file(WATCHLIST_PATH, data)
+    _write_watchlist(data)
     return True
+
+
+def remove_watchlist_url(url):
+    safe_url = _catalog_state_key(url)
+    if not safe_url:
+        return False
+    data = _read_watchlist()
+    items = data.setdefault("items", [])
+    kept_items = [
+        item for item in items
+        if not (isinstance(item, dict) and _catalog_state_key(item.get("url")) == safe_url)
+    ]
+    if len(kept_items) == len(items):
+        return False
+    data["items"] = kept_items
+    _write_watchlist(data)
+    return True
+
+
+def get_watchlist_entries_with_state():
+    data = _read_watchlist()
+    state = _read_catalog_state()
+    catalogues = state.get("catalogues") if isinstance(state.get("catalogues"), dict) else {}
+    entries = []
+    for item in data.get("items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        safe_url = _catalog_state_key(item.get("url"))
+        if not safe_url:
+            continue
+        known = catalogues.get(safe_url) if isinstance(catalogues.get(safe_url), dict) else {}
+        new_items = known.get("last_new_items") if isinstance(known.get("last_new_items"), list) else []
+        removed_items = known.get("last_removed_items") if isinstance(known.get("last_removed_items"), list) else []
+        entries.append(
+            {
+                "url": safe_url,
+                "title": normalize_metadata_text(item.get("title")) or normalize_metadata_text(known.get("title")) or safe_url,
+                "enabled": bool(item.get("enabled", True)),
+                "created_at": item.get("created_at") or "",
+                "updated_at": item.get("updated_at") or "",
+                "last_checked_at": known.get("last_checked_at") or "",
+                "last_count": int(known.get("last_count") or 0),
+                "last_new_count": len(new_items),
+                "last_removed_count": len(removed_items),
+                "last_new_items": new_items,
+                "domain": (known.get("domain") or get_cookie_domain_from_url(safe_url) or "").strip(),
+            }
+        )
+    entries.sort(key=lambda entry: str(entry.get("title") or entry.get("url") or "").lower())
+    return entries
 
 
 def get_fragile_site_settings(domain):
@@ -9550,6 +9610,7 @@ class MangaApp:
         titles = {
             "download": "Téléchargement",
             "journal": "Journal",
+            "watch": "Suivi",
             "error": getattr(self, "error_tab_title", "Erreurs (0)"),
             "auth": getattr(self, "auth_tab_title", "Authentification (0/5)"),
             "options": "Options",
@@ -10170,6 +10231,8 @@ class MangaApp:
         self.log_filter_level = tk.StringVar(value="all")
         self.volume_layout_mode = tk.StringVar(value="Dense")
         self.log_autoscroll = tk.BooleanVar(value=True)
+        self.watchlist_url = tk.StringVar()
+        self.watchlist_status = tk.StringVar(value="Aucune vérification lancée.")
         self.console_logs_enabled = tk.BooleanVar(value=True)
         self.show_cookies = tk.BooleanVar(value=False)
         self.verbose_logs_cached = True
@@ -10189,6 +10252,8 @@ class MangaApp:
         self.analysis_auth_last_domain = None
         self.analysis_auth_last_message = ""
         self.analysis_in_progress = False
+        self.watchlist_check_in_progress = False
+        self.watchlist_rows = {}
         self.url.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_net.trace_add("write", self._schedule_runtime_status_update)
@@ -11166,6 +11231,343 @@ class MangaApp:
             thickness=14,
         )
 
+    def _format_watchlist_datetime(self, value):
+        text = str(value or "").strip()
+        if not text:
+            return "-"
+        try:
+            parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone()
+            return parsed.strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            return text[:16]
+
+    def _set_watchlist_status(self, message, level="info"):
+        if hasattr(self, "watchlist_status"):
+            self.watchlist_status.set(message)
+        if message:
+            self.log(message, level=level)
+
+    def _build_watchlist_tab(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(2, weight=1)
+
+        header = ctk.CTkFrame(
+            parent,
+            fg_color=self.palette["panel_bg"],
+            corner_radius=8,
+            border_width=1,
+            border_color=self.palette["border"],
+        )
+        header.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 8))
+        header.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            header,
+            text="Surveille les catalogues et vérifie les nouveaux chapitres sans lancer de téléchargement.",
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=self.ui_metrics["font_body"],
+            anchor="w",
+        ).grid(row=0, column=0, columnspan=5, sticky="ew", padx=14, pady=(12, 6))
+
+        self.watchlist_url_entry = ctk.CTkEntry(
+            header,
+            textvariable=self.watchlist_url,
+            height=36,
+            corner_radius=7,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            font=("Segoe UI", 11),
+        )
+        self.watchlist_url_entry.grid(row=1, column=0, sticky="ew", padx=(14, 8), pady=(0, 12))
+        self._bind_catalogue_url_paste(self.watchlist_url_entry, self.watchlist_url)
+        self._attach_link_placeholder(self.watchlist_url_entry, self.watchlist_url, "URL catalogue à suivre", None)
+
+        actions = (
+            ("Ajouter", self.add_watchlist_url_from_entry, self.palette["accent"], self.palette["accent_hover"], "#ffffff"),
+            ("URL courante", self.add_current_url_to_watchlist, self.palette["panel_bg"], self.palette["card_alt"], self.palette["text"]),
+            ("Vérifier tout", self.check_all_watchlist_urls, self.palette["panel_bg"], self.palette["card_alt"], self.palette["text"]),
+            ("Rafraîchir", self.refresh_watchlist_view, self.palette["panel_bg"], self.palette["card_alt"], self.palette["text"]),
+        )
+        for col, (label, command, fg, hover, text_color) in enumerate(actions, start=1):
+            button = ctk.CTkButton(
+                header,
+                text=label,
+                command=command,
+                width=112,
+                height=36,
+                corner_radius=7,
+                fg_color=fg,
+                hover_color=hover,
+                border_width=0 if fg == self.palette["accent"] else 1,
+                border_color=self.palette["border"],
+                text_color=text_color,
+                font=self.ui_metrics["font_button"],
+            )
+            button.grid(row=1, column=col, sticky="e", padx=(0, 8 if col < len(actions) else 14), pady=(0, 12))
+            if label == "Vérifier tout":
+                self.watchlist_check_all_button = button
+
+        self.watchlist_status_label = ctk.CTkLabel(
+            parent,
+            textvariable=self.watchlist_status,
+            fg_color="transparent",
+            text_color=self.palette["muted_strong"],
+            font=("Segoe UI", 10),
+            anchor="w",
+        )
+        self.watchlist_status_label.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 6))
+
+        self.watchlist_rows_frame = ctk.CTkScrollableFrame(
+            parent,
+            fg_color=self.palette["canvas_bg"],
+            corner_radius=8,
+            border_width=1,
+            border_color=self.palette["border"],
+            scrollbar_button_color="#c5d3e2",
+            scrollbar_button_hover_color="#aebfd1",
+        )
+        self.watchlist_rows_frame.grid(row=2, column=0, sticky="nsew", padx=4, pady=(0, 4))
+        self.watchlist_rows_frame.grid_columnconfigure(0, weight=1)
+        self.refresh_watchlist_view()
+
+    def refresh_watchlist_view(self):
+        frame = getattr(self, "watchlist_rows_frame", None)
+        if frame is None:
+            return
+        for child in frame.winfo_children():
+            child.destroy()
+        self.watchlist_rows = {}
+        entries = get_watchlist_entries_with_state()
+        if not entries:
+            ctk.CTkLabel(
+                frame,
+                text="Aucun catalogue suivi pour le moment.",
+                fg_color="transparent",
+                text_color=self.palette["muted"],
+                font=("Segoe UI", 12),
+                anchor="center",
+            ).grid(row=0, column=0, sticky="nsew", padx=16, pady=24)
+            self.watchlist_status.set("Ajoute une URL catalogue pour commencer le suivi.")
+            return
+
+        for row_index, entry in enumerate(entries):
+            self._add_watchlist_row(frame, row_index, entry)
+        self.watchlist_status.set(f"{len(entries)} catalogue(s) suivi(s).")
+
+    def _add_watchlist_row(self, parent, row_index, entry):
+        url = entry.get("url") or ""
+        new_count = int(entry.get("last_new_count") or 0)
+        tone_bg = "#edf8ef" if new_count else self.palette["card_bg"]
+        tone_border = "#98c9a7" if new_count else self.palette["panel_shell"]
+        row = ctk.CTkFrame(parent, fg_color=tone_bg, corner_radius=7, border_width=1, border_color=tone_border)
+        row.grid(row=row_index, column=0, sticky="ew", padx=10, pady=(10 if row_index == 0 else 0, 8))
+        row.grid_columnconfigure(0, weight=1)
+
+        title_line = ctk.CTkFrame(row, fg_color="transparent")
+        title_line.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 2))
+        title_line.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            title_line,
+            text=entry.get("title") or url,
+            fg_color="transparent",
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 12),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew")
+        ctk.CTkLabel(
+            title_line,
+            text=f"+{new_count}" if new_count else "à jour",
+            width=72,
+            height=24,
+            corner_radius=5,
+            fg_color=self.palette["success_soft"] if new_count else self.palette["card_alt"],
+            text_color=self.palette["success_text"] if new_count else self.palette["muted_strong"],
+            font=("Segoe UI Semibold", 10),
+        ).grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+        detail = (
+            f"{entry.get('domain') or '-'} | {int(entry.get('last_count') or 0)} élément(s) connus"
+            f" | Dernière vérif: {self._format_watchlist_datetime(entry.get('last_checked_at'))}"
+        )
+        ctk.CTkLabel(
+            row,
+            text=detail,
+            fg_color="transparent",
+            text_color=self.palette["muted"],
+            font=("Segoe UI", 10),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 2))
+        ctk.CTkLabel(
+            row,
+            text=url,
+            fg_color="transparent",
+            text_color="#2f67b1",
+            font=("Segoe UI", 9),
+            anchor="w",
+        ).grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+
+        actions = ctk.CTkFrame(row, fg_color="transparent")
+        actions.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 10))
+        for label, command, danger in (
+            ("Ouvrir", lambda safe_url=url: self.open_watchlist_url(safe_url), False),
+            ("Vérifier", lambda safe_url=url: self.check_watchlist_url(safe_url), False),
+            ("Supprimer", lambda safe_url=url: self.remove_watchlist_entry(safe_url), True),
+        ):
+            ctk.CTkButton(
+                actions,
+                text=label,
+                command=command,
+                width=96,
+                height=30,
+                corner_radius=6,
+                fg_color=self.palette["danger_soft"] if danger else self.palette["panel_bg"],
+                hover_color="#f0d6db" if danger else self.palette["card_alt"],
+                border_width=1,
+                border_color=self.palette["danger_border"] if danger else self.palette["border"],
+                text_color=self.palette["danger_text"] if danger else self.palette["text"],
+                font=("Segoe UI", 10),
+            ).pack(side="right", padx=(8, 0))
+        self.watchlist_rows[url] = row
+
+    def _add_watchlist_url(self, url, title=""):
+        safe_url = normalize_image_url((url or "").strip())
+        if not is_valid_catalogue_url(safe_url):
+            self.toast("URL catalogue invalide")
+            self._set_watchlist_status("URL non ajoutée: format catalogue invalide.", level="warning")
+            return False
+        if add_or_update_watchlist_url(safe_url, title=title, enabled=True):
+            self.refresh_watchlist_view()
+            self.toast("Catalogue ajouté au suivi")
+            self._set_watchlist_status("Catalogue ajouté au suivi.", level="success")
+            return True
+        return False
+
+    def add_watchlist_url_from_entry(self):
+        url = "" if getattr(self, "watchlist_placeholder_active", False) else self.watchlist_url.get().strip()
+        if self._add_watchlist_url(url):
+            self.watchlist_url.set("")
+
+    def add_current_url_to_watchlist(self):
+        title = ""
+        try:
+            title = self.source_title_var.get().strip()
+        except Exception:
+            title = ""
+        self._add_watchlist_url(self.url.get().strip(), title=title)
+
+    def remove_watchlist_entry(self, url):
+        if remove_watchlist_url(url):
+            self.refresh_watchlist_view()
+            self.toast("Catalogue retiré du suivi")
+            self._set_watchlist_status("Catalogue retiré du suivi.", level="info")
+
+    def open_watchlist_url(self, url):
+        if not url:
+            return
+        self.url.set(url)
+        self._select_config_tab("download")
+        self._set_analysis_status_label("URL de suivi chargée. Lance l'analyse si besoin.", success=None)
+
+    def _collect_watchlist_jobs(self, urls=None):
+        wanted = {_catalog_state_key(url) for url in (urls or []) if _catalog_state_key(url)}
+        entries = get_watchlist_entries_with_state()
+        if wanted:
+            entries = [entry for entry in entries if _catalog_state_key(entry.get("url")) in wanted]
+        jobs = []
+        for entry in entries:
+            url = entry.get("url") or ""
+            domain = self.get_domain_from_url(url)
+            if domain in COOKIE_DOMAINS:
+                self.sync_cookie_source_for_domain(domain)
+            jobs.append(
+                {
+                    "url": url,
+                    "domain": domain,
+                    "cookie": self.get_cookie(url),
+                    "ua": self.get_request_user_agent_for_url(url),
+                }
+            )
+        return jobs
+
+    def check_all_watchlist_urls(self):
+        self._start_watchlist_check(self._collect_watchlist_jobs())
+
+    def check_watchlist_url(self, url):
+        self._start_watchlist_check(self._collect_watchlist_jobs(urls=[url]))
+
+    def _start_watchlist_check(self, jobs):
+        if self.watchlist_check_in_progress:
+            self.toast("Vérification déjà en cours")
+            return
+        if not jobs:
+            self._set_watchlist_status("Aucun catalogue à vérifier.", level="warning")
+            return
+        self.watchlist_check_in_progress = True
+        if hasattr(self, "watchlist_check_all_button"):
+            self.watchlist_check_all_button.configure(state="disabled")
+        self._set_watchlist_status(f"Vérification de {len(jobs)} catalogue(s)...", level="info")
+
+        def worker():
+            total = len(jobs)
+            successes = 0
+            failures = 0
+            new_total = 0
+            for index, job in enumerate(jobs, start=1):
+                url = job["url"]
+                try:
+                    analysis = fetch_manga_analysis(url, job.get("cookie") or "", job.get("ua") or "", emit_logs=False)
+                    store_cached_analysis(
+                        url,
+                        job.get("ua") or "",
+                        analysis.title,
+                        analysis.pairs,
+                        analysis.volume_metadata,
+                        analysis.series_metadata,
+                        analysis.html_content,
+                    )
+                    summary = update_catalog_state(
+                        url,
+                        analysis.title,
+                        analysis.pairs,
+                        domain=job.get("domain") or "",
+                        volume_metadata=analysis.volume_metadata,
+                    )
+                    successes += 1
+                    new_count = int((summary or {}).get("new_count") or 0)
+                    new_total += new_count
+                    message = format_catalog_state_summary(summary) or f"{analysis.title}: vérifié."
+                    self.run_on_ui(
+                        self._set_watchlist_status,
+                        f"[{index}/{total}] {message}",
+                        "success" if new_count else "info",
+                    )
+                except Exception as exc:
+                    failures += 1
+                    self.run_on_ui(self._set_watchlist_status, f"[{index}/{total}] Echec suivi: {url} ({exc})", "warning")
+            self.run_on_ui(self._finish_watchlist_check, successes, failures, new_total)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_watchlist_check(self, successes, failures, new_total):
+        self.watchlist_check_in_progress = False
+        if hasattr(self, "watchlist_check_all_button"):
+            self.watchlist_check_all_button.configure(state="normal")
+        self.refresh_watchlist_view()
+        if failures:
+            self._set_watchlist_status(
+                f"Vérification terminée: {successes} OK, {failures} échec(s), {new_total} nouveauté(s).",
+                level="warning",
+            )
+        else:
+            self._set_watchlist_status(
+                f"Vérification terminée: {successes} OK, {new_total} nouveauté(s).",
+                level="success",
+            )
+
     def setup_ui(self):
         """Configure tous les elements de l'interface graphique."""
         self.progress = tk.DoubleVar(value=0)
@@ -11246,6 +11648,7 @@ class MangaApp:
 
         self.config_download_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
         self.config_journal_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
+        self.config_watch_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
         self.config_error_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
         self.config_auth_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
         self.config_options_page = ttk.Frame(self.config_content_panel, style="Card.TFrame")
@@ -11253,12 +11656,13 @@ class MangaApp:
         self.config_tab_pages = {
             "download": self.config_download_page,
             "journal": self.config_journal_page,
+            "watch": self.config_watch_page,
             "error": self.config_error_page,
             "auth": self.config_auth_page,
             "options": self.config_options_page,
         }
         self.config_tab_buttons = {}
-        self.config_tab_order = ("download", "journal", "error", "auth", "options")
+        self.config_tab_order = ("download", "journal", "watch", "error", "auth", "options")
         self.active_config_tab = "download"
         self.active_selection_tab = "selection"
         self.auth_tab_title = "Authentification (0/5)"
@@ -11287,6 +11691,7 @@ class MangaApp:
 
         self.config_download_tab = create_config_tab_content(self.config_download_page)
         self.config_journal_tab = create_config_tab_content(self.config_journal_page)
+        self.config_watch_tab = create_config_tab_content(self.config_watch_page)
         self.config_error_tab = create_config_tab_content(self.config_error_page)
         self.config_auth_tab = create_config_tab_content(self.config_auth_page)
         self.config_options_tab = create_config_tab_content(self.config_options_page)
@@ -11295,6 +11700,7 @@ class MangaApp:
         self.config_auth_tab.grid_columnconfigure(0, weight=1)
         self.config_auth_tab.grid_columnconfigure(1, weight=0)
         self.config_auth_tab.grid_columnconfigure(2, weight=0)
+        self._build_watchlist_tab(self.config_watch_tab)
 
         log_frame = ctk.CTkFrame(
             self.config_journal_tab,
@@ -11998,7 +12404,7 @@ class MangaApp:
             text_color=self.palette["text"],
         )
         self.url_entry.pack(fill="x", pady=(8, 0))
-        self._bind_catalogue_url_paste(self.url_entry)
+        self._bind_catalogue_url_paste(self.url_entry, self.url)
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
@@ -12781,7 +13187,7 @@ class MangaApp:
         except Exception:
             pass
 
-    def _paste_catalogue_url_from_clipboard(self, _event=None):
+    def _paste_catalogue_url_from_clipboard(self, _event=None, target_variable=None):
         """Colle uniquement une URL catalogue exploitable dans le champ Source."""
         entry_widget = getattr(self, "url_entry", None)
         if entry_widget is None:
@@ -12814,7 +13220,8 @@ class MangaApp:
             entry_widget.focus_set()
         except Exception:
             pass
-        self.url.set(extracted_url)
+        target = target_variable if target_variable is not None else self.url
+        target.set(extracted_url)
         try:
             entry_widget.icursor("end")
         except Exception:
@@ -12823,12 +13230,15 @@ class MangaApp:
             self.log(f"URL extraite du presse-papiers: {extracted_url}", level="info")
         return "break"
 
-    def _bind_catalogue_url_paste(self, entry_widget):
+    def _bind_catalogue_url_paste(self, entry_widget, target_variable=None):
         """Intercepte les collages clavier pour éviter les contenus non URL."""
         if entry_widget is None:
             return
         for sequence in ("<Control-v>", "<Control-V>", "<<Paste>>"):
-            entry_widget.bind(sequence, self._paste_catalogue_url_from_clipboard)
+            entry_widget.bind(
+                sequence,
+                lambda event, variable=target_variable: self._paste_catalogue_url_from_clipboard(event, variable),
+            )
 
     def _show_entry_context_menu(self, event, entry_widget):
         """Affiche un menu contextuel minimal avec action Coller."""
@@ -14975,6 +15385,9 @@ def run_self_test():
         )
         check("etat catalogue nouveaute", bool(third_state.get("new_count") == 1 and third_state.get("new_items", [{}])[0].get("label") == "Chapitre 2"))
         check("watchlist ajout url", add_or_update_watchlist_url("https://sushiscan.net/catalogue/test/", "Titre", enabled=True))
+        watch_entries = get_watchlist_entries_with_state()
+        check("watchlist etat enrichi", bool(watch_entries and watch_entries[0].get("last_count") == 2 and watch_entries[0].get("last_new_count") == 1))
+        check("watchlist suppression url", remove_watchlist_url("https://sushiscan.net/catalogue/test/") and not get_watchlist_entries_with_state())
     ANALYSIS_CACHE_PATH = old_cache_path
     ANALYSIS_CACHE_MEMORY = old_cache_memory
     CATALOG_STATE_PATH = old_catalog_state_path
