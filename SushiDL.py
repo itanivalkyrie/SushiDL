@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.17.2"
+APP_VERSION = "11.17.3"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2477,9 +2477,12 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         level="info",
         context={"action": "playwright_reader", "domain": site},
     )
-    response = page.goto(chapter_url, wait_until="domcontentloaded", timeout=25000)
     try:
-        page.wait_for_load_state("networkidle", timeout=12000)
+        response = page.goto(chapter_url, wait_until="commit", timeout=20000)
+    except Exception:
+        response = None
+    try:
+        page.wait_for_selector("body", timeout=8000)
     except Exception:
         pass
     challenge_state = page.evaluate(
@@ -2527,9 +2530,25 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     except Exception:
         pass
     try:
-        page.wait_for_selector("img.imageView, img[data-img]", timeout=45000)
+        page.wait_for_selector("img.imageView, img[data-img]", timeout=15000)
     except Exception:
-        pass
+        diagnostic = page.evaluate(
+            """
+            () => ({
+                title: document.title || '',
+                url: location.href,
+                images: document.querySelectorAll('img.imageView, img[data-img]').length,
+                text: (document.body && document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 180)
+            })
+            """
+        )
+        detail = ""
+        if isinstance(diagnostic, dict):
+            detail = f" | titre={diagnostic.get('title') or '?'} | images={diagnostic.get('images', 0)}"
+        raise AuthError(
+            "Lecteur CrunchyScan/Scan-Hentai non chargé après l'ouverture du chapitre. "
+            "Une validation Chrome est requise avant de relancer." + detail
+        )
 
     total = int(page.evaluate("() => document.querySelectorAll('img.imageView, img[data-img]').length") or 0)
     if total <= 0:
@@ -10310,6 +10329,10 @@ class MangaApp:
             cookie_input.focus_set()
         except Exception:
             pass
+        if domain in ("crunchyscan", "scanhentai") and any(
+            marker in (reason or "").lower() for marker in ("cloudflare", "turnstile", "lecteur")
+        ):
+            win.after(250, open_browser_validation)
 
     def prompt_cookie_refresh(self, domain, volume_label, reason="", cancel_event=None, source_url=""):
         """Attend qu'un utilisateur mette à jour le cookie puis confirme la relance."""

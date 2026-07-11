@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.17.3] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai : attente du lecteur réduite sur les chapitres qui ne l'initialisent pas, puis ouverture automatique de la fenêtre Chrome de validation au lieu d'un blocage silencieux.
+
 ## [11.17.2] - 2026-07-11
 
 ### Corrections
