@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.1] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai :
+  - extraction de la date de sortie depuis le bloc `Sortie`,
+  - extraction du statut depuis le bloc `Status`,
+  - extraction des genres et du type depuis les blocs `Genre(s)` et `Type`.
+
 ## [11.16.0] - 2026-07-11
 
 ### Ameliorations

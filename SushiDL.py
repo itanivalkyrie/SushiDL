@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.0"
+APP_VERSION = "11.16.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3652,6 +3652,58 @@ def crunchy_family_chapter_sort_key(item):
     return (1, index, 0)
 
 
+def extract_crunchy_family_series_metadata(soup):
+    """Extrait les blocs metadata du moteur CrunchyScan/Scan-Hentai."""
+    result = {
+        "genre": "",
+        "year": "",
+        "month": "",
+        "day": "",
+        "status": "",
+    }
+    collected_genres = []
+
+    for section in soup.select("[aria-labelledby]"):
+        heading = section.select_one("h3")
+        if not heading:
+            continue
+        label = normalize_metadata_text(heading.get_text(" ", strip=True))
+        label_norm = unicodedata.normalize("NFKD", label).encode("ascii", "ignore").decode("ascii").lower()
+        if not label_norm:
+            continue
+
+        values = []
+        for anchor in section.select("a"):
+            text = normalize_metadata_text(anchor.get_text(" ", strip=True))
+            if text:
+                values.append(text)
+        if not values:
+            for child in section.find_all(["p", "span"], recursive=True):
+                if heading in child.parents:
+                    continue
+                text = normalize_metadata_text(child.get_text(" ", strip=True))
+                if text and text not in values:
+                    values.append(text)
+        values = split_metadata_values(metadata_join(values))
+        if not values:
+            continue
+
+        if "status" in label_norm or "statut" in label_norm:
+            result["status"] = first_metadata_value(values)
+        elif "sortie" in label_norm or "date" in label_norm or "release" in label_norm:
+            year, month, day = extract_year_month_day(first_metadata_value(values))
+            result["year"] = result["year"] or year
+            result["month"] = result["month"] or month
+            result["day"] = result["day"] or day
+        elif "genre" in label_norm:
+            collected_genres.extend(values)
+        elif "type" in label_norm or "categorie" in label_norm or "category" in label_norm:
+            collected_genres.extend(values)
+
+    result["genre"] = metadata_join(collected_genres)
+    return result
+
+
 def extract_series_metadata_from_html(url, html_content, title=""):
     """Extrait les metadonnees serie disponibles depuis la fiche catalogue."""
     html_content = html_content or ""
@@ -3748,6 +3800,13 @@ def extract_series_metadata_from_html(url, html_content, title=""):
         scanmanga_metadata = extract_scanmanga_series_metadata(soup)
         for key in ("writer", "penciller", "translator", "genre", "publisher", "year", "month", "day", "status", "summary"):
             value = scanmanga_metadata.get(key)
+            if value:
+                metadata[key] = value
+
+    if get_supported_site_from_url(url) in ("crunchyscan.fr", "scan-hentai.net"):
+        crunchy_metadata = extract_crunchy_family_series_metadata(soup)
+        for key in ("genre", "year", "month", "day", "status"):
+            value = crunchy_metadata.get(key)
             if value:
                 metadata[key] = value
 
@@ -15999,6 +16058,10 @@ def run_self_test():
     <html><head><title>Lire Shadows House en scan VF / FR - Manga Gratuit | Crunchyscan</title></head>
     <body>
       <img class="manga_cover" src="/upload/manga/shadows-house/cover.jpg?v=1">
+      <div aria-labelledby="status-section"><h3>🚦 Status</h3><p>En cours</p></div>
+      <div aria-labelledby="sortie-section"><h3>📅 Sortie</h3><p>2018</p></div>
+      <div aria-labelledby="type-section"><h3>📜 Type</h3><p>Manga</p></div>
+      <div aria-labelledby="genre-section"><h3>🎭 Genre(s)</h3><a href="/catalog/genre/surnaturel">Surnaturel</a><a href="/catalog/genre/horreur">Horreur</a></div>
       <a class="chapterName chapter-link" title="Lire Chapitre 228" href="/lecture-en-ligne/shadows-house/read/chapitre-228">Chapitre 228</a>
       <a class="chapterName chapter-link" title="Lire Chapitre 227" href="/lecture-en-ligne/shadows-house/read/chapitre-227">Chapitre 227</a>
     </body></html>
@@ -16018,6 +16081,14 @@ def run_self_test():
         "crunchyscan couverture",
         extract_cover_url_from_html("https://crunchyscan.fr/lecture-en-ligne/shadows-house", crunchy_html).startswith("https://crunchyscan.fr/upload/manga/"),
     )
+    crunchy_series_meta = extract_series_metadata_from_html(
+        "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
+        crunchy_html,
+        "Shadows House",
+    )
+    check("crunchyscan metadata annee", crunchy_series_meta.get("year") == "2018")
+    check("crunchyscan metadata statut", crunchy_series_meta.get("status") == "En cours")
+    check("crunchyscan metadata genres", crunchy_series_meta.get("genre") == "Manga, Surnaturel, Horreur")
     crunchy_title, crunchy_sorted_pairs, _crunchy_sorted_meta = parse_manga_data_from_html(
         "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
         crunchy_html,
@@ -16025,6 +16096,10 @@ def run_self_test():
     )
     check("crunchyscan tri naturel", [label for label, _ in crunchy_sorted_pairs] == ["Chapitre 227", "Chapitre 228"])
     hentai_html = """
+    <div aria-labelledby="status-section"><h3>🚦 Status</h3><p>En cours</p></div>
+    <div aria-labelledby="sortie-section"><h3>📅 Sortie</h3><p>2026</p></div>
+    <div aria-labelledby="type-section"><h3>📜 Type</h3><p>Josei</p></div>
+    <div aria-labelledby="genre-section"><h3>🎭 Genre(s)</h3><a href="/catalog/genre/drame">Drame</a><a href="/catalog/genre/mature">Mature</a><a href="/catalog/genre/romance">Romance</a></div>
     <a class="chapterName chapter-link" title="Lire Chapitre 4" href="/lecture-en-ligne/lies-are-planned/read/chapitre-4">Lire Chapitre 4</a>
     """
     hentai_pairs, hentai_meta = parse_crunchy_family_chapters_from_html(
@@ -16034,6 +16109,14 @@ def run_self_test():
     )
     check("scan-hentai parser chapitres", bool(hentai_pairs and hentai_pairs[0][0] == "Chapitre 4"))
     check("scan-hentai metadata domaine", bool(hentai_pairs and hentai_meta.get(hentai_pairs[0][1], {}).get("domain") == "scanhentai"))
+    hentai_series_meta = extract_series_metadata_from_html(
+        "https://scan-hentai.net/lecture-en-ligne/lies-are-planned",
+        hentai_html,
+        "Lies Are Planned",
+    )
+    check("scan-hentai metadata annee", hentai_series_meta.get("year") == "2026")
+    check("scan-hentai metadata statut", hentai_series_meta.get("status") == "En cours")
+    check("scan-hentai metadata genres", hentai_series_meta.get("genre") == "Josei, Drame, Mature, Romance")
     scanmanga_novel_html = """
     <article class="aLN">
       <h2 class="ln_c_title">Tome 18 - Chapitre 10-2 - Douleur partagée</h2>
