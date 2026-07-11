@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.6"
+APP_VERSION = "11.16.7"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1928,10 +1928,11 @@ def get_scanmanga_browser_page(state, ua=""):
         state["playwright"] = sync_playwright().start()
     if state.get("browser") is None:
         chromium = state["playwright"].chromium
+        launch_options = {"headless": True, "args": ["--disable-blink-features=AutomationControlled"]}
         try:
-            state["browser"] = chromium.launch(channel="chrome", headless=True)
+            state["browser"] = chromium.launch(channel="chrome", **launch_options)
         except Exception:
-            state["browser"] = chromium.launch(headless=True)
+            state["browser"] = chromium.launch(**launch_options)
         runtime_log(
             "Playwright Scan-Manga: session navigateur initialisée.",
             level="info",
@@ -1948,10 +1949,22 @@ def get_scanmanga_browser_page(state, ua=""):
             locale="fr-FR",
             viewport={"width": 1365, "height": 900},
         )
+        state["context"].add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
         state["page"] = None
         state["ua"] = safe_ua
     if state.get("page") is None or state["page"].is_closed():
         state["page"] = state["context"].new_page()
+        state["reader_errors"] = []
+
+        def remember_reader_error(error):
+            message = normalize_metadata_text(str(error))
+            if message:
+                state.setdefault("reader_errors", []).append(message[:300])
+                state["reader_errors"] = state["reader_errors"][-4:]
+
+        state["page"].on("pageerror", remember_reader_error)
     return state["page"]
 
 
@@ -2321,10 +2334,11 @@ def get_crunchy_browser_page(state, url, ua=""):
         state["playwright"] = sync_playwright().start()
     if state.get("browser") is None:
         chromium = state["playwright"].chromium
+        launch_options = {"headless": True, "args": ["--disable-blink-features=AutomationControlled"]}
         try:
-            state["browser"] = chromium.launch(channel="chrome", headless=True)
+            state["browser"] = chromium.launch(channel="chrome", **launch_options)
         except Exception:
-            state["browser"] = chromium.launch(headless=True)
+            state["browser"] = chromium.launch(**launch_options)
         runtime_log(
             f"Playwright {site}: session navigateur initialisée.",
             level="info",
@@ -2341,11 +2355,23 @@ def get_crunchy_browser_page(state, url, ua=""):
             locale="fr-FR",
             viewport={"width": 1280, "height": 1600},
         )
+        state["context"].add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
         state["page"] = None
         state["ua"] = safe_ua
         state["site"] = site
     if state.get("page") is None or state["page"].is_closed():
         state["page"] = state["context"].new_page()
+        state["reader_errors"] = []
+
+        def remember_reader_error(error):
+            message = normalize_metadata_text(str(error))
+            if message:
+                state.setdefault("reader_errors", []).append(message[:300])
+                state["reader_errors"] = state["reader_errors"][-4:]
+
+        state["page"].on("pageerror", remember_reader_error)
     return state["page"]
 
 
@@ -2389,12 +2415,13 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     if cancel_event is not None and cancel_event.is_set():
         raise DownloadCancelled("Téléchargement annulé.")
     site = get_site_domain_key(chapter_url)
+    state["reader_errors"] = []
     runtime_log(
         f"Playwright {site}: analyse du lecteur en cours.",
         level="info",
         context={"action": "playwright_reader", "domain": site},
     )
-    response = page.goto(chapter_url, wait_until="domcontentloaded", timeout=45000)
+    response = page.goto(chapter_url, wait_until="domcontentloaded", timeout=25000)
     try:
         page.wait_for_load_state("networkidle", timeout=12000)
     except Exception:
@@ -2472,6 +2499,22 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 details = f"{details} | extrait={excerpt}"
             raise ParseError(f"Aucune image lecteur CrunchyScan/Scan-Hentai détectée ({details}).")
         raise ParseError("Aucune image lecteur CrunchyScan/Scan-Hentai détectée.")
+    try:
+        page.wait_for_function(
+            "() => Array.from(document.querySelectorAll('img.imageView, img[data-img]')).some(image => (image.currentSrc || image.src || '').startsWith('blob:'))",
+            timeout=18000,
+        )
+    except Exception:
+        ready_count = int(
+            page.evaluate(
+                "() => Array.from(document.querySelectorAll('img.imageView, img[data-img]')).filter(image => (image.currentSrc || image.src || '').startsWith('blob:')).length"
+            ) or 0
+        )
+        errors = "; ".join(state.get("reader_errors") or [])
+        suffix = f" | erreur lecteur={errors}" if errors else ""
+        raise ParseError(
+            f"Lecteur CrunchyScan/Scan-Hentai non initialisé: aucun blob créé ({ready_count}/{total} prêt).{suffix}"
+        )
     limit = min(total, int(max_images or total))
     runtime_log(
         f"Playwright {site}: {total} image(s) détectée(s), récupération de {limit} page(s).",
@@ -2503,11 +2546,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 };
                 const imageToJpegBase64 = async (img) => {
                     for (let i = 0; i < 120; i++) {
-                        if (img.complete && (img.naturalWidth || img.width) && (img.naturalHeight || img.height)) break;
+                        if (img.complete && img.naturalWidth && img.naturalHeight) break;
                         await sleep(125);
                     }
-                    const width = img.naturalWidth || img.width;
-                    const height = img.naturalHeight || img.height;
+                    const width = img.naturalWidth;
+                    const height = img.naturalHeight;
                     if (!width || !height) return {ok: false, error: 'image non chargée'};
                     const canvas = document.createElement('canvas');
                     canvas.width = width;
@@ -5793,6 +5836,12 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
 
     if domain in ("crunchyscan", "scanhentai"):
         try:
+            if emit_logs:
+                runtime_log(
+                    f"Playwright {domain}: récupération des images demandée.",
+                    level="info",
+                    context={"action": "playwright_download", "domain": domain},
+                )
             images = fetch_crunchy_reader_images(
                 link,
                 cookie,
@@ -5802,6 +5851,12 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                 cancel_event=cancel_event,
             )
             if images:
+                if emit_logs:
+                    runtime_log(
+                        f"Playwright {domain}: {len(images)} image(s) prêtes pour le téléchargement.",
+                        level="success",
+                        context={"action": "playwright_download_done", "domain": domain},
+                    )
                 store_cached_image_urls(link, images, max_images=max_images)
                 return images
         except Exception as exc:

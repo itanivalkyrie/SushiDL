@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.7] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai :
+  - attente bornée de la création initiale des blobs du lecteur pour éviter les attentes très longues sans téléchargement,
+  - canvas ignoré pour les images cassées afin d'éviter l'erreur `InvalidStateError`,
+  - diagnostic des erreurs JavaScript du lecteur et logs Playwright placés dans le pipeline de téléchargement.
+
 ## [11.16.6] - 2026-07-11
 
 ### Ameliorations
