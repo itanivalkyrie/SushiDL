@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.17.2] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai : limitation du préchargement lazy à une fenêtre glissante de quatre images pour éviter la saturation sur les très longs chapitres, avec expiration locale des lectures blob bloquées.
+
 ## [11.17.1] - 2026-07-11
 
 ### Corrections

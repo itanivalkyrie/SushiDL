@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.17.1"
+APP_VERSION = "11.17.2"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2589,14 +2589,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         """
         async ({limit}) => {
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-            const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]')).slice(0, limit);
-            for (let start = 0; start < images.length; start += 4) {
-                for (const image of images.slice(start, start + 4)) {
-                    image.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
-                    window.dispatchEvent(new Event('scroll'));
-                    await sleep(80);
-                }
-                await sleep(220);
+            const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]')).slice(0, Math.min(limit, 12));
+            for (const image of images) {
+                image.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                window.dispatchEvent(new Event('scroll'));
+                await sleep(100);
             }
             if (images[0]) images[0].scrollIntoView({block: 'start', inline: 'nearest', behavior: 'auto'});
         }
@@ -2638,9 +2635,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                         (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46);
                 };
                 const imageToJpegBase64 = async (img) => {
-                    for (let i = 0; i < 120; i++) {
+                    for (let i = 0; i < 32; i++) {
                         if (img.complete && img.naturalWidth && img.naturalHeight) break;
-                        await sleep(125);
+                        await sleep(100);
                     }
                     const width = img.naturalWidth;
                     const height = img.naturalHeight;
@@ -2659,16 +2656,23 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 const img = images[index];
                 if (!img) return {ok: false, error: 'image introuvable'};
 
-                // Le lecteur ne déchiffre les images lazy qu'une fois visibles. Un scroll
-                // réel suivi de plusieurs tours de boucle est plus fiable qu'un simple wait.
-                for (let round = 0; round < 2; round++) {
-                    img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                // Le lecteur ne déchiffre les images lazy qu'une fois visibles. On prépare
+                // seulement les quatre suivantes pour ne pas saturer le lecteur long format.
+                for (const upcoming of images.slice(index, index + 4)) {
+                    upcoming.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
                     window.dispatchEvent(new Event('scroll'));
+                    await sleep(80);
+                }
+                img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                for (let round = 0; round < 2; round++) {
                     for (let i = 0; i < 25; i++) {
                         const src = img.currentSrc || img.getAttribute('src') || '';
                         if (src.startsWith('blob:')) {
                             try {
-                                const response = await fetch(src);
+                                const controller = new AbortController();
+                                const timeout = setTimeout(() => controller.abort(), 5000);
+                                const response = await fetch(src, {signal: controller.signal});
+                                clearTimeout(timeout);
                                 const buffer = await response.arrayBuffer();
                                 const bytes = new Uint8Array(buffer);
                                 const contentType = response.headers.get('content-type') || '';
