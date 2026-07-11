@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.16.1`
+Version actuelle : `11.16.2`
 
 ## Ce qui change sur `main`
 
@@ -139,6 +139,12 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.16.2
+- CrunchyScan / Scan-Hentai :
+  - correction de l'injection Playwright des cookies saisis sous forme de valeur brute `cf_clearance`,
+  - attente plus robuste du lecteur avant extraction des blobs,
+  - message d'erreur explicite si Cloudflare bloque la page chapitre `/read/...`.
 
 ### 11.16.1
 - CrunchyScan / Scan-Hentai :

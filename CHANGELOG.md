@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.2] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai :
+  - prise en charge des cookies bruts `cf_clearance` dans le contexte Playwright,
+  - attente plus robuste de l'initialisation du lecteur avant comptage des images,
+  - erreur explicite quand Cloudflare bloque la page chapitre `/read/...`.
+
 ## [11.16.1] - 2026-07-11
 
 ### Corrections

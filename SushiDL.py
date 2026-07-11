@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.1"
+APP_VERSION = "11.16.2"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2332,6 +2332,8 @@ def get_crunchy_browser_page(state, url, ua=""):
 def parse_cookie_header_for_playwright(cookie, host):
     safe_host = normalize_hostname(host)
     raw_cookie = re.sub(r"^\s*cookie\s*:\s*", "", cookie or "", flags=re.IGNORECASE)
+    if raw_cookie and "=" not in raw_cookie:
+        raw_cookie = f"cf_clearance={raw_cookie}"
     cookies = []
     for part in raw_cookie.split(";"):
         if "=" not in part:
@@ -2371,8 +2373,34 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
         page.wait_for_load_state("networkidle", timeout=12000)
     except Exception:
         pass
+    try:
+        page.wait_for_selector("img.imageView, img[data-img], [data-meta]", timeout=20000)
+    except Exception:
+        pass
 
-    total = int(page.evaluate("() => document.querySelectorAll('img.imageView').length") or 0)
+    challenge_state = page.evaluate(
+        """
+        () => {
+            const text = (document.body && document.body.innerText || '').toLowerCase();
+            const title = (document.title || '').toLowerCase();
+            return {
+                url: location.href,
+                title,
+                challenge: title.includes('just a moment') || title.includes('un instant') ||
+                    text.includes('vérification de sécurité') || text.includes('verification de securite') ||
+                    text.includes('cloudflare') && text.includes('ray id'),
+                forbidden: text.includes('error 403') || text.includes('http 403')
+            };
+        }
+        """
+    )
+    if isinstance(challenge_state, dict) and challenge_state.get("challenge"):
+        raise AuthError(
+            "Lecteur CrunchyScan/Scan-Hentai bloqué par Cloudflare. "
+            "Renouvelle le cookie depuis une page chapitre /read/... avec le même User-Agent."
+        )
+
+    total = int(page.evaluate("() => document.querySelectorAll('img.imageView, img[data-img]').length") or 0)
     if total <= 0:
         raise ParseError("Aucune image lecteur CrunchyScan/Scan-Hentai détectée.")
     limit = min(total, int(max_images or total))
@@ -2384,7 +2412,7 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
             """
             async ({index}) => {
                 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-                const img = document.querySelectorAll('img.imageView')[index];
+                const img = document.querySelectorAll('img.imageView, img[data-img]')[index];
                 if (!img) return {ok: false, error: 'image introuvable'};
                 img.scrollIntoView({block: 'center', inline: 'nearest'});
                 for (let i = 0; i < 80; i++) {
@@ -14898,10 +14926,16 @@ class MangaApp:
                             True,
                             f"{len(self.pairs)} tome(s)/chapitre(s) détecté(s)",
                         )
-                        self.log(
-                            f"Auth .{domain} validée par analyse: cookie + User-Agent OK.",
-                            level="success",
-                        )
+                        if domain in ("crunchyscan", "scanhentai"):
+                            self.log(
+                                f"Auth .{domain} validée pour le catalogue. Le lecteur /read/... peut exiger un cookie Cloudflare renouvelé depuis une page chapitre.",
+                                level="success",
+                            )
+                        else:
+                            self.log(
+                                f"Auth .{domain} validée par analyse: cookie + User-Agent OK.",
+                                level="success",
+                            )
                     else:
                         self._mark_analysis_auth_state(domain, False, "liste vide")
                         self.log(
@@ -15887,6 +15921,11 @@ def run_self_test():
     check(
         "cookie playwright header",
         bool(playwright_cookies and playwright_cookies[0].get("name") == "cf_clearance" and playwright_cookies[0].get("domain") == ".crunchyscan.fr"),
+    )
+    raw_playwright_cookies = parse_cookie_header_for_playwright("raw-clearance-value", "crunchyscan.fr")
+    check(
+        "cookie playwright brut",
+        bool(raw_playwright_cookies and raw_playwright_cookies[0].get("name") == "cf_clearance"),
     )
     headers = build_request_headers(
         "https://sushiscan.net/catalogue/one-piece/",
