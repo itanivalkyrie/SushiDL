@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.7"
+APP_VERSION = "11.16.8"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2426,25 +2426,6 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         page.wait_for_load_state("networkidle", timeout=12000)
     except Exception:
         pass
-    try:
-        for selector in (
-            "button.oui-avertissement-btn",
-            "button:has-text('OK')",
-            "button:has-text('Accepter')",
-            "button:has-text('Continuer')",
-        ):
-            try:
-                page.locator(selector).first.click(timeout=900)
-                break
-            except Exception:
-                continue
-    except Exception:
-        pass
-    try:
-        page.wait_for_selector("img.imageView, img[data-img]", timeout=45000)
-    except Exception:
-        pass
-
     challenge_state = page.evaluate(
         """
         () => {
@@ -2466,6 +2447,24 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             "Lecteur CrunchyScan/Scan-Hentai bloqué par Cloudflare. "
             "Renouvelle le cookie depuis une page chapitre /read/... avec le même User-Agent."
         )
+    try:
+        for selector in (
+            "button.oui-avertissement-btn",
+            "button:has-text('OK')",
+            "button:has-text('Accepter')",
+            "button:has-text('Continuer')",
+        ):
+            try:
+                page.locator(selector).first.click(timeout=900)
+                break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        page.wait_for_selector("img.imageView, img[data-img]", timeout=45000)
+    except Exception:
+        pass
 
     total = int(page.evaluate("() => document.querySelectorAll('img.imageView, img[data-img]').length") or 0)
     if total <= 0:
@@ -5859,6 +5858,9 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                     )
                 store_cached_image_urls(link, images, max_images=max_images)
                 return images
+        except AuthError:
+            # Laisse le gestionnaire appelant proposer le renouvellement du cookie lecteur.
+            raise
         except Exception as exc:
             if emit_logs:
                 runtime_log(

@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.8] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai :
+  - détection du challenge Cloudflare avant l'attente des images du lecteur, afin de demander immédiatement un cookie chapitre renouvelé,
+  - propagation de l'erreur d'authentification vers la fenêtre de renouvellement du cookie.
+
 ## [11.16.7] - 2026-07-11
 
 ### Corrections
