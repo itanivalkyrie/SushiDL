@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.17.0"
+APP_VERSION = "11.17.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2585,10 +2585,39 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         level="info",
         context={"action": "playwright_images", "domain": site},
     )
+    page.evaluate(
+        """
+        async ({limit}) => {
+            const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]')).slice(0, limit);
+            for (let start = 0; start < images.length; start += 4) {
+                for (const image of images.slice(start, start + 4)) {
+                    image.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                    window.dispatchEvent(new Event('scroll'));
+                    await sleep(80);
+                }
+                await sleep(220);
+            }
+            if (images[0]) images[0].scrollIntoView({block: 'start', inline: 'nearest', behavior: 'auto'});
+        }
+        """,
+        {"limit": limit},
+    )
+    runtime_log(
+        f"Playwright {site}: préchargement lazy terminé, extraction des images en cours.",
+        level="info",
+        context={"action": "playwright_preload", "domain": site},
+    )
     blobs = []
     for index in range(limit):
         if cancel_event is not None and cancel_event.is_set():
             raise DownloadCancelled("Téléchargement annulé.")
+        if index == 0 or (index + 1) % 10 == 0 or index + 1 == limit:
+            runtime_log(
+                f"Playwright {site}: récupération image {index + 1}/{limit}.",
+                level="info",
+                context={"action": "playwright_progress", "domain": site},
+            )
         payload = page.evaluate(
             """
             async ({index}) => {
@@ -2632,10 +2661,10 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
 
                 // Le lecteur ne déchiffre les images lazy qu'une fois visibles. Un scroll
                 // réel suivi de plusieurs tours de boucle est plus fiable qu'un simple wait.
-                for (let round = 0; round < 3; round++) {
+                for (let round = 0; round < 2; round++) {
                     img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
                     window.dispatchEvent(new Event('scroll'));
-                    for (let i = 0; i < 40; i++) {
+                    for (let i = 0; i < 25; i++) {
                         const src = img.currentSrc || img.getAttribute('src') || '';
                         if (src.startsWith('blob:')) {
                             try {
@@ -2653,9 +2682,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                             const canvasPayload = await imageToJpegBase64(img);
                             if (canvasPayload.ok) return canvasPayload;
                         }
-                        await sleep(125);
+                        await sleep(100);
                     }
-                    await sleep(250);
+                    await sleep(180);
                 }
                 const finalSrc = img.currentSrc || img.getAttribute('src') || '';
                 if (finalSrc.startsWith('blob:')) {

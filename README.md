@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.17.0`
+Version actuelle : `11.17.1`
 
 ## Ce qui change sur `main`
 
@@ -52,6 +52,7 @@ Concretement :
 - détection Cloudflare du lecteur CrunchyScan / Scan-Hentai prioritaire, sans attendre inutilement le chargement des images
 - validation Turnstile du lecteur signalée explicitement : la validation et le renouvellement du cookie se font dans le navigateur de l'utilisateur
 - validation assistée CrunchyScan / Scan-Hentai : ouverture d'une session Chrome visible depuis la popup cookie, récupération du nouveau `cf_clearance`, puis relance du chapitre
+- longs chapitres CrunchyScan / Scan-Hentai : préchargement des images lazy par petits lots et progression Playwright visible pendant l'extraction
 - logs `[perf]` pour mesurer analyse, extraction, telechargement et archive
 - cache disque des analyses catalogue avec raccourci `Ctrl+R` pour forcer le rafraîchissement
 - préflight avec plan de téléchargement avant lancement
