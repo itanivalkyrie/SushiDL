@@ -224,6 +224,10 @@ def should_offer_cookie_refresh(status_code=None, reason=""):
         "challenge",
         "cookie",
         "unauthorized",
+        "validation chrome",
+        "lecteur crunchyscan",
+        "lecteur scan-hentai",
+        "lecteur crunchy",
     )
     return any(marker in normalized for marker in markers)
 
@@ -967,7 +971,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.17.3"
+APP_VERSION = "11.17.4"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -16395,6 +16399,10 @@ def run_self_test():
     check(
         "cookie playwright brut",
         bool(raw_playwright_cookies and raw_playwright_cookies[0].get("name") == "cf_clearance"),
+    )
+    check(
+        "renouvellement cookie lecteur crunchy",
+        should_offer_cookie_refresh(None, "Lecteur CrunchyScan/Scan-Hentai non chargé après l'ouverture du chapitre."),
     )
     headers = build_request_headers(
         "https://sushiscan.net/catalogue/one-piece/",

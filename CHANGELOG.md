@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.17.4] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai : un lecteur non chargé déclenche désormais bien la popup de renouvellement et l'ouverture automatique de Chrome pour validation.
+
 ## [11.17.3] - 2026-07-11
 
 ### Corrections
