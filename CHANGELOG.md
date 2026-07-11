@@ -7,6 +7,24 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.0] - 2026-07-11
+
+### Ameliorations
+- Ajout du support `crunchyscan.fr` :
+  - validation d'URL catalogue `/lecture-en-ligne/...`,
+  - parsing des chapitres,
+  - cookie dédié,
+  - extraction des couvertures.
+- Ajout du support `scan-hentai.net` :
+  - validation d'URL catalogue `/lecture-en-ligne/...`,
+  - parsing des chapitres,
+  - cookie dédié,
+  - extraction des couvertures.
+- Téléchargement CrunchyScan / Scan-Hentai via Playwright obligatoire :
+  - le lecteur chiffre les images et les expose sous forme de blobs côté navigateur,
+  - SushiDL réutilise une session Chromium dédiée pour limiter les ouvertures multiples,
+  - les tentatives directes HTTP ne sont pas utilisées pour ces deux domaines.
+
 ## [11.15.39] - 2026-06-27
 
 ### Ameliorations

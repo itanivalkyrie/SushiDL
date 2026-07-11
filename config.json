@@ -21,6 +21,16 @@
       "enabled": true,
       "max_threads": 1,
       "delay_between_volumes": 0.5
+    },
+    "crunchyscan": {
+      "enabled": true,
+      "max_threads": 1,
+      "delay_between_volumes": 0.4
+    },
+    "scanhentai": {
+      "enabled": true,
+      "max_threads": 1,
+      "delay_between_volumes": 0.4
     }
   },
   "manual_links": {
@@ -32,6 +42,8 @@
     "cookie_ortega": "https://ortegascans.fr",
     "cookie_hentaizone": "https://hentaizone.xyz",
     "cookie_scanmanga": "https://www.scan-manga.com",
+    "cookie_crunchyscan": "https://crunchyscan.fr",
+    "cookie_scanhentai": "https://scan-hentai.net",
     "user_agent": "https://httpbin.org/user-agent",
     "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
     "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance"

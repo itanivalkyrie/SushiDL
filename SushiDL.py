@@ -341,6 +341,10 @@ def get_supported_site_from_host(host):
         return "hentaizone.xyz"
     if value == "scan-manga.com" or value.endswith(".scan-manga.com"):
         return "scan-manga.com"
+    if value == "crunchyscan.fr" or value.endswith(".crunchyscan.fr"):
+        return "crunchyscan.fr"
+    if value == "scan-hentai.net" or value.endswith(".scan-hentai.net"):
+        return "scan-hentai.net"
     return ""
 
 
@@ -393,6 +397,8 @@ def get_cookie_domain_from_host(host):
         "ortegascans.fr": "ortega",
         "hentaizone.xyz": "hentaizone",
         "scan-manga.com": "scanmanga",
+        "crunchyscan.fr": "crunchyscan",
+        "scan-hentai.net": "scanhentai",
     }
     return mapping.get(site, "")
 
@@ -414,6 +420,8 @@ def get_site_domain_key(url):
         "ortegascans.fr": "ortega",
         "hentaizone.xyz": "hentaizone",
         "scan-manga.com": "scanmanga",
+        "crunchyscan.fr": "crunchyscan",
+        "scan-hentai.net": "scanhentai",
     }
     return mapping.get(site) or normalize_hostname(urlparse(url).hostname) or "-"
 
@@ -449,6 +457,8 @@ def is_valid_catalogue_url(url):
         match = re.match(r"^/manga/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     elif site == "scan-manga.com":
         match = re.match(r"^/\d+(?:-\d+)?/([^/?#]+)\.html$", path, flags=re.IGNORECASE)
+    elif site in ("crunchyscan.fr", "scan-hentai.net"):
+        match = re.match(r"^/lecture-en-ligne/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     else:
         return False
 
@@ -957,8 +967,8 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.15.39"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
+APP_VERSION = "11.16.0"
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
 MIN_DOWNLOAD_THREADS = 1
@@ -994,7 +1004,18 @@ ADAPTIVE_THREAD_FAILURE_CODES = {429, 500, 502, 503, 504}
 PERF_LOG_MIN_SECONDS = 0.05
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 500
-COOKIE_DOMAINS = ("fr", "net", "origines", "hentai", "toonfr", "ortega", "hentaizone", "scanmanga")
+COOKIE_DOMAINS = (
+    "fr",
+    "net",
+    "origines",
+    "hentai",
+    "toonfr",
+    "ortega",
+    "hentaizone",
+    "scanmanga",
+    "crunchyscan",
+    "scanhentai",
+)
 COVER_RATIO_WIDTH = 2
 COVER_RATIO_HEIGHT = 3
 COVER_TARGET_HEIGHT = 150
@@ -1025,6 +1046,9 @@ TEXT_PAGE_CACHE_ORDER = []
 SCANMANGA_BROWSER_LOCK = threading.Lock()
 SCANMANGA_BROWSER_THREAD = None
 SCANMANGA_BROWSER_TASKS = None
+CRUNCHY_BROWSER_LOCK = threading.Lock()
+CRUNCHY_BROWSER_THREAD = None
+CRUNCHY_BROWSER_TASKS = None
 SCANMANGA_IMAGE_HOSTS = {
     "cdn.scan-manga.com",
     "data.scan-manga.com",
@@ -1045,6 +1069,8 @@ DEFAULT_APP_CONFIG = {
         "ortega": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.4},
         "hentaizone": {"enabled": True, "max_threads": 2, "delay_between_volumes": 0.25},
         "scanmanga": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.5},
+        "crunchyscan": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.4},
+        "scanhentai": {"enabled": True, "max_threads": 1, "delay_between_volumes": 0.4},
     },
     "manual_links": {
         "cookie_fr": "https://sushiscan.fr",
@@ -1055,6 +1081,8 @@ DEFAULT_APP_CONFIG = {
         "cookie_ortega": "https://ortegascans.fr",
         "cookie_hentaizone": "https://hentaizone.xyz",
         "cookie_scanmanga": "https://www.scan-manga.com",
+        "cookie_crunchyscan": "https://crunchyscan.fr",
+        "cookie_scanhentai": "https://scan-hentai.net",
         "user_agent": "https://httpbin.org/user-agent",
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
         "cloudflare_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
@@ -1069,6 +1097,8 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "ortega": "https://ortegascans.fr/serie/moby-dick",
     "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
     "scanmanga": "https://www.scan-manga.com/16363/Death-Penalty.html",
+    "crunchyscan": "https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo",
+    "scanhentai": "https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved",
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
@@ -2221,6 +2251,258 @@ def download_preview_image_with_browser(img_url, referer_url, ua, cancel_event=N
         return image.convert("RGB")
 
 
+def new_crunchy_browser_state():
+    return {"playwright": None, "browser": None, "context": None, "page": None, "ua": "", "site": ""}
+
+
+def dispose_crunchy_browser_state(state):
+    for key in ("page", "context", "browser"):
+        item = state.get(key)
+        if item is not None:
+            try:
+                item.close()
+            except Exception:
+                pass
+            state[key] = None
+    playwright_obj = state.get("playwright")
+    if playwright_obj is not None:
+        try:
+            playwright_obj.stop()
+        except Exception:
+            pass
+        state["playwright"] = None
+    state["ua"] = ""
+    state["site"] = ""
+
+
+def reset_crunchy_browser_context(state):
+    page = state.get("page")
+    if page is not None:
+        try:
+            page.close()
+        except Exception:
+            pass
+    context = state.get("context")
+    if context is not None:
+        try:
+            context.close()
+        except Exception:
+            pass
+    state["context"] = None
+    state["page"] = None
+    state["site"] = ""
+
+
+def get_crunchy_browser_page(state, url, ua=""):
+    """Retourne une page Chromium réutilisée pour CrunchyScan et Scan-Hentai."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        raise AuthError(f"Lecteur navigateur indisponible: installe playwright ({exc}).")
+
+    safe_ua = (ua or DEFAULT_USER_AGENT).strip()
+    site = get_site_domain_key(url)
+    if state.get("playwright") is None:
+        state["playwright"] = sync_playwright().start()
+    if state.get("browser") is None:
+        chromium = state["playwright"].chromium
+        try:
+            state["browser"] = chromium.launch(channel="chrome", headless=True)
+        except Exception:
+            state["browser"] = chromium.launch(headless=True)
+    if state.get("context") is None or state.get("ua") != safe_ua or state.get("site") != site:
+        if state.get("context") is not None:
+            try:
+                state["context"].close()
+            except Exception:
+                pass
+        state["context"] = state["browser"].new_context(
+            user_agent=safe_ua,
+            locale="fr-FR",
+            viewport={"width": 1280, "height": 1600},
+        )
+        state["page"] = None
+        state["ua"] = safe_ua
+        state["site"] = site
+    if state.get("page") is None or state["page"].is_closed():
+        state["page"] = state["context"].new_page()
+    return state["page"]
+
+
+def parse_cookie_header_for_playwright(cookie, host):
+    safe_host = normalize_hostname(host)
+    raw_cookie = re.sub(r"^\s*cookie\s*:\s*", "", cookie or "", flags=re.IGNORECASE)
+    cookies = []
+    for part in raw_cookie.split(";"):
+        if "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        name = name.strip()
+        if not name:
+            continue
+        cookies.append(
+            {
+                "name": name,
+                "value": value.strip(),
+                "domain": f".{safe_host}" if safe_host else "",
+                "path": "/",
+                "secure": True,
+                "sameSite": "Lax",
+            }
+        )
+    return [item for item in cookies if item.get("domain")]
+
+
+def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None, cancel_event=None):
+    """Récupère les images blob du lecteur CrunchyScan/Scan-Hentai depuis une session navigateur unique."""
+    chapter_url = normalize_image_url(link)
+    page = get_crunchy_browser_page(state, chapter_url, ua)
+    context = state.get("context")
+    if context is not None and cookie:
+        try:
+            host = normalize_hostname(urlparse(chapter_url).hostname)
+            context.add_cookies(parse_cookie_header_for_playwright(cookie, host))
+        except Exception:
+            pass
+    if cancel_event is not None and cancel_event.is_set():
+        raise DownloadCancelled("Téléchargement annulé.")
+    page.goto(chapter_url, wait_until="domcontentloaded", timeout=45000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=12000)
+    except Exception:
+        pass
+
+    total = int(page.evaluate("() => document.querySelectorAll('img.imageView').length") or 0)
+    if total <= 0:
+        raise ParseError("Aucune image lecteur CrunchyScan/Scan-Hentai détectée.")
+    limit = min(total, int(max_images or total))
+    blobs = []
+    for index in range(limit):
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("Téléchargement annulé.")
+        payload = page.evaluate(
+            """
+            async ({index}) => {
+                const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                const img = document.querySelectorAll('img.imageView')[index];
+                if (!img) return {ok: false, error: 'image introuvable'};
+                img.scrollIntoView({block: 'center', inline: 'nearest'});
+                for (let i = 0; i < 80; i++) {
+                    const src = img.getAttribute('src') || '';
+                    if (src.startsWith('blob:')) {
+                        const response = await fetch(src);
+                        const buffer = await response.arrayBuffer();
+                        const bytes = new Uint8Array(buffer);
+                        let binary = '';
+                        const chunkSize = 0x8000;
+                        for (let j = 0; j < bytes.length; j += chunkSize) {
+                            binary += String.fromCharCode(...bytes.subarray(j, j + chunkSize));
+                        }
+                        return {ok: true, body: btoa(binary), contentType: response.headers.get('content-type') || ''};
+                    }
+                    await sleep(150);
+                }
+                return {ok: false, error: 'blob non chargé'};
+            }
+            """,
+            {"index": index},
+        )
+        if not payload or not payload.get("ok"):
+            raise ImageDownloadError(
+                f"Lecteur navigateur: {payload.get('error') if isinstance(payload, dict) else 'blob indisponible'}",
+                kind="blocked_or_retryable",
+                phase="browser",
+            )
+        raw = base64.b64decode(payload.get("body") or "")
+        if not raw or _is_html_payload_start(raw):
+            raise ImageDownloadError("Lecteur navigateur: payload invalide", kind="invalid_image", phase="browser")
+        blobs.append(raw)
+    return blobs
+
+
+def crunchy_browser_worker_loop(tasks):
+    state = new_crunchy_browser_state()
+    try:
+        while True:
+            task = tasks.get()
+            if not isinstance(task, dict):
+                continue
+            if task.get("action") == "stop":
+                break
+            response = task.get("response")
+            try:
+                result = fetch_crunchy_reader_blobs_in_state(
+                    state,
+                    task.get("link") or "",
+                    task.get("cookie") or "",
+                    task.get("ua") or DEFAULT_USER_AGENT,
+                    max_images=task.get("max_images"),
+                )
+                if response is not None:
+                    response.put({"ok": True, "result": result})
+            except Exception as exc:
+                if response is not None:
+                    response.put({"ok": False, "error": exc})
+    finally:
+        dispose_crunchy_browser_state(state)
+
+
+def get_crunchy_browser_tasks():
+    global CRUNCHY_BROWSER_THREAD, CRUNCHY_BROWSER_TASKS
+    with CRUNCHY_BROWSER_LOCK:
+        if CRUNCHY_BROWSER_THREAD is not None and CRUNCHY_BROWSER_THREAD.is_alive() and CRUNCHY_BROWSER_TASKS is not None:
+            return CRUNCHY_BROWSER_TASKS
+        CRUNCHY_BROWSER_TASKS = queue.Queue()
+        CRUNCHY_BROWSER_THREAD = threading.Thread(
+            target=crunchy_browser_worker_loop,
+            args=(CRUNCHY_BROWSER_TASKS,),
+            daemon=True,
+            name="crunchy-reader-browser",
+        )
+        CRUNCHY_BROWSER_THREAD.start()
+        return CRUNCHY_BROWSER_TASKS
+
+
+def fetch_crunchy_reader_images(link, cookie, ua, max_images=None, emit_logs=True, cancel_event=None):
+    """Expose les blobs lecteur comme URLs temporaires pour le pipeline existant."""
+    response = queue.Queue(maxsize=1)
+    get_crunchy_browser_tasks().put(
+        {
+            "action": "fetch_reader",
+            "link": link,
+            "cookie": cookie,
+            "ua": ua,
+            "max_images": max_images,
+            "response": response,
+        }
+    )
+    while True:
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("Téléchargement annulé.")
+        try:
+            payload = response.get(timeout=0.2)
+            break
+        except queue.Empty:
+            continue
+    if not payload.get("ok"):
+        error = payload.get("error")
+        if isinstance(error, Exception):
+            raise error
+        raise ParseError(str(error or "Lecteur navigateur indisponible."))
+    page_bytes = payload.get("result") or []
+    key_payload = f"{link}|{len(page_bytes)}|{hashlib.sha1(b''.join(page_bytes[:1]) if page_bytes else b'').hexdigest()}"
+    key = hashlib.sha1(key_payload.encode("utf-8", errors="replace")).hexdigest()[:20]
+    store_text_page_bytes(key, page_bytes)
+    urls = [f"{TEXT_PAGE_URL_PREFIX}{key}/{idx + 1}.jpg" for idx in range(len(page_bytes))]
+    if emit_logs:
+        runtime_log(
+            f"{len(urls)} image(s) récupérée(s) via lecteur navigateur.",
+            level="info",
+            context={"action": "extract_images", "domain": get_site_domain_key(link)},
+        )
+    return urls
+
+
 def make_request(url, cookie, ua):
     """Effectue une requête HTTP avec les cookies et l'user-agent appropriés."""
     if get_supported_site_from_url(url) == "scan-manga.com":
@@ -2332,6 +2614,8 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
         "ortega": "https://ortegascans.fr/serie/moby-dick",
         "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
         "scanmanga": "https://www.scan-manga.com/16363/Death-Penalty.html",
+        "crunchyscan": "https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo",
+        "scanhentai": "https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved",
     }
     if domain not in probe_urls:
         return result
@@ -2369,6 +2653,10 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
                 "toonfr",
                 "hentaizone",
                 "scan-manga",
+                "crunchyscan",
+                "scanhentai",
+                "chapter-link",
+                "manga_cover",
             )
         )
         challenge_blocking = is_cloudflare_challenge_page(text) and not has_content_markers
@@ -2603,6 +2891,8 @@ COMICINFO_SOURCE_LABELS = {
     "ortega": "ortegascans.fr",
     "hentaizone": "hentaizone.xyz",
     "scanmanga": "scan-manga.com",
+    "crunchyscan": "crunchyscan.fr",
+    "scanhentai": "scan-hentai.net",
 }
 
 
@@ -3005,12 +3295,29 @@ def extract_manga_title_from_html(url, html_content):
     """Extrait un titre de manga/œuvre depuis le HTML source."""
     html_content = html_content or ""
     soup = BeautifulSoup(html_content, "html.parser")
-    if get_supported_site_from_url(url) == "scan-manga.com":
+    source_site = get_supported_site_from_url(url)
+    if source_site == "scan-manga.com":
         title_tag = soup.find("title")
         if title_tag:
             title_text = normalize_metadata_text(title_tag.get_text(" ", strip=True))
             title_text = re.sub(r"\s*\|\s*Scan-Manga\s*$", "", title_text, flags=re.IGNORECASE).strip()
             title_text = re.sub(r"\s*\((?:Webtoon|Novel|Manga)\)\s*$", "", title_text, flags=re.IGNORECASE).strip()
+            if " » " in title_text:
+                title_text = title_text.split(" » ", 1)[0].strip()
+            if title_text:
+                return normalize_manga_title_case(title_text)
+    if source_site in ("crunchyscan.fr", "scan-hentai.net"):
+        for selector in ("h1", "meta[property='og:title']", "title"):
+            node = soup.select_one(selector) if selector != "title" else soup.find("title")
+            if not node:
+                continue
+            if node.name == "meta":
+                title_text = normalize_metadata_text(node.get("content"))
+            else:
+                title_text = normalize_metadata_text(node.get_text(" ", strip=True))
+            title_text = re.sub(r"^\s*Lire\s+", "", title_text, flags=re.IGNORECASE)
+            title_text = re.sub(r"\s+en scan VF\s*/?\s*FR.*$", "", title_text, flags=re.IGNORECASE)
+            title_text = re.sub(r"\s*\|\s*(?:Crunchyscan|ScanHentai)\s*$", "", title_text, flags=re.IGNORECASE)
             if " » " in title_text:
                 title_text = title_text.split(" » ", 1)[0].strip()
             if title_text:
@@ -3274,6 +3581,75 @@ def extract_scanmanga_series_metadata(soup):
     if summary_candidates:
         result["summary"] = max(summary_candidates, key=len).rstrip(" £")
     return result
+
+
+def parse_crunchy_family_chapters_from_html(url, soup, html_content=""):
+    """Parse les catalogues CrunchyScan/Scan-Hentai (même moteur lecteur)."""
+    source_site = get_supported_site_from_url(url)
+    domain = get_cookie_domain_from_url(url)
+    source_path = urlparse(url).path or ""
+    source_match = re.search(r"/lecture-en-ligne/([^/?#]+)", source_path, flags=re.IGNORECASE)
+    source_slug = source_match.group(1).strip().lower() if source_match else ""
+    pairs = []
+    metadata = {}
+    seen = set()
+    for anchor in soup.select("a.chapter-link[href], a[href*='/read/chapitre-'][href]"):
+        href = (anchor.get("href") or "").strip()
+        if not href:
+            continue
+        full_link = urljoin(url, href)
+        if get_supported_site_from_url(full_link) != source_site:
+            continue
+        link_path = urlparse(full_link).path or ""
+        if "/read/" not in link_path:
+            continue
+        link_match = re.search(r"/lecture-en-ligne/([^/?#]+)/read/", link_path, flags=re.IGNORECASE)
+        link_slug = link_match.group(1).strip().lower() if link_match else ""
+        if source_slug and link_slug and link_slug != source_slug:
+            continue
+        if full_link in seen:
+            continue
+        seen.add(full_link)
+        raw_label = (
+            normalize_metadata_text(anchor.get("title"))
+            or normalize_metadata_text(anchor.get_text(" ", strip=True))
+            or normalize_metadata_text(urlparse(full_link).path.rsplit("/", 1)[-1].replace("-", " "))
+        )
+        raw_label = re.sub(r"^\s*Lire\s+", "", raw_label, flags=re.IGNORECASE).strip()
+        if (
+            not re.search(r"(?i)\b(chapitre|chapter|episode|ep|tome|volume)\b", raw_label)
+            or raw_label.lower() in {"lire", "liste animes", "liste anime", "liste"}
+        ):
+            path_label = normalize_metadata_text(urlparse(full_link).path.rsplit("/", 1)[-1].replace("-", " "))
+            if re.search(r"(?i)\b(chapitre|chapter|episode|ep|tome|volume)\b", path_label):
+                raw_label = path_label
+        label = normalize_tome_label(raw_label)
+        if not label:
+            continue
+        pairs.append((label, full_link))
+        metadata[full_link] = {
+            "archive_label": label,
+            "group": "",
+            "group_type": "chapter",
+            "domain": domain,
+        }
+    return pairs, metadata
+
+
+def crunchy_family_chapter_sort_key(item):
+    """Trie les chapitres CrunchyScan/Scan-Hentai par numéro plutôt que par position HTML."""
+    index, pair = item
+    label, link = pair
+    text = f"{label or ''} {urlparse(link or '').path.rsplit('/', 1)[-1].replace('-', ' ')}"
+    match = re.search(r"(?i)\b(?:chapitre|chapter|episode|ep)\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    if match:
+        try:
+            return (0, float(match.group(1).replace(",", ".")), index)
+        except Exception:
+            pass
+    if re.search(r"(?i)\bprologue\b", text):
+        return (0, 0.0, index)
+    return (1, index, 0)
 
 
 def extract_series_metadata_from_html(url, html_content, title=""):
@@ -4444,8 +4820,33 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         match_slug = re.match(r"^/\d+(?:-\d+)?/([^/?#]+)\.html$", path_value, flags=re.IGNORECASE)
         if match_slug:
             source_slug = match_slug.group(1).strip()
+    elif source_site in ("crunchyscan.fr", "scan-hentai.net"):
+        match_slug = re.match(r"^/lecture-en-ligne/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
+        if match_slug:
+            source_slug = match_slug.group(1).strip()
     pairs = []
     volume_metadata = {}
+
+    if source_site in ("crunchyscan.fr", "scan-hentai.net"):
+        pairs, volume_metadata = parse_crunchy_family_chapters_from_html(url, soup, html_content)
+        unique_pairs = [
+            pair
+            for _index, pair in sorted(enumerate(pairs), key=crunchy_family_chapter_sort_key)
+        ]
+        ordered_metadata = {
+            link: volume_metadata.get(link, {})
+            for _label, link in unique_pairs
+            if link
+        }
+        if not unique_pairs:
+            raise ParseError("Aucun chapitre CrunchyScan/Scan-Hentai détecté (page protégée ou structure modifiée).")
+        if emit_logs:
+            runtime_log(
+                f"{len(unique_pairs)} chapitre(s) {comicinfo_source_label_from_url(url)} détecté(s)",
+                level="info",
+                context={"action": "parse_catalogue", "domain": get_cookie_domain_from_url(url)},
+            )
+        return title, unique_pairs, ordered_metadata
 
     if source_site == "scan-manga.com":
         pairs, volume_metadata = parse_scanmanga_chapters_from_html(url, soup, html_content)
@@ -5113,6 +5514,28 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                     f"Extraction Scan-Manga impossible: {exc}",
                     level="error",
                     context={"action": "get_images", "domain": "scanmanga"},
+                )
+            return []
+
+    if domain in ("crunchyscan", "scanhentai"):
+        try:
+            images = fetch_crunchy_reader_images(
+                link,
+                cookie,
+                ua,
+                max_images=max_images,
+                emit_logs=emit_logs,
+                cancel_event=cancel_event,
+            )
+            if images:
+                store_cached_image_urls(link, images, max_images=max_images)
+                return images
+        except Exception as exc:
+            if emit_logs:
+                runtime_log(
+                    f"Extraction lecteur navigateur impossible: {exc}",
+                    level="error",
+                    context={"action": "get_images", "domain": domain},
                 )
             return []
 
@@ -6028,6 +6451,8 @@ def extract_cover_url_from_html(page_url, html_content):
         ".manga-info-pic img",
         ".profile-manga img",
         ".post-content_item .summary-content img",
+        "img.manga_cover",
+        "img[alt*='couverture']",
     )
     img_url = None
 
@@ -6038,7 +6463,7 @@ def extract_cover_url_from_html(page_url, html_content):
             break
 
     if not img_url:
-        for node in soup.select(".summary_image, .thumb, .thumb-container, .post-thumb, .profile-manga"):
+        for node in soup.select(".summary_image, .thumb, .thumb-container, .post-thumb, .profile-manga, [style*='cover.jpg'], [style*='background-image']"):
             style_value = (node.get("style") or "").strip()
             if not style_value:
                 continue
@@ -9503,6 +9928,30 @@ class MangaApp:
         self.run_on_ui(self.update_runtime_status)
         self._schedule_cookie_listing_probe(domains=("scanmanga",), delay_ms=1200)
 
+    def _schedule_auth_status_update_cookie_crunchyscan(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .crunchyscan sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["crunchyscan"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["crunchyscan"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("crunchyscan",), delay_ms=1200)
+
+    def _schedule_auth_status_update_cookie_scanhentai(self, *_args):
+        """Rafraîchit les badges auth après modification du cookie .scan-hentai sans reset global."""
+        if not hasattr(self, "cookie_sources"):
+            return
+        if hasattr(self, "analysis_auth_state") and isinstance(self.analysis_auth_state, dict):
+            self.analysis_auth_state["scanhentai"] = None
+        if hasattr(self, "cookie_probe_state") and isinstance(self.cookie_probe_state, dict):
+            self.cookie_probe_state["scanhentai"] = None
+        self.run_on_ui(lambda: self.update_cookie_status(validate=False))
+        self.run_on_ui(self.update_runtime_status)
+        self._schedule_cookie_listing_probe(domains=("scanhentai",), delay_ms=1200)
+
     def _schedule_auth_status_update_url(self, *_args):
         """Rafraîchit les badges auth au changement d'URL sans effacer l'historique d'analyse."""
         if not hasattr(self, "cookie_sources"):
@@ -9840,6 +10289,8 @@ class MangaApp:
         self.cookie_ortega_label_var.set("Cookie (.ortegascans) :")
         self.cookie_hentaizone_label_var.set("Cookie (.hentaizone) :")
         self.cookie_scanmanga_label_var.set("Cookie (.scanmanga) :")
+        self.cookie_crunchyscan_label_var.set("Cookie (.crunchyscan) :")
+        self.cookie_scanhentai_label_var.set("Cookie (.scan-hentai) :")
         self.ua_label_var.set("User-Agent :")
 
     def update_cookie_status(self, validate=True):
@@ -9862,6 +10313,8 @@ class MangaApp:
                     "cookie_ortega_status",
                     "cookie_hentaizone_status",
                     "cookie_scanmanga_status",
+                    "cookie_crunchyscan_status",
+                    "cookie_scanhentai_status",
                     "ua_status",
                 )
             ):
@@ -9996,6 +10449,8 @@ class MangaApp:
                 "ortega": "https://ortegascans.fr/",
                 "hentaizone": "https://hentaizone.xyz/",
                 "scanmanga": "https://www.scan-manga.com/",
+                "crunchyscan": "https://crunchyscan.fr/",
+                "scanhentai": "https://scan-hentai.net/",
             }
             probe_url = ua_probe_urls.get(domain, "")
             if not probe_url:
@@ -10209,6 +10664,8 @@ class MangaApp:
         self.cookie_ortega = tk.StringVar()
         self.cookie_hentaizone = tk.StringVar()
         self.cookie_scanmanga = tk.StringVar()
+        self.cookie_crunchyscan = tk.StringVar()
+        self.cookie_scanhentai = tk.StringVar()
         self.cookie_fr_label_var = tk.StringVar(value="Cookie (.fr) :")
         self.cookie_net_label_var = tk.StringVar(value="Cookie (.net) :")
         self.cookie_origines_label_var = tk.StringVar(value="Cookie (.origines) :")
@@ -10217,6 +10674,8 @@ class MangaApp:
         self.cookie_ortega_label_var = tk.StringVar(value="Cookie (.ortegascans) :")
         self.cookie_hentaizone_label_var = tk.StringVar(value="Cookie (.hentaizone) :")
         self.cookie_scanmanga_label_var = tk.StringVar(value="Cookie (.scanmanga) :")
+        self.cookie_crunchyscan_label_var = tk.StringVar(value="Cookie (.crunchyscan) :")
+        self.cookie_scanhentai_label_var = tk.StringVar(value="Cookie (.scan-hentai) :")
         self.ua_label_var = tk.StringVar(value="User-Agent :")
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
@@ -10254,6 +10713,8 @@ class MangaApp:
         self.cookie_ortega.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_hentaizone.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_scanmanga.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_crunchyscan.trace_add("write", self._schedule_runtime_status_update)
+        self.cookie_scanhentai.trace_add("write", self._schedule_runtime_status_update)
         self.cookie_fr.trace_add("write", self._schedule_auth_status_update_cookie_fr)
         self.cookie_net.trace_add("write", self._schedule_auth_status_update_cookie_net)
         self.cookie_origines.trace_add("write", self._schedule_auth_status_update_cookie_origines)
@@ -10262,6 +10723,8 @@ class MangaApp:
         self.cookie_ortega.trace_add("write", self._schedule_auth_status_update_cookie_ortega)
         self.cookie_hentaizone.trace_add("write", self._schedule_auth_status_update_cookie_hentaizone)
         self.cookie_scanmanga.trace_add("write", self._schedule_auth_status_update_cookie_scanmanga)
+        self.cookie_crunchyscan.trace_add("write", self._schedule_auth_status_update_cookie_crunchyscan)
+        self.cookie_scanhentai.trace_add("write", self._schedule_auth_status_update_cookie_scanhentai)
         self.ua.trace_add("write", self._schedule_auth_status_update)
         self.url.trace_add("write", self._schedule_auth_status_update_url)
         self.verbose_logs.trace_add("write", self._refresh_log_option_cache)
@@ -10293,6 +10756,8 @@ class MangaApp:
         self.cookie_ortega.set(cookies.get("ortega", ""))
         self.cookie_hentaizone.set(cookies.get("hentaizone", ""))
         self.cookie_scanmanga.set(cookies.get("scanmanga", ""))
+        self.cookie_crunchyscan.set(cookies.get("crunchyscan", ""))
+        self.cookie_scanhentai.set(cookies.get("scanhentai", ""))
         runtime_log(f"{APP_NAME} v{APP_VERSION}", level="info")
         runtime_log(f"Cache cookie : {COOKIE_CACHE_PATH}", level="info")
         runtime_log(f"Config : {CONFIG_PATH}", level="info")
@@ -12031,6 +12496,54 @@ class MangaApp:
 
         ctk.CTkLabel(
             auth_surface,
+            textvariable=self.cookie_crunchyscan_label_var,
+            text_color=self.palette["text"],
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
+        )
+        self.cookie_crunchyscan_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_crunchyscan,
+            font=font_entry,
+            height=36,
+            corner_radius=6,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
+        )
+        self.cookie_crunchyscan_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_crunchyscan_status = create_ctk_badge(auth_surface)
+        self.cookie_crunchyscan_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
+        row += 1
+
+        ctk.CTkLabel(
+            auth_surface,
+            textvariable=self.cookie_scanhentai_label_var,
+            text_color=self.palette["text"],
+            font=font_label,
+        ).grid(
+            row=row, column=0, sticky="w", pady=6, padx=(14, 12)
+        )
+        self.cookie_scanhentai_entry = ctk.CTkEntry(
+            auth_surface,
+            textvariable=self.cookie_scanhentai,
+            font=font_entry,
+            height=36,
+            corner_radius=6,
+            border_color=self.palette["border"],
+            fg_color=self.palette["input_bg"],
+            text_color=self.palette["text"],
+            show="*",
+        )
+        self.cookie_scanhentai_entry.grid(row=row, column=1, pady=6, sticky="ew")
+        self.cookie_scanhentai_status = create_ctk_badge(auth_surface)
+        self.cookie_scanhentai_status.grid(row=row, column=2, sticky="w", padx=(12, 14))
+        row += 1
+
+        ctk.CTkLabel(
+            auth_surface,
             textvariable=self.ua_label_var,
             text_color=self.palette["text"],
             font=font_label,
@@ -13363,6 +13876,8 @@ class MangaApp:
         cookie_toonfr_link = get_manual_link("cookie_toonfr", "https://toonfr.com")
         cookie_hentaizone_link = get_manual_link("cookie_hentaizone", "https://hentaizone.xyz")
         cookie_scanmanga_link = get_manual_link("cookie_scanmanga", "https://www.scan-manga.com")
+        cookie_crunchyscan_link = get_manual_link("cookie_crunchyscan", "https://crunchyscan.fr")
+        cookie_scanhentai_link = get_manual_link("cookie_scanhentai", "https://scan-hentai.net")
         self._attach_link_placeholder(
             self.cookie_fr_entry,
             self.cookie_fr,
@@ -13413,6 +13928,18 @@ class MangaApp:
             cookie_scanmanga_link,
         )
         self._attach_link_placeholder(
+            self.cookie_crunchyscan_entry,
+            self.cookie_crunchyscan,
+            'Cookie crunchyscan.fr: cf_clearance seul ou header Cookie complet.',
+            cookie_crunchyscan_link,
+        )
+        self._attach_link_placeholder(
+            self.cookie_scanhentai_entry,
+            self.cookie_scanhentai,
+            'Cookie scan-hentai.net: cf_clearance seul ou header Cookie complet.',
+            cookie_scanhentai_link,
+        )
+        self._attach_link_placeholder(
             self.ua_entry,
             self.ua,
             'Cliquer ici pour accéder à : Votre User-Agent (copier/coller seulement la partie à droite entre les "" )',
@@ -13438,6 +13965,10 @@ class MangaApp:
             self.cookie_hentaizone_entry.configure(show=show_char)
         if hasattr(self, "cookie_scanmanga_entry"):
             self.cookie_scanmanga_entry.configure(show=show_char)
+        if hasattr(self, "cookie_crunchyscan_entry"):
+            self.cookie_crunchyscan_entry.configure(show=show_char)
+        if hasattr(self, "cookie_scanhentai_entry"):
+            self.cookie_scanhentai_entry.configure(show=show_char)
 
 
     def get_domain_from_url(self, url):
@@ -13455,6 +13986,8 @@ class MangaApp:
             "ortega": getattr(self, "cookie_ortega", None),
             "hentaizone": getattr(self, "cookie_hentaizone", None),
             "scanmanga": getattr(self, "cookie_scanmanga", None),
+            "crunchyscan": getattr(self, "cookie_crunchyscan", None),
+            "scanhentai": getattr(self, "cookie_scanhentai", None),
         }
         return mapping.get(domain)
 
@@ -13469,6 +14002,8 @@ class MangaApp:
             "ortega": getattr(self, "cookie_ortega_entry", None),
             "hentaizone": getattr(self, "cookie_hentaizone_entry", None),
             "scanmanga": getattr(self, "cookie_scanmanga_entry", None),
+            "crunchyscan": getattr(self, "cookie_crunchyscan_entry", None),
+            "scanhentai": getattr(self, "cookie_scanhentai_entry", None),
         }
         return mapping.get(domain)
 
@@ -13483,6 +14018,8 @@ class MangaApp:
             "ortega": getattr(self, "cookie_ortega_status", None),
             "hentaizone": getattr(self, "cookie_hentaizone_status", None),
             "scanmanga": getattr(self, "cookie_scanmanga_status", None),
+            "crunchyscan": getattr(self, "cookie_crunchyscan_status", None),
+            "scanhentai": getattr(self, "cookie_scanhentai_status", None),
         }
         return mapping.get(domain)
 
@@ -15130,7 +15667,7 @@ class SushiCliBackend:
         if not safe_cookie:
             return False
 
-        if safe_domain in ("fr", "net", "toonfr", "ortega", "hentaizone", "scanmanga"):
+        if safe_domain in ("fr", "net", "toonfr", "ortega", "hentaizone", "scanmanga", "crunchyscan", "scanhentai"):
             return test_cookie_validity(
                 safe_domain,
                 safe_cookie,
@@ -15261,6 +15798,10 @@ def run_self_test():
     check("url slug classique", is_valid_catalogue_url("https://sushiscan.net/catalogue/one-piece/"))
     check("url scan-manga serie", is_valid_catalogue_url("https://www.scan-manga.com/16363/Death-Penalty.html"))
     check("domain scan-manga", get_cookie_domain_from_url("https://www.scan-manga.com/16363/Death-Penalty.html") == "scanmanga")
+    check("url crunchyscan serie", is_valid_catalogue_url("https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo"))
+    check("domain crunchyscan", get_cookie_domain_from_url("https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo") == "crunchyscan")
+    check("url scan-hentai serie", is_valid_catalogue_url("https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved"))
+    check("domain scan-hentai", get_cookie_domain_from_url("https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved") == "scanhentai")
     check("url scan-manga chapitre refusee", not is_valid_catalogue_url("https://www.scan-manga.com/lecture-en-ligne/Death-Penalty-Chapitre-56-FR_545712.html"))
     check("domain key", get_site_domain_key("https://ortegascans.fr/serie/moby-dick") == "ortega")
     check("url percent invalide refuse", not is_valid_catalogue_url("https://hentai-origines.fr/manga/bad%zz/"))
@@ -15282,6 +15823,11 @@ def run_self_test():
     check(
         "redaction log cookie",
         redact_sensitive_text("Cookie: cf_clearance=abc123; a=b") == "Cookie: [REDACTED]",
+    )
+    playwright_cookies = parse_cookie_header_for_playwright("Cookie: cf_clearance=abc; session_id=def", "crunchyscan.fr")
+    check(
+        "cookie playwright header",
+        bool(playwright_cookies and playwright_cookies[0].get("name") == "cf_clearance" and playwright_cookies[0].get("domain") == ".crunchyscan.fr"),
     )
     headers = build_request_headers(
         "https://sushiscan.net/catalogue/one-piece/",
@@ -15449,6 +15995,45 @@ def run_self_test():
     dummy_app = object.__new__(MangaApp)
     check("scan-manga groupe webtoon", dummy_app._volume_group_label_from_text("Webtoon 1 - Chap 12") == "Webtoon 1")
     check("scan-manga compact webtoon", dummy_app._compact_display_label("Webtoon 1 - Chap 12") == "W1 C12")
+    crunchy_html = """
+    <html><head><title>Lire Shadows House en scan VF / FR - Manga Gratuit | Crunchyscan</title></head>
+    <body>
+      <img class="manga_cover" src="/upload/manga/shadows-house/cover.jpg?v=1">
+      <a class="chapterName chapter-link" title="Lire Chapitre 228" href="/lecture-en-ligne/shadows-house/read/chapitre-228">Chapitre 228</a>
+      <a class="chapterName chapter-link" title="Lire Chapitre 227" href="/lecture-en-ligne/shadows-house/read/chapitre-227">Chapitre 227</a>
+    </body></html>
+    """
+    crunchy_pairs, crunchy_meta = parse_crunchy_family_chapters_from_html(
+        "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
+        BeautifulSoup(crunchy_html, "html.parser"),
+        crunchy_html,
+    )
+    check("crunchyscan parser chapitres", [label for label, _ in crunchy_pairs] == ["Chapitre 228", "Chapitre 227"])
+    check("crunchyscan metadata domaine", bool(crunchy_pairs and crunchy_meta.get(crunchy_pairs[0][1], {}).get("domain") == "crunchyscan"))
+    check(
+        "crunchyscan titre nettoye",
+        extract_manga_title_from_html("https://crunchyscan.fr/lecture-en-ligne/shadows-house", crunchy_html) == "Shadows House",
+    )
+    check(
+        "crunchyscan couverture",
+        extract_cover_url_from_html("https://crunchyscan.fr/lecture-en-ligne/shadows-house", crunchy_html).startswith("https://crunchyscan.fr/upload/manga/"),
+    )
+    crunchy_title, crunchy_sorted_pairs, _crunchy_sorted_meta = parse_manga_data_from_html(
+        "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
+        crunchy_html,
+        emit_logs=False,
+    )
+    check("crunchyscan tri naturel", [label for label, _ in crunchy_sorted_pairs] == ["Chapitre 227", "Chapitre 228"])
+    hentai_html = """
+    <a class="chapterName chapter-link" title="Lire Chapitre 4" href="/lecture-en-ligne/lies-are-planned/read/chapitre-4">Lire Chapitre 4</a>
+    """
+    hentai_pairs, hentai_meta = parse_crunchy_family_chapters_from_html(
+        "https://scan-hentai.net/lecture-en-ligne/lies-are-planned",
+        BeautifulSoup(hentai_html, "html.parser"),
+        hentai_html,
+    )
+    check("scan-hentai parser chapitres", bool(hentai_pairs and hentai_pairs[0][0] == "Chapitre 4"))
+    check("scan-hentai metadata domaine", bool(hentai_pairs and hentai_meta.get(hentai_pairs[0][1], {}).get("domain") == "scanhentai"))
     scanmanga_novel_html = """
     <article class="aLN">
       <h2 class="ln_c_title">Tome 18 - Chapitre 10-2 - Douleur partagée</h2>
