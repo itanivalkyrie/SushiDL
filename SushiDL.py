@@ -971,7 +971,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.0"
+APP_VERSION = "11.18.1"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2414,6 +2414,36 @@ def parse_cookie_header_for_playwright(cookie, host):
     return [item for item in cookies if item.get("domain")]
 
 
+def get_crunchy_challenge_state(page):
+    """Retourne l'etat Cloudflare visible dans le lecteur CrunchyScan/Scan-Hentai."""
+    return page.evaluate(
+        """
+        () => {
+            const text = (document.body && document.body.innerText || '').toLowerCase();
+            const title = (document.title || '').toLowerCase();
+            const hasVisibleFrame = Array.from(document.querySelectorAll(
+                'iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare"]'
+            )).some(frame => {
+                const box = frame.getBoundingClientRect();
+                return frame.offsetParent !== null && box.width >= 180 && box.height >= 40;
+            });
+            const hasValidateButton = Array.from(document.querySelectorAll('button')).some(button =>
+                (button.innerText || button.textContent || '').trim().toLowerCase() === 'valider'
+            );
+            return {
+                url: location.href,
+                title,
+                challenge: title.includes('just a moment') || title.includes('un instant') ||
+                    text.includes('verification de securite') || text.includes('vérification de sécurité') ||
+                    (text.includes('cloudflare') && text.includes('ray id')),
+                turnstile: hasVisibleFrame && hasValidateButton,
+                forbidden: text.includes('error 403') || text.includes('http 403')
+            };
+        }
+        """
+    )
+
+
 def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, cancel_event=None):
     """Récupère les images blob du lecteur CrunchyScan/Scan-Hentai depuis une session navigateur unique."""
     chapter_url = normalize_image_url(link)
@@ -2442,36 +2472,40 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         page.wait_for_selector("body", timeout=8000)
     except Exception:
         pass
-    challenge_state = page.evaluate(
-        """
-        () => {
-            const text = (document.body && document.body.innerText || '').toLowerCase();
-            const title = (document.title || '').toLowerCase();
-            return {
-                url: location.href,
-                title,
-                challenge: title.includes('just a moment') || title.includes('un instant') ||
-                    text.includes('vérification de sécurité') || text.includes('verification de securite') ||
-                    text.includes('cloudflare') && text.includes('ray id'),
-                turnstile: Array.from(document.querySelectorAll('iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare"]')).some(frame => {
-                    const box = frame.getBoundingClientRect();
-                    return frame.offsetParent !== null && box.width >= 180 && box.height >= 40;
-                }) && Array.from(document.querySelectorAll('button')).some(button => (button.innerText || button.textContent || '').trim().toLowerCase() === 'valider'),
-                forbidden: text.includes('error 403') || text.includes('http 403')
-            };
-        }
-        """
-    )
-    if isinstance(challenge_state, dict) and challenge_state.get("turnstile"):
-        raise AuthError(
-            "Validation Cloudflare du lecteur CrunchyScan/Scan-Hentai requise. "
-            "Clique sur Valider dans le navigateur, puis recopie le nouveau cookie cf_clearance depuis cette page chapitre /read/... avec le même User-Agent."
+    challenge_state = get_crunchy_challenge_state(page)
+    if isinstance(challenge_state, dict) and (challenge_state.get("turnstile") or challenge_state.get("challenge")):
+        runtime_log(
+            f"Playwright {site}: validation Cloudflare attendue dans la fenetre Chrome (180 s maximum).",
+            level="warning",
+            context={"domain": site, "action": "playwright_wait_validation"},
         )
-    if isinstance(challenge_state, dict) and challenge_state.get("challenge"):
-        raise AuthError(
-            "Lecteur CrunchyScan/Scan-Hentai bloqué par Cloudflare. "
-            "Renouvelle le cookie depuis une page chapitre /read/... avec le même User-Agent."
-        )
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            if cancel_event is not None and cancel_event.is_set():
+                raise DownloadCancelled("Telechargement annule.")
+            try:
+                page.wait_for_timeout(750)
+                challenge_state = get_crunchy_challenge_state(page)
+            except Exception:
+                continue
+            if not isinstance(challenge_state, dict) or not (
+                challenge_state.get("turnstile") or challenge_state.get("challenge")
+            ):
+                runtime_log(
+                    f"Playwright {site}: validation Cloudflare detectee, reprise automatique du lecteur.",
+                    level="success",
+                    context={"domain": site, "action": "playwright_validation_done"},
+                )
+                try:
+                    page.goto(chapter_url, wait_until="commit", timeout=20000)
+                    page.wait_for_selector("body", timeout=8000)
+                except Exception:
+                    pass
+                break
+        else:
+            raise AuthError(
+                "Validation Cloudflare non terminee apres 180 secondes dans la fenetre Chrome SushiDL."
+            )
     try:
         for selector in (
             "button.oui-avertissement-btn",

@@ -10,6 +10,7 @@ DL SushiScan/
 *.log
 debug_sushiscan_*.log
 .playwright_profile
+.sushidl_crunchy_browser/
 .playwright-mcp/
 CUSTOMTKINTER_MIGRATION_PLAN.md
 _tmp_*/

@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.1] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai : lorsqu'un challenge Cloudflare est affiché dans le Chrome persistant de SushiDL, le téléchargement attend jusqu'à trois minutes la validation manuelle puis relance automatiquement le lecteur dans cette même session.
+
 ## [11.18.0] - 2026-07-11
 
 ### Ameliorations
