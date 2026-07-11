@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.5] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai :
+  - chargement plus robuste des pages lazy du lecteur avant lecture du blob,
+  - seconde tentative dans un contexte Chromium propre après un échec lecteur transitoire,
+  - récupération des auteurs et artistes dans les métadonnées `ComicInfo.xml`.
+
 ## [11.16.4] - 2026-07-11
 
 ### Corrections

@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.4"
+APP_VERSION = "11.16.5"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2355,7 +2355,7 @@ def parse_cookie_header_for_playwright(cookie, host):
     return [item for item in cookies if item.get("domain")]
 
 
-def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None, cancel_event=None):
+def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, cancel_event=None):
     """Récupère les images blob du lecteur CrunchyScan/Scan-Hentai depuis une session navigateur unique."""
     chapter_url = normalize_image_url(link)
     page = get_crunchy_browser_page(state, chapter_url, ua)
@@ -2463,10 +2463,17 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
                     }
                     return btoa(binary);
                 };
+                const looksLikeImage = (bytes, contentType) => {
+                    if ((contentType || '').toLowerCase().includes('image/')) return true;
+                    return (bytes[0] === 0xff && bytes[1] === 0xd8) ||
+                        (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) ||
+                        (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) ||
+                        (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46);
+                };
                 const imageToJpegBase64 = async (img) => {
-                    for (let i = 0; i < 80; i++) {
+                    for (let i = 0; i < 120; i++) {
                         if (img.complete && (img.naturalWidth || img.width) && (img.naturalHeight || img.height)) break;
-                        await sleep(150);
+                        await sleep(125);
                     }
                     const width = img.naturalWidth || img.width;
                     const height = img.naturalHeight || img.height;
@@ -2481,22 +2488,51 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
                     if (commaIndex < 0) return {ok: false, error: 'canvas invalide'};
                     return {ok: true, body: dataUrl.slice(commaIndex + 1), contentType: 'image/jpeg'};
                 };
-                const img = document.querySelectorAll('img.imageView, img[data-img]')[index];
+                const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]'));
+                const img = images[index];
                 if (!img) return {ok: false, error: 'image introuvable'};
-                img.scrollIntoView({block: 'center', inline: 'nearest'});
-                for (let i = 0; i < 80; i++) {
-                    const src = img.getAttribute('src') || '';
-                    if (src.startsWith('blob:')) {
-                        try {
-                            const response = await fetch(src);
-                            const buffer = await response.arrayBuffer();
-                            const bytes = new Uint8Array(buffer);
-                            return {ok: true, body: bytesToBase64(bytes), contentType: response.headers.get('content-type') || ''};
-                        } catch (error) {
-                            return await imageToJpegBase64(img);
+
+                // Le lecteur ne déchiffre les images lazy qu'une fois visibles. Un scroll
+                // réel suivi de plusieurs tours de boucle est plus fiable qu'un simple wait.
+                for (let round = 0; round < 3; round++) {
+                    img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                    window.dispatchEvent(new Event('scroll'));
+                    for (let i = 0; i < 40; i++) {
+                        const src = img.currentSrc || img.getAttribute('src') || '';
+                        if (src.startsWith('blob:')) {
+                            try {
+                                const response = await fetch(src);
+                                const buffer = await response.arrayBuffer();
+                                const bytes = new Uint8Array(buffer);
+                                const contentType = response.headers.get('content-type') || '';
+                                if (response.ok && bytes.byteLength > 128 && looksLikeImage(bytes, contentType)) {
+                                    return {ok: true, body: bytesToBase64(bytes), contentType};
+                                }
+                            } catch (error) {
+                                // Le canvas ci-dessous peut lire un blob affiché même si fetch(blob:)
+                                // est refusé par le contexte de la page.
+                            }
+                            const canvasPayload = await imageToJpegBase64(img);
+                            if (canvasPayload.ok) return canvasPayload;
                         }
+                        await sleep(125);
                     }
-                    await sleep(150);
+                    await sleep(250);
+                }
+                const finalSrc = img.currentSrc || img.getAttribute('src') || '';
+                if (finalSrc.startsWith('blob:')) {
+                    const src = img.getAttribute('src') || '';
+                    try {
+                        const response = await fetch(src);
+                        const bytes = new Uint8Array(await response.arrayBuffer());
+                        const contentType = response.headers.get('content-type') || '';
+                        if (response.ok && bytes.byteLength > 128 && looksLikeImage(bytes, contentType)) {
+                            return {ok: true, body: bytesToBase64(bytes), contentType};
+                        }
+                    } catch (error) {
+                        // Tentative canvas finale ci-dessous.
+                    }
+                    return await imageToJpegBase64(img);
                 }
                 return {ok: false, error: 'blob non chargé'};
             }
@@ -2514,6 +2550,31 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
             raise ImageDownloadError("Lecteur navigateur: payload invalide", kind="invalid_image", phase="browser")
         blobs.append(raw)
     return blobs
+
+
+def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None, cancel_event=None):
+    """Récupère un chapitre, puis renouvelle une fois le contexte en cas d'état lecteur instable."""
+    last_error = None
+    for attempt in range(2):
+        try:
+            return _fetch_crunchy_reader_blobs_once(
+                state,
+                link,
+                cookie,
+                ua,
+                max_images=max_images,
+                cancel_event=cancel_event,
+            )
+        except (DownloadCancelled, AuthError):
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt:
+                break
+            reset_crunchy_browser_context(state)
+            if interruptible_sleep(cancel_event, 0.35):
+                raise DownloadCancelled("Téléchargement annulé.")
+    raise last_error or ParseError("Lecteur CrunchyScan/Scan-Hentai indisponible.")
 
 
 def crunchy_browser_worker_loop(tasks):
@@ -3751,6 +3812,8 @@ def crunchy_family_chapter_sort_key(item):
 def extract_crunchy_family_series_metadata(soup):
     """Extrait les blocs metadata du moteur CrunchyScan/Scan-Hentai."""
     result = {
+        "writer": "",
+        "penciller": "",
         "genre": "",
         "year": "",
         "month": "",
@@ -3784,6 +3847,15 @@ def extract_crunchy_family_series_metadata(soup):
         if not values:
             continue
 
+        joined_values = metadata_join(values)
+        has_author = any(token in label_norm for token in ("auteur", "author", "ecrivain", "writer", "scenariste", "scenario"))
+        has_artist = any(token in label_norm for token in ("artiste", "artist", "dessinateur", "illustrateur", "illustrator", "penciller"))
+        if has_author:
+            result["writer"] = result["writer"] or joined_values
+        if has_artist:
+            result["penciller"] = result["penciller"] or joined_values
+        if has_author or has_artist:
+            continue
         if "status" in label_norm or "statut" in label_norm:
             result["status"] = first_metadata_value(values)
         elif "sortie" in label_norm or "date" in label_norm or "release" in label_norm:
@@ -3901,7 +3973,7 @@ def extract_series_metadata_from_html(url, html_content, title=""):
 
     if get_supported_site_from_url(url) in ("crunchyscan.fr", "scan-hentai.net"):
         crunchy_metadata = extract_crunchy_family_series_metadata(soup)
-        for key in ("genre", "year", "month", "day", "status"):
+        for key in ("writer", "penciller", "genre", "year", "month", "day", "status"):
             value = crunchy_metadata.get(key)
             if value:
                 metadata[key] = value
@@ -16167,6 +16239,8 @@ def run_self_test():
       <img class="manga_cover" src="/upload/manga/shadows-house/cover.jpg?v=1">
       <div aria-labelledby="status-section"><h3>🚦 Status</h3><p>En cours</p></div>
       <div aria-labelledby="sortie-section"><h3>📅 Sortie</h3><p>2018</p></div>
+      <div aria-labelledby="author-section"><h3>✍ Auteur(s)</h3><a href="/catalog/author/somato">Somato</a></div>
+      <div aria-labelledby="artist-section"><h3>🎨 Artiste(s)</h3><a href="/catalog/artist/somato">Somato</a></div>
       <div aria-labelledby="type-section"><h3>📜 Type</h3><p>Manga</p></div>
       <div aria-labelledby="genre-section"><h3>🎭 Genre(s)</h3><a href="/catalog/genre/surnaturel">Surnaturel</a><a href="/catalog/genre/horreur">Horreur</a></div>
       <a class="chapterName chapter-link" title="Lire Chapitre 228" href="/lecture-en-ligne/shadows-house/read/chapitre-228">Chapitre 228</a>
@@ -16196,6 +16270,8 @@ def run_self_test():
     check("crunchyscan metadata annee", crunchy_series_meta.get("year") == "2018")
     check("crunchyscan metadata statut", crunchy_series_meta.get("status") == "En cours")
     check("crunchyscan metadata genres", crunchy_series_meta.get("genre") == "Manga, Surnaturel, Horreur")
+    check("crunchyscan metadata auteur", crunchy_series_meta.get("writer") == "Somato")
+    check("crunchyscan metadata artiste", crunchy_series_meta.get("penciller") == "Somato")
     crunchy_title, crunchy_sorted_pairs, _crunchy_sorted_meta = parse_manga_data_from_html(
         "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
         crunchy_html,
@@ -16205,6 +16281,8 @@ def run_self_test():
     hentai_html = """
     <div aria-labelledby="status-section"><h3>🚦 Status</h3><p>En cours</p></div>
     <div aria-labelledby="sortie-section"><h3>📅 Sortie</h3><p>2026</p></div>
+    <div aria-labelledby="author-section"><h3>✍ Auteur(s)</h3><a href="/catalog/author/test-author">Test Author</a></div>
+    <div aria-labelledby="artist-section"><h3>🎨 Artiste(s)</h3><a href="/catalog/artist/test-artist">Test Artist</a></div>
     <div aria-labelledby="type-section"><h3>📜 Type</h3><p>Josei</p></div>
     <div aria-labelledby="genre-section"><h3>🎭 Genre(s)</h3><a href="/catalog/genre/drame">Drame</a><a href="/catalog/genre/mature">Mature</a><a href="/catalog/genre/romance">Romance</a></div>
     <a class="chapterName chapter-link" title="Lire Chapitre 4" href="/lecture-en-ligne/lies-are-planned/read/chapitre-4">Lire Chapitre 4</a>
@@ -16224,6 +16302,8 @@ def run_self_test():
     check("scan-hentai metadata annee", hentai_series_meta.get("year") == "2026")
     check("scan-hentai metadata statut", hentai_series_meta.get("status") == "En cours")
     check("scan-hentai metadata genres", hentai_series_meta.get("genre") == "Josei, Drame, Mature, Romance")
+    check("scan-hentai metadata auteur", hentai_series_meta.get("writer") == "Test Author")
+    check("scan-hentai metadata artiste", hentai_series_meta.get("penciller") == "Test Artist")
     scanmanga_novel_html = """
     <article class="aLN">
       <h2 class="ln_c_title">Tome 18 - Chapitre 10-2 - Douleur partagée</h2>
