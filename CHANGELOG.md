@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.0] - 2026-07-11
+
+### Ameliorations
+- CrunchyScan / Scan-Hentai :
+  - le lecteur utilise désormais un unique profil Chrome Playwright persistant et visible,
+  - la validation Cloudflare faite dans cette fenêtre est conservée pour les chapitres suivants,
+  - reprise possible depuis la popup après validation, sans collage de `cf_clearance` entre deux sessions différentes.
+
 ## [11.17.5] - 2026-07-11
 
 ### Corrections

@@ -971,7 +971,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.17.5"
+APP_VERSION = "11.18.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1053,6 +1053,7 @@ SCANMANGA_BROWSER_TASKS = None
 CRUNCHY_BROWSER_LOCK = threading.Lock()
 CRUNCHY_BROWSER_THREAD = None
 CRUNCHY_BROWSER_TASKS = None
+CRUNCHY_BROWSER_PROFILE_PATH = BASE_DIR / ".sushidl_crunchy_browser"
 SCANMANGA_IMAGE_HOSTS = {
     "cdn.scan-manga.com",
     "data.scan-manga.com",
@@ -2284,7 +2285,7 @@ def download_preview_image_with_browser(img_url, referer_url, ua, cancel_event=N
 
 
 def new_crunchy_browser_state():
-    return {"playwright": None, "browser": None, "context": None, "page": None, "ua": "", "site": ""}
+    return {"playwright": None, "browser": None, "context": None, "page": None, "ua": "", "site": "", "persistent": True}
 
 
 def dispose_crunchy_browser_state(state):
@@ -2336,35 +2337,43 @@ def get_crunchy_browser_page(state, url, ua=""):
     site = get_site_domain_key(url)
     if state.get("playwright") is None:
         state["playwright"] = sync_playwright().start()
-    if state.get("browser") is None:
-        chromium = state["playwright"].chromium
-        launch_options = {"headless": True, "args": ["--disable-blink-features=AutomationControlled"]}
-        try:
-            state["browser"] = chromium.launch(channel="chrome", **launch_options)
-        except Exception:
-            state["browser"] = chromium.launch(**launch_options)
-        runtime_log(
-            f"Playwright {site}: session navigateur initialisée.",
-            level="info",
-            context={"action": "playwright_session", "domain": site},
-        )
     if state.get("context") is None or state.get("ua") != safe_ua or state.get("site") != site:
         if state.get("context") is not None:
             try:
                 state["context"].close()
             except Exception:
                 pass
-        state["context"] = state["browser"].new_context(
-            user_agent=safe_ua,
-            locale="fr-FR",
-            viewport={"width": 1280, "height": 1600},
-        )
+        CRUNCHY_BROWSER_PROFILE_PATH.mkdir(parents=True, exist_ok=True)
+        chromium = state["playwright"].chromium
+        launch_options = {
+            "headless": False,
+            "args": ["--disable-blink-features=AutomationControlled"],
+            "user_agent": safe_ua,
+            "locale": "fr-FR",
+            "viewport": {"width": 1280, "height": 1600},
+        }
+        try:
+            state["context"] = chromium.launch_persistent_context(
+                str(CRUNCHY_BROWSER_PROFILE_PATH),
+                channel="chrome",
+                **launch_options,
+            )
+        except Exception:
+            state["context"] = chromium.launch_persistent_context(
+                str(CRUNCHY_BROWSER_PROFILE_PATH),
+                **launch_options,
+            )
         state["context"].add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         )
         state["page"] = None
         state["ua"] = safe_ua
         state["site"] = site
+        runtime_log(
+            f"Playwright {site}: session Chrome persistante initialisée.",
+            level="info",
+            context={"action": "playwright_session", "domain": site},
+        )
     if state.get("page") is None or state["page"].is_closed():
         state["page"] = state["context"].new_page()
         state["reader_errors"] = []
@@ -10084,7 +10093,14 @@ class MangaApp:
         )
         cookie_input.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-        status_var = tk.StringVar(value="Accepte cf_clearance seul ou un header Cookie complet.")
+        persistent_browser_domain = domain in ("crunchyscan", "scanhentai")
+        status_var = tk.StringVar(
+            value=(
+                "Valide Cloudflare dans la fenêtre Chrome SushiDL, puis clique sur OK et relancer."
+                if persistent_browser_domain
+                else "Accepte cf_clearance seul ou un header Cookie complet."
+            )
+        )
         ctk.CTkLabel(
             cookie_box,
             textvariable=status_var,
@@ -10105,6 +10121,10 @@ class MangaApp:
 
         def confirm_and_retry():
             cookie_text = cookie_input.get("1.0", "end").strip()
+            if persistent_browser_domain and not cookie_text:
+                status_var.set("Validation Chrome confirmée. Relance en cours...")
+                finalize(True)
+                return
             if apply_cookie_from_prompt(cookie_text, status_var):
                 finalize(True)
 
@@ -10141,7 +10161,7 @@ class MangaApp:
 
         browser_button = ctk.CTkButton(
             actions,
-            text="Ouvrir Chrome",
+            text="Ouvrir Chrome normal",
             command=open_browser_validation,
             height=32,
             width=126,
@@ -10202,10 +10222,6 @@ class MangaApp:
             cookie_input.focus_set()
         except Exception:
             pass
-        if domain in ("crunchyscan", "scanhentai") and any(
-            marker in (reason or "").lower() for marker in ("cloudflare", "turnstile", "lecteur")
-        ):
-            win.after(250, open_browser_validation)
 
     def prompt_cookie_refresh(self, domain, volume_label, reason="", cancel_event=None, source_url=""):
         """Attend qu'un utilisateur mette à jour le cookie puis confirme la relance."""
