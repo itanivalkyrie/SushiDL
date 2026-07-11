@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.8"
+APP_VERSION = "11.16.9"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2437,11 +2437,20 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 challenge: title.includes('just a moment') || title.includes('un instant') ||
                     text.includes('vérification de sécurité') || text.includes('verification de securite') ||
                     text.includes('cloudflare') && text.includes('ray id'),
+                turnstile: Array.from(document.querySelectorAll('iframe[src*="challenges.cloudflare.com"], iframe[title*="Cloudflare"]')).some(frame => {
+                    const box = frame.getBoundingClientRect();
+                    return frame.offsetParent !== null && box.width >= 180 && box.height >= 40;
+                }) && Array.from(document.querySelectorAll('button')).some(button => (button.innerText || button.textContent || '').trim().toLowerCase() === 'valider'),
                 forbidden: text.includes('error 403') || text.includes('http 403')
             };
         }
         """
     )
+    if isinstance(challenge_state, dict) and challenge_state.get("turnstile"):
+        raise AuthError(
+            "Validation Cloudflare du lecteur CrunchyScan/Scan-Hentai requise. "
+            "Clique sur Valider dans le navigateur, puis recopie le nouveau cookie cf_clearance depuis cette page chapitre /read/... avec le même User-Agent."
+        )
     if isinstance(challenge_state, dict) and challenge_state.get("challenge"):
         raise AuthError(
             "Lecteur CrunchyScan/Scan-Hentai bloqué par Cloudflare. "

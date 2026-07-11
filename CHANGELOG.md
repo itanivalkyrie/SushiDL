@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.9] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai : reconnaissance explicite de la validation Turnstile Cloudflare encore affichée dans le lecteur, avec instruction de renouvellement du cookie depuis la page chapitre.
+
 ## [11.16.8] - 2026-07-11
 
 ### Corrections
