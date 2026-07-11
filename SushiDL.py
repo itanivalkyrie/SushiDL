@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.2"
+APP_VERSION = "11.16.4"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2368,13 +2368,27 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
             pass
     if cancel_event is not None and cancel_event.is_set():
         raise DownloadCancelled("Téléchargement annulé.")
-    page.goto(chapter_url, wait_until="domcontentloaded", timeout=45000)
+    response = page.goto(chapter_url, wait_until="domcontentloaded", timeout=45000)
     try:
         page.wait_for_load_state("networkidle", timeout=12000)
     except Exception:
         pass
     try:
-        page.wait_for_selector("img.imageView, img[data-img], [data-meta]", timeout=20000)
+        for selector in (
+            "button.oui-avertissement-btn",
+            "button:has-text('OK')",
+            "button:has-text('Accepter')",
+            "button:has-text('Continuer')",
+        ):
+            try:
+                page.locator(selector).first.click(timeout=900)
+                break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        page.wait_for_selector("img.imageView, img[data-img]", timeout=45000)
     except Exception:
         pass
 
@@ -2402,6 +2416,35 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
 
     total = int(page.evaluate("() => document.querySelectorAll('img.imageView, img[data-img]').length") or 0)
     if total <= 0:
+        diagnostic = page.evaluate(
+            """
+            () => ({
+                title: document.title || '',
+                url: location.href,
+                text: (document.body && document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 220),
+                images: document.querySelectorAll('img').length,
+                imageView: document.querySelectorAll('img.imageView').length,
+                dataImg: document.querySelectorAll('img[data-img]').length,
+                dataMeta: document.querySelectorAll('[data-meta]').length,
+                buttons: Array.from(document.querySelectorAll('button')).slice(0, 5).map(button => (button.innerText || button.textContent || '').trim()).filter(Boolean)
+            })
+            """
+        )
+        status_code = ""
+        try:
+            status_code = str(response.status) if response is not None else ""
+        except Exception:
+            status_code = ""
+        if isinstance(diagnostic, dict):
+            details = (
+                f"HTTP {status_code or '?'} | titre={diagnostic.get('title') or '?'} | "
+                f"images={diagnostic.get('images', 0)} | data-meta={diagnostic.get('dataMeta', 0)} | "
+                f"url={diagnostic.get('url') or chapter_url}"
+            )
+            excerpt = normalize_metadata_text(diagnostic.get("text") or "")
+            if excerpt:
+                details = f"{details} | extrait={excerpt}"
+            raise ParseError(f"Aucune image lecteur CrunchyScan/Scan-Hentai détectée ({details}).")
         raise ParseError("Aucune image lecteur CrunchyScan/Scan-Hentai détectée.")
     limit = min(total, int(max_images or total))
     blobs = []
@@ -2412,21 +2455,46 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
             """
             async ({index}) => {
                 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+                const bytesToBase64 = (bytes) => {
+                    let binary = '';
+                    const chunkSize = 0x8000;
+                    for (let j = 0; j < bytes.length; j += chunkSize) {
+                        binary += String.fromCharCode(...bytes.subarray(j, j + chunkSize));
+                    }
+                    return btoa(binary);
+                };
+                const imageToJpegBase64 = async (img) => {
+                    for (let i = 0; i < 80; i++) {
+                        if (img.complete && (img.naturalWidth || img.width) && (img.naturalHeight || img.height)) break;
+                        await sleep(150);
+                    }
+                    const width = img.naturalWidth || img.width;
+                    const height = img.naturalHeight || img.height;
+                    if (!width || !height) return {ok: false, error: 'image non chargée'};
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                    const commaIndex = dataUrl.indexOf(',');
+                    if (commaIndex < 0) return {ok: false, error: 'canvas invalide'};
+                    return {ok: true, body: dataUrl.slice(commaIndex + 1), contentType: 'image/jpeg'};
+                };
                 const img = document.querySelectorAll('img.imageView, img[data-img]')[index];
                 if (!img) return {ok: false, error: 'image introuvable'};
                 img.scrollIntoView({block: 'center', inline: 'nearest'});
                 for (let i = 0; i < 80; i++) {
                     const src = img.getAttribute('src') || '';
                     if (src.startsWith('blob:')) {
-                        const response = await fetch(src);
-                        const buffer = await response.arrayBuffer();
-                        const bytes = new Uint8Array(buffer);
-                        let binary = '';
-                        const chunkSize = 0x8000;
-                        for (let j = 0; j < bytes.length; j += chunkSize) {
-                            binary += String.fromCharCode(...bytes.subarray(j, j + chunkSize));
+                        try {
+                            const response = await fetch(src);
+                            const buffer = await response.arrayBuffer();
+                            const bytes = new Uint8Array(buffer);
+                            return {ok: true, body: bytesToBase64(bytes), contentType: response.headers.get('content-type') || ''};
+                        } catch (error) {
+                            return await imageToJpegBase64(img);
                         }
-                        return {ok: true, body: btoa(binary), contentType: response.headers.get('content-type') || ''};
                     }
                     await sleep(150);
                 }

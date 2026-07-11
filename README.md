@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.16.2`
+Version actuelle : `11.16.4`
 
 ## Ce qui change sur `main`
 
@@ -139,6 +139,17 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.16.4
+- CrunchyScan / Scan-Hentai :
+  - fallback canvas quand `fetch(blob:)` échoue dans le contexte navigateur,
+  - export JPEG depuis l'image déjà rendue par le lecteur.
+
+### 11.16.3
+- CrunchyScan / Scan-Hentai :
+  - correction d'une extraction lancée trop tôt quand le lecteur exposait déjà `data-meta` mais pas encore les balises image,
+  - attente explicite des images du lecteur avant comptage,
+  - diagnostic détaillé en cas de lecteur vide.
 
 ### 11.16.2
 - CrunchyScan / Scan-Hentai :

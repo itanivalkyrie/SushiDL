@@ -7,6 +7,21 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.4] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai :
+  - ajout d'un fallback canvas quand `fetch(blob:)` échoue,
+  - conversion JPEG depuis l'image rendue dans le lecteur navigateur.
+
+## [11.16.3] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai :
+  - attente explicite des images du lecteur au lieu de partir dès la présence de `data-meta`,
+  - tentative de validation des overlays simples avant extraction,
+  - diagnostic détaillé si aucune image n'est créée par le lecteur.
+
 ## [11.16.2] - 2026-07-11
 
 ### Corrections
