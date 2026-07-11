@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.17.5] - 2026-07-11
+
+### Corrections
+- CrunchyScan / Scan-Hentai : la validation Cloudflare ouvre désormais le navigateur Chrome habituel au lieu d'une session Playwright vierge, afin que Turnstile soit affiché et validé normalement.
+
 ## [11.17.4] - 2026-07-11
 
 ### Corrections

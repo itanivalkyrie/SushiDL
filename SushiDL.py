@@ -971,7 +971,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.17.4"
+APP_VERSION = "11.17.5"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2403,62 +2403,6 @@ def parse_cookie_header_for_playwright(cookie, host):
             }
         )
     return [item for item in cookies if item.get("domain")]
-
-
-def capture_crunchy_cookie_in_visible_browser(url, cookie, ua, collect_event, result_queue):
-    """Ouvre un Chrome visible pour valider Turnstile, puis retourne cf_clearance à la demande."""
-    browser = None
-    context = None
-    try:
-        from playwright.sync_api import sync_playwright
-
-        safe_url = normalize_image_url(url)
-        safe_host = normalize_hostname(urlparse(safe_url).hostname)
-        with sync_playwright() as playwright:
-            chromium = playwright.chromium
-            try:
-                browser = chromium.launch(channel="chrome", headless=False)
-            except Exception:
-                browser = chromium.launch(headless=False)
-            context = browser.new_context(
-                user_agent=(ua or DEFAULT_USER_AGENT).strip(),
-                locale="fr-FR",
-                viewport={"width": 1280, "height": 900},
-            )
-            if cookie:
-                context.add_cookies(parse_cookie_header_for_playwright(cookie, safe_host))
-            page = context.new_page()
-            page.goto(safe_url, wait_until="domcontentloaded", timeout=45000)
-            result_queue.put({"state": "opened"})
-            while not collect_event.wait(0.2):
-                if page.is_closed():
-                    raise AuthError("Fenêtre de validation fermée avant récupération du cookie.")
-
-            cookies = context.cookies()
-            clearance = next(
-                (
-                    (item.get("value") or "").strip()
-                    for item in cookies
-                    if item.get("name") == "cf_clearance" and (item.get("value") or "").strip()
-                ),
-                "",
-            )
-            if not clearance:
-                raise AuthError("Aucun cookie cf_clearance n'a été créé par la validation Cloudflare.")
-            result_queue.put({"ok": True, "cookie": clearance})
-    except Exception as exc:
-        result_queue.put({"ok": False, "error": str(exc)})
-    finally:
-        if context is not None:
-            try:
-                context.close()
-            except Exception:
-                pass
-        if browser is not None:
-            try:
-                browser.close()
-            except Exception:
-                pass
 
 
 def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, cancel_event=None):
@@ -10032,10 +9976,6 @@ class MangaApp:
             return True
 
         def finalize(result):
-            try:
-                auth_capture["collect_event"].set()
-            except (NameError, KeyError):
-                pass
             window = holder.get("window")
             try:
                 if window is not None and window.winfo_exists():
@@ -10168,69 +10108,15 @@ class MangaApp:
             if apply_cookie_from_prompt(cookie_text, status_var):
                 finalize(True)
 
-        auth_capture = {
-            "collect_event": threading.Event(),
-            "result_queue": queue.Queue(maxsize=1),
-            "thread": None,
-        }
-
         def open_browser_validation():
             if domain not in ("crunchyscan", "scanhentai"):
-                return
-            if auth_capture.get("thread") is not None and auth_capture["thread"].is_alive():
-                status_var.set("Chrome de validation déjà ouvert. Termine la vérification, puis récupère le cookie.")
                 return
             chapter_url = (source_url or "").strip()
             if not chapter_url:
                 status_var.set("URL de chapitre indisponible pour ouvrir la validation.")
                 return
-            auth_capture["collect_event"].clear()
-            auth_capture["result_queue"] = queue.Queue(maxsize=1)
-            auth_capture["thread"] = threading.Thread(
-                target=capture_crunchy_cookie_in_visible_browser,
-                args=(
-                    chapter_url,
-                    self.get_cookie(chapter_url),
-                    self.get_request_user_agent_for_domain(domain),
-                    auth_capture["collect_event"],
-                    auth_capture["result_queue"],
-                ),
-                daemon=True,
-                name=f"{domain}-auth-browser",
-            )
-            auth_capture["thread"].start()
-            status_var.set("Chrome ouvert. Valide Cloudflare, puis clique sur Récupérer depuis Chrome.")
-            collect_button.configure(state="normal")
-
-        def collect_browser_cookie():
-            thread = auth_capture.get("thread")
-            if thread is None or not thread.is_alive():
-                status_var.set("Ouvre d'abord la validation Chrome.")
-                return
-            auth_capture["collect_event"].set()
-            collect_button.configure(state="disabled")
-            status_var.set("Récupération du cookie depuis Chrome...")
-
-            def poll_capture_result():
-                try:
-                    result = auth_capture["result_queue"].get_nowait()
-                except queue.Empty:
-                    if thread.is_alive():
-                        win.after(160, poll_capture_result)
-                    else:
-                        status_var.set("Validation Chrome terminée sans cookie récupérable.")
-                    return
-                if result.get("state") == "opened":
-                    win.after(160, poll_capture_result)
-                    return
-                if result.get("ok"):
-                    cookie_input.delete("1.0", "end")
-                    cookie_input.insert("1.0", result.get("cookie") or "")
-                    status_var.set("Cookie récupéré. Clique sur OK et relancer.")
-                    return
-                status_var.set(f"Validation Chrome échouée: {result.get('error') or 'cookie introuvable'}")
-
-            win.after(120, poll_capture_result)
+            webbrowser.open(chapter_url, new=1, autoraise=True)
+            status_var.set("Chrome normal ouvert. Valide Cloudflare, copie cf_clearance, puis colle-le ici.")
 
         actions = ctk.CTkFrame(outer, fg_color="transparent")
         actions.pack(fill="x", padx=14, pady=(0, 14))
@@ -10238,7 +10124,6 @@ class MangaApp:
         actions.grid_columnconfigure(1, weight=0)
         actions.grid_columnconfigure(2, weight=0)
         actions.grid_columnconfigure(3, weight=0)
-        actions.grid_columnconfigure(4, weight=0)
 
         ctk.CTkButton(
             actions,
@@ -10256,7 +10141,7 @@ class MangaApp:
 
         browser_button = ctk.CTkButton(
             actions,
-            text="Ouvrir validation",
+            text="Ouvrir Chrome",
             command=open_browser_validation,
             height=32,
             width=126,
@@ -10271,22 +10156,6 @@ class MangaApp:
         if domain not in ("crunchyscan", "scanhentai"):
             browser_button.configure(state="disabled")
 
-        collect_button = ctk.CTkButton(
-            actions,
-            text="Récupérer depuis Chrome",
-            command=collect_browser_cookie,
-            height=32,
-            width=166,
-            corner_radius=6,
-            fg_color=self.palette["panel_bg"],
-            hover_color=self.palette["card_alt"],
-            text_color=self.palette["text"],
-            border_width=1,
-            border_color=self.palette["border"],
-            state="disabled",
-        )
-        collect_button.grid(row=0, column=2, sticky="w", padx=(8, 0))
-
         ctk.CTkButton(
             actions,
             text="Annuler",
@@ -10299,7 +10168,7 @@ class MangaApp:
             text_color=self.palette["danger_text"],
             border_width=1,
             border_color=self.palette["danger_border"],
-        ).grid(row=0, column=3, sticky="e", padx=(8, 8))
+        ).grid(row=0, column=2, sticky="e", padx=(8, 8))
 
         ok_button = ctk.CTkButton(
             actions,
@@ -10314,7 +10183,7 @@ class MangaApp:
             border_width=1,
             border_color=self.palette["success_border"],
         )
-        ok_button.grid(row=0, column=4)
+        ok_button.grid(row=0, column=3)
 
         holder["window"] = win
         self.cookie_refresh_prompt_window = win
