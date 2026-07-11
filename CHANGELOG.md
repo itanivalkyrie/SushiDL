@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.16.6] - 2026-07-11
+
+### Ameliorations
+- Journal :
+  - ajout des étapes Playwright visibles pour Scan-Manga, CrunchyScan et Scan-Hentai,
+  - distinction entre l'analyse API du lecteur Scan-Manga et la récupération des fichiers via Playwright,
+  - affichage de l'initialisation de session, du nombre d'images détectées et des reprises de contexte lecteur.
+
 ## [11.16.5] - 2026-07-11
 
 ### Corrections

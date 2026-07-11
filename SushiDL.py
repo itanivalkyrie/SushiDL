@@ -967,7 +967,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.16.5"
+APP_VERSION = "11.16.6"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1932,6 +1932,11 @@ def get_scanmanga_browser_page(state, ua=""):
             state["browser"] = chromium.launch(channel="chrome", headless=True)
         except Exception:
             state["browser"] = chromium.launch(headless=True)
+        runtime_log(
+            "Playwright Scan-Manga: session navigateur initialisée.",
+            level="info",
+            context={"action": "playwright_session", "domain": "scanmanga"},
+        )
     if state.get("context") is None or state.get("ua") != safe_ua:
         if state.get("context") is not None:
             try:
@@ -2030,6 +2035,11 @@ def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, canc
         current_url = (getattr(page, "url", "") or "").split("#", 1)[0]
         must_reload = attempt > 1 or current_url != referer_key
         if must_reload:
+            runtime_log(
+                "Playwright Scan-Manga: analyse du lecteur et préparation du contexte image.",
+                level="info",
+                context={"action": "playwright_reader", "domain": "scanmanga"},
+            )
             page.goto(safe_referer, wait_until="domcontentloaded", timeout=30000)
             state["referer"] = referer_key
             warning_accepted = accept_scanmanga_reader_warning(page)
@@ -2042,6 +2052,11 @@ def fetch_scanmanga_image_in_browser_state(state, img_url, referer_url, ua, canc
                 page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
                 pass
+            runtime_log(
+                "Playwright Scan-Manga: récupération des images du chapitre en cours.",
+                level="info",
+                context={"action": "playwright_download", "domain": "scanmanga"},
+            )
         try:
             result = page.evaluate(
                 """
@@ -2310,6 +2325,11 @@ def get_crunchy_browser_page(state, url, ua=""):
             state["browser"] = chromium.launch(channel="chrome", headless=True)
         except Exception:
             state["browser"] = chromium.launch(headless=True)
+        runtime_log(
+            f"Playwright {site}: session navigateur initialisée.",
+            level="info",
+            context={"action": "playwright_session", "domain": site},
+        )
     if state.get("context") is None or state.get("ua") != safe_ua or state.get("site") != site:
         if state.get("context") is not None:
             try:
@@ -2368,6 +2388,12 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             pass
     if cancel_event is not None and cancel_event.is_set():
         raise DownloadCancelled("Téléchargement annulé.")
+    site = get_site_domain_key(chapter_url)
+    runtime_log(
+        f"Playwright {site}: analyse du lecteur en cours.",
+        level="info",
+        context={"action": "playwright_reader", "domain": site},
+    )
     response = page.goto(chapter_url, wait_until="domcontentloaded", timeout=45000)
     try:
         page.wait_for_load_state("networkidle", timeout=12000)
@@ -2447,6 +2473,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             raise ParseError(f"Aucune image lecteur CrunchyScan/Scan-Hentai détectée ({details}).")
         raise ParseError("Aucune image lecteur CrunchyScan/Scan-Hentai détectée.")
     limit = min(total, int(max_images or total))
+    runtime_log(
+        f"Playwright {site}: {total} image(s) détectée(s), récupération de {limit} page(s).",
+        level="info",
+        context={"action": "playwright_images", "domain": site},
+    )
     blobs = []
     for index in range(limit):
         if cancel_event is not None and cancel_event.is_set():
@@ -2549,6 +2580,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         if not raw or _is_html_payload_start(raw):
             raise ImageDownloadError("Lecteur navigateur: payload invalide", kind="invalid_image", phase="browser")
         blobs.append(raw)
+    runtime_log(
+        f"Playwright {site}: récupération terminée ({len(blobs)} image(s)).",
+        level="success",
+        context={"action": "playwright_images_done", "domain": site},
+    )
     return blobs
 
 
@@ -2571,6 +2607,11 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
             last_error = exc
             if attempt:
                 break
+            runtime_log(
+                f"Playwright {get_site_domain_key(link)}: contexte lecteur réinitialisé après échec transitoire.",
+                level="warning",
+                context={"action": "playwright_retry", "domain": get_site_domain_key(link)},
+            )
             reset_crunchy_browser_context(state)
             if interruptible_sleep(cancel_event, 0.35):
                 raise DownloadCancelled("Téléchargement annulé.")
@@ -4908,10 +4949,16 @@ def request_scanmanga_reader_api(api_url, chapter_url, reader_vars, api_body, ua
 
 
 def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True, cancel_event=None):
-    """Récupère les images Scan-Manga via l'API bqj, sans navigateur."""
+    """Analyse les images Scan-Manga via l'API lecteur; les fichiers passent ensuite par Playwright."""
     chapter_url = (link or "").strip()
     if not chapter_url:
         return []
+    if emit_logs:
+        runtime_log(
+            "Analyse du lecteur Scan-Manga via API en cours; les images seront récupérées via Playwright.",
+            level="info",
+            context={"action": "reader_analysis", "domain": "scanmanga"},
+        )
     if cancel_event is not None and cancel_event.is_set():
         raise DownloadCancelled("Téléchargement annulé.")
     session = requests.Session()
