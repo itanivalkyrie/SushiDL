@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.17.0] - 2026-07-11
+
+### Ameliorations
+- CrunchyScan / Scan-Hentai :
+  - ajout de la validation Cloudflare assistée dans la popup de renouvellement du cookie,
+  - ouverture d'un Chrome visible sur le chapitre concerné,
+  - récupération locale du nouveau `cf_clearance` après validation manuelle, puis relance du téléchargement.
+
 ## [11.16.9] - 2026-07-11
 
 ### Corrections
