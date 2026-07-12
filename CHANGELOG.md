@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.14] - 2026-07-12
+
+### Ameliorations
+- CrunchyScan / Scan-Hentai : les chapitres de 80 pages ou plus préchargent davantage de pages lazy en avance. La récupération reste séquentielle pour préserver la stabilité du lecteur, mais les pauses liées à la génération tardive des blobs sont réduites.
+- La progression Playwright des gros chapitres est publiée tous les cinq fichiers, ce qui rend les ralentissements ponctuels visibles sans surcharger l'interface.
+
 ## [11.18.13] - 2026-07-12
 
 ### Corrections

@@ -194,7 +194,7 @@ def recommend_action_for_failure(status_code=None, reason=""):
     if "tome non finalise" in normalized or "retry non finalise" in normalized:
         return "Corriger d'abord la cause technique indiquée, puis relancer."
     if status_code in (401, 403) or "cloudflare" in normalized or "forbidden" in normalized:
-        return "Vérifier ou mettre à jour le cookie cf_clearance et le User-Agent."
+        return "Protection Cloudflare détectée : chapitre arrêté pour cette session. Relancer plus tard après validation normale de l'accès."
     if status_code == 429:
         return "Limiter la cadence; attendre avant de relancer."
     if status_code in (500, 502, 503, 504):
@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.13"
+APP_VERSION = "11.18.14"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1018,6 +1018,9 @@ PERF_LOG_MIN_SECONDS = 0.05
 SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 120
 ERROR_RENDER_BATCH_SIZE = 12
+CRUNCHY_LARGE_CHAPTER_THRESHOLD = 80
+CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW = 12
+CRUNCHY_DEFAULT_PRELOAD_WINDOW = 6
 COOKIE_DOMAINS = (
     "fr",
     "net",
@@ -2601,16 +2604,22 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             f"Lecteur CrunchyScan/Scan-Hentai non initialisé: aucun blob créé ({ready_count}/{total} prêt).{suffix}"
         )
     limit = min(total, int(max_images or total))
+    preload_window = (
+        CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW
+        if limit >= CRUNCHY_LARGE_CHAPTER_THRESHOLD
+        else CRUNCHY_DEFAULT_PRELOAD_WINDOW
+    )
     runtime_log(
-        f"Playwright {site}: {total} image(s) détectée(s), récupération de {limit} page(s).",
+        f"Playwright {site}: {total} image(s) détectée(s), récupération de {limit} page(s) "
+        f"(préchargement {preload_window}).",
         level="info",
         context={"action": "playwright_images", "domain": site},
     )
     page.evaluate(
         """
-        async ({limit}) => {
+        async ({limit, preloadWindow}) => {
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-            const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]')).slice(0, Math.min(limit, 8));
+            const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]')).slice(0, Math.min(limit, preloadWindow));
             for (const image of images) {
                 image.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
             }
@@ -2619,7 +2628,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             if (images[0]) images[0].scrollIntoView({block: 'start', inline: 'nearest', behavior: 'auto'});
         }
         """,
-        {"limit": limit},
+        {"limit": limit, "preloadWindow": preload_window},
     )
     runtime_log(
         f"Playwright {site}: préchargement lazy terminé, extraction des images en cours.",
@@ -2649,7 +2658,8 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     for index in range(len(blobs), limit):
         if cancel_event is not None and cancel_event.is_set():
             raise DownloadCancelled("Téléchargement annulé.")
-        if index == 0 or (index + 1) % 10 == 0 or index + 1 == limit:
+        progress_interval = 5 if limit >= CRUNCHY_LARGE_CHAPTER_THRESHOLD else 10
+        if index == 0 or (index + 1) % progress_interval == 0 or index + 1 == limit:
             runtime_log(
                 f"Playwright {site}: récupération image {index + 1}/{limit}.",
                 level="info",
@@ -2658,7 +2668,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         image_started_at = time.perf_counter()
         payload = page.evaluate(
             """
-            async ({index}) => {
+            async ({index, preloadWindow}) => {
                 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                 const bytesToBase64 = (bytes) => {
                     let binary = '';
@@ -2697,9 +2707,10 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 const img = images[index];
                 if (!img) return {ok: false, error: 'image introuvable'};
 
-                // Le lecteur ne déchiffre les images lazy qu'une fois visibles. On prépare
-                // seulement les quatre suivantes pour ne pas saturer le lecteur long format.
-                for (const upcoming of images.slice(index, index + 4)) {
+                // Le lecteur ne déchiffre les images lazy qu'une fois visibles. Une fenêtre
+                // légèrement plus large garde les très longs chapitres en mouvement sans
+                // demander toutes les pages d'un coup.
+                for (const upcoming of images.slice(index, index + preloadWindow)) {
                     upcoming.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
                 }
                 window.dispatchEvent(new Event('scroll'));
@@ -2781,7 +2792,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 return {ok: false, error: 'blob non chargé'};
             }
             """,
-            {"index": index},
+            {"index": index, "preloadWindow": preload_window},
         )
         if not payload or not payload.get("ok"):
             reader_errors = "; ".join(state.get("reader_errors") or [])
