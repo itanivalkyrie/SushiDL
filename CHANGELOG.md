@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.8] - 2026-07-12
+
+### Corrections
+- Grille Canvas : les chapitres dont le CBZ existe déjà affichent désormais un badge vert `OK`, y compris dans le rendu virtualisé des grands catalogues.
+
 ## [11.18.7] - 2026-07-12
 
 ### Ameliorations

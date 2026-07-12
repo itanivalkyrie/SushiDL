@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.7"
+APP_VERSION = "11.18.8"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -8415,6 +8415,8 @@ class MangaApp:
         checkbox_fill = self.palette["accent"] if selected else self.palette["canvas_bg"]
         checkbox_outline = self.palette["accent"] if selected else self.palette["border"]
         premium = self.is_volume_premium(index=absolute_index)
+        existing_cbz = absolute_index in (getattr(self, "volume_existing_cbz_indices", set()) or set())
+        auxiliary_badge = premium or existing_cbz
         display_vol = self._compact_display_label(vol)
         title_text = f"{absolute_index + 1}. {display_vol}" if kind == "fast" else str(display_vol)
         index_text = "" if kind == "fast" else str(absolute_index + 1)
@@ -8446,13 +8448,24 @@ class MangaApp:
         canvas.coords(entry["bg_id"], card_x, card_y, card_x2, card_y2)
         canvas.itemconfigure(entry["bg_id"], fill=bg_fill, outline=bg_outline, state="normal")
         canvas.coords(entry["title_id"], title_x, (card_y + card_y2) / 2.0)
-        title_limit_x = premium_x1 if premium else preview_x1
+        title_limit_x = premium_x1 if auxiliary_badge else preview_x1
         canvas.itemconfigure(entry["title_id"], text=title_text, fill=self.palette["text"], width=max(64, title_limit_x - title_x - 8), state="normal")
-        if premium:
+        if auxiliary_badge:
             canvas.coords(entry["premium_bg_id"], premium_x1, checkbox_y1, premium_x2, checkbox_y2)
-            canvas.itemconfigure(entry["premium_bg_id"], state="normal")
+            canvas.itemconfigure(
+                entry["premium_bg_id"],
+                fill="#f4dd8c" if premium else "#dfeee5",
+                outline="#d6b44d" if premium else "#a3cab1",
+                state="normal",
+            )
             canvas.coords(entry["premium_text_id"], (premium_x1 + premium_x2) / 2.0, (checkbox_y1 + checkbox_y2) / 2.0)
-            canvas.itemconfigure(entry["premium_text_id"], state="normal")
+            canvas.itemconfigure(
+                entry["premium_text_id"],
+                text="$" if premium else "OK",
+                fill="#8f6500" if premium else "#2f6d4a",
+                font=("Segoe UI Semibold", 8 if existing_cbz and not premium else 10),
+                state="normal",
+            )
         else:
             canvas.itemconfigure(entry["premium_bg_id"], state="hidden")
             canvas.itemconfigure(entry["premium_text_id"], state="hidden")
