@@ -1062,7 +1062,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.22"
+APP_VERSION = "11.18.23"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -13516,6 +13516,8 @@ class MangaApp:
 
         save_row = ctk.CTkFrame(left_stack, fg_color="transparent")
         save_row.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
+        save_row.grid_columnconfigure(0, weight=1)
+        save_row.grid_columnconfigure(1, weight=1)
 
         logs_box = ctk.CTkFrame(
             options_groups,
@@ -13552,7 +13554,20 @@ class MangaApp:
             hover_color=self.palette["accent_hover"],
             text_color="#ffffff",
             font=("Segoe UI Semibold", 10),
-        ).pack(expand=True)
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        ctk.CTkButton(
+            save_row,
+            text="Vider le cache",
+            command=self.clear_application_cache,
+            height=34,
+            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 10),
+        ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
 
         def add_option_line(parent, text, variable, description, command=None, bottom=6):
             line = ctk.CTkFrame(
@@ -16558,6 +16573,48 @@ class MangaApp:
             self.update_runtime_status()
         except Exception as e:
             self.log(f"Erreur sauvegarde: {e}", level="error")
+
+    def clear_application_cache(self):
+        """Vide les caches non sensibles sans toucher aux cookies, au suivi ou aux CBZ."""
+        if getattr(self, "download_in_progress", False):
+            self.toast("Attends la fin du téléchargement avant de vider le cache.")
+            self.log("Vidage cache refusé pendant un téléchargement actif.", level="warning")
+            return
+        if not self.ask_yes_no(
+            "Vider le cache",
+            "Supprimer les analyses mémorisées, aperçus, URLs d'images et reprises de blobs ?\n\n"
+            "Les cookies, le suivi et les téléchargements ne seront pas modifiés.",
+        ):
+            return
+        global ANALYSIS_CACHE_MEMORY
+        removed = []
+        try:
+            with ANALYSIS_CACHE_LOCK:
+                ANALYSIS_CACHE_MEMORY = {}
+                if ANALYSIS_CACHE_PATH.exists():
+                    ANALYSIS_CACHE_PATH.unlink()
+                    removed.append("analyses")
+        except OSError as exc:
+            self.log(f"Impossible de supprimer le cache d'analyse : {exc}", level="warning")
+        with IMAGE_URL_CACHE_LOCK:
+            IMAGE_URL_CACHE.clear()
+            IMAGE_URL_CACHE_ORDER.clear()
+        with TEXT_PAGE_CACHE_LOCK:
+            TEXT_PAGE_CACHE.clear()
+            TEXT_PAGE_CACHE_ORDER.clear()
+        self.preview_cache.clear()
+        self.preview_cache_order.clear()
+        try:
+            if READER_BLOB_STAGE_PATH.exists():
+                remove_tree_safely(READER_BLOB_STAGE_PATH, expected_parent=BASE_DIR)
+                removed.append("reprises lecteur")
+        except Exception as exc:
+            self.log(f"Impossible de supprimer les reprises lecteur : {exc}", level="warning")
+        self.log(
+            f"Cache vidé : {', '.join(removed) if removed else 'caches mémoire'}. Cookies et suivi conservés.",
+            level="success",
+        )
+        self.toast("Cache vidé")
 
 
 class SushiCliBackend:

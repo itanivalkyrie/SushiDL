@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.23] - 2026-07-12
+
+### Ameliorations
+- Options : ajout du bouton `Vider le cache`. Il supprime les caches d'analyse, d'aperçu, d'URLs d'images et de reprise lecteur après confirmation, tout en préservant les cookies, le suivi, le profil navigateur et les archives CBZ.
+
 ## [11.18.22] - 2026-07-12
 
 ### Corrections
