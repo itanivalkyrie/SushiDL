@@ -232,6 +232,15 @@ def should_offer_cookie_refresh(status_code=None, reason=""):
     return any(marker in normalized for marker in markers)
 
 
+def is_manual_cloudflare_fallback(reason=""):
+    """Indique qu'un lecteur doit basculer vers la validation dans le navigateur normal."""
+    normalized = "".join(
+        ch for ch in unicodedata.normalize("NFKD", (reason or "").lower())
+        if unicodedata.category(ch) != "Mn"
+    )
+    return "detection cloudflare" in normalized and "mode manuel" in normalized
+
+
 def interruptible_sleep(cancel_event, duration):
     """Attend `duration` secondes, interrompu si annulation demandée."""
     if duration <= 0:
@@ -971,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.1"
+APP_VERSION = "11.18.2"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2475,37 +2484,15 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     challenge_state = get_crunchy_challenge_state(page)
     if isinstance(challenge_state, dict) and (challenge_state.get("turnstile") or challenge_state.get("challenge")):
         runtime_log(
-            f"Playwright {site}: validation Cloudflare attendue dans la fenetre Chrome (180 s maximum).",
+            f"Cloudflare detecte dans le lecteur {site}: bascule vers le mode manuel.",
             level="warning",
-            context={"domain": site, "action": "playwright_wait_validation"},
+            context={"domain": site, "action": "cloudflare_manual_fallback"},
         )
-        deadline = time.monotonic() + 180
-        while time.monotonic() < deadline:
-            if cancel_event is not None and cancel_event.is_set():
-                raise DownloadCancelled("Telechargement annule.")
-            try:
-                page.wait_for_timeout(750)
-                challenge_state = get_crunchy_challenge_state(page)
-            except Exception:
-                continue
-            if not isinstance(challenge_state, dict) or not (
-                challenge_state.get("turnstile") or challenge_state.get("challenge")
-            ):
-                runtime_log(
-                    f"Playwright {site}: validation Cloudflare detectee, reprise automatique du lecteur.",
-                    level="success",
-                    context={"domain": site, "action": "playwright_validation_done"},
-                )
-                try:
-                    page.goto(chapter_url, wait_until="commit", timeout=20000)
-                    page.wait_for_selector("body", timeout=8000)
-                except Exception:
-                    pass
-                break
-        else:
-            raise AuthError(
-                "Validation Cloudflare non terminee apres 180 secondes dans la fenetre Chrome SushiDL."
-            )
+        reset_crunchy_browser_context(state)
+        raise AuthError(
+            "Detection Cloudflare dans le lecteur: mode manuel requis. "
+            "Ouvre la page dans Chrome normal, valide Cloudflare, puis colle le cookie cf_clearance dans SushiDL."
+        )
     try:
         for selector in (
             "button.oui-avertissement-btn",
@@ -10029,14 +10016,27 @@ class MangaApp:
             holder["result"] = bool(result)
             done.set()
 
+        manual_cloudflare = domain in ("crunchyscan", "scanhentai") and is_manual_cloudflare_fallback(reason)
         domain_label = f".{domain}" if domain else "du domaine"
-        title = "Cookie à renouveler"
-        subtitle = f"{volume_label} a rencontré un accès refusé."
+        title = "Détection Cloudflare" if manual_cloudflare else "Cookie à renouveler"
+        subtitle = (
+            f"Cloudflare a bloqué le lecteur pour {volume_label}."
+            if manual_cloudflare
+            else f"{volume_label} a rencontré un accès refusé."
+        )
         detail = (
             f"Le cookie {domain_label} semble expiré ou refusé.\n"
             "Colle le nouveau cookie ci-dessous, puis clique sur OK et relancer.\n"
             "SushiDL mettra à jour le domaine et reprendra au même endroit."
         )
+        if manual_cloudflare:
+            detail = (
+                "Le challenge Cloudflare ne peut pas être validé depuis le lecteur automatisé.\n"
+                "1. Ouvre la page dans Chrome normal.\n"
+                "2. Valide Cloudflare dans ce navigateur.\n"
+                "3. Copie le cookie cf_clearance de ce domaine et colle-le ci-dessous.\n"
+                "4. Clique sur OK et relancer."
+            )
         if domain in COOKIE_DOMAINS:
             probe_url = STARTUP_COOKIE_LISTING_PROBE_URLS.get(domain) or "n/a"
             ua_used = self.get_request_user_agent_for_domain(domain)
@@ -10127,11 +10127,10 @@ class MangaApp:
         )
         cookie_input.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-        persistent_browser_domain = domain in ("crunchyscan", "scanhentai")
         status_var = tk.StringVar(
             value=(
-                "Valide Cloudflare dans la fenêtre Chrome SushiDL, puis clique sur OK et relancer."
-                if persistent_browser_domain
+                "Mode manuel requis: ouvre Chrome normal, valide Cloudflare et colle cf_clearance."
+                if manual_cloudflare
                 else "Accepte cf_clearance seul ou un header Cookie complet."
             )
         )
@@ -10155,10 +10154,6 @@ class MangaApp:
 
         def confirm_and_retry():
             cookie_text = cookie_input.get("1.0", "end").strip()
-            if persistent_browser_domain and not cookie_text:
-                status_var.set("Validation Chrome confirmée. Relance en cours...")
-                finalize(True)
-                return
             if apply_cookie_from_prompt(cookie_text, status_var):
                 finalize(True)
 
@@ -10195,7 +10190,7 @@ class MangaApp:
 
         browser_button = ctk.CTkButton(
             actions,
-            text="Ouvrir Chrome normal",
+            text="Ouvrir dans Chrome",
             command=open_browser_validation,
             height=32,
             width=126,

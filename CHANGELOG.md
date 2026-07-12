@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.2] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : retrait de l'attente de validation dans Chrome Playwright lorsque Cloudflare est détecté. SushiDL arrête immédiatement le lecteur, affiche une fenêtre explicite « Détection Cloudflare » et guide la validation dans le navigateur habituel avant collage du cookie `cf_clearance`.
+
 ## [11.18.1] - 2026-07-11
 
 ### Corrections
