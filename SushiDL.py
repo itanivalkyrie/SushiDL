@@ -1062,7 +1062,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.25"
+APP_VERSION = "11.18.26"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -7423,6 +7423,36 @@ class MangaApp:
             return
         self.last_current_volume_text_ui = text
         self.current_volume_status_label.configure(text=text)
+
+    def _set_queue_runtime_status_ui(self, queue_index, queue_total, title, item_index=None, item_total=None, state=""):
+        """Affiche l'élément actif de la file sans masquer le catalogue rendu."""
+        if not hasattr(self, "status_label"):
+            return
+        try:
+            current = max(1, int(queue_index))
+            total = max(current, int(queue_total))
+        except (TypeError, ValueError):
+            current, total = 1, 1
+        safe_title = normalize_manga_title_case(title) or "Catalogue"
+        text = f"File {current}/{total}: {safe_title}"
+        try:
+            chapter_current = int(item_index) if item_index is not None else 0
+            chapter_total = int(item_total) if item_total is not None else 0
+        except (TypeError, ValueError):
+            chapter_current, chapter_total = 0, 0
+        if chapter_total > 0:
+            text += f" · {max(0, chapter_current)}/{chapter_total}"
+        if state:
+            text += f" · {repair_mojibake_text(state)}"
+        if self._is_ctk_widget(self.status_label):
+            self.status_label.configure(
+                text=text,
+                fg_color=self.palette["accent_soft"],
+                text_color=self.palette["accent_hover"],
+            )
+        else:
+            self.status_label.configure(text=text, foreground=self.palette["accent_hover"])
+        self._set_workflow_step("download", "File d'attente en cours: progression affichée dans le catalogue.")
 
     def _set_eta_ui(self, tome_eta=None, global_eta=None):
         if not hasattr(self, "eta_label"):
@@ -15326,6 +15356,69 @@ class MangaApp:
         smart_resume_enabled = self.smart_resume_enabled.get()
         download_threads = clamp_download_threads(self.download_threads.get())
 
+        def get_existing_cbz_indices(title, pairs, metadata_by_url):
+            """Repère les archives déjà présentes pour refléter la file dans la grille."""
+            clean_title = sanitize_folder_name(title)
+            series_folder = os.path.join(output_root, clean_title)
+            existing_indices = set()
+            for index, (volume_label, volume_link) in enumerate(pairs):
+                archive_label = get_archive_label_for_link(volume_label, volume_link, metadata_by_url)
+                filename = (
+                    f"{clean_title} - "
+                    f"{sanitize_folder_name(normalize_tome_label(archive_label or volume_label))}.cbz"
+                )
+                archive_path = os.path.join(series_folder, filename)
+                try:
+                    if os.path.isfile(archive_path) and os.path.getsize(archive_path) > 10_000:
+                        existing_indices.add(index)
+                except OSError:
+                    continue
+            return existing_indices
+
+        def activate_queue_catalog_ui(
+            source_url,
+            queue_index,
+            queue_total,
+            title,
+            pairs,
+            metadata_by_url,
+            series_metadata,
+            existing_indices,
+        ):
+            """Affiche le catalogue actuellement traité par la file dans l'onglet principal."""
+            self.url.set(source_url)
+            self.title = title
+            self.pairs = list(pairs or [])
+            self.volume_meta_by_url = dict(metadata_by_url or {})
+            self.series_metadata = dict(series_metadata or {})
+            self.cover_url = ""
+            self.volume_existing_cbz_indices = set(existing_indices or set())
+            self.volume_runtime_status_by_url = {}
+            self.catalog_state_summary = {}
+            self.filter_text.set("")
+            self.filter_placeholder_active = False
+            self._refresh_source_title_label(title)
+            self._show_default_cover_placeholder()
+            selection_state = [
+                index not in self.volume_existing_cbz_indices and not self.is_volume_premium(index=index, link=link)
+                for index, (_label, link) in enumerate(self.pairs)
+            ]
+            self._start_volume_render(selection_state=selection_state, feedback=False)
+            self._set_progress_ui(0)
+            self._set_progress_detail_ui(None, None)
+            self._set_current_volume_ui(None)
+            self._set_queue_runtime_status_ui(queue_index, queue_total, title, state="catalogue prêt")
+
+        def update_queue_item_ui(queue_index, queue_total, title, item_index, item_total, state=""):
+            self._set_queue_runtime_status_ui(
+                queue_index,
+                queue_total,
+                title,
+                item_index=item_index,
+                item_total=item_total,
+                state=state,
+            )
+
         def task():
             try:
                 queue_total = len(clean_urls)
@@ -15336,6 +15429,13 @@ class MangaApp:
                     cookie = self.get_cookie(source_url)
                     ua_for_url = self.get_request_user_agent_for_url(source_url)
                     self.run_on_ui(self.url.set, source_url)
+                    self.run_on_ui(
+                        self._set_queue_runtime_status_ui,
+                        queue_index,
+                        queue_total,
+                        "Catalogue",
+                        state="analyse en cours",
+                    )
                     self.log(f"File {queue_index}/{queue_total}: analyse {source_url}", level="info")
                     analysis = None
                     for analysis_attempt in range(2):
@@ -15366,24 +15466,57 @@ class MangaApp:
                                     ua_for_url = self.get_request_user_agent_for_url(source_url)
                                     continue
                             self.log(f"File: analyse échouée pour {source_url}: {reason}", level="error")
+                            self.run_on_ui(
+                                self._set_queue_runtime_status_ui,
+                                queue_index,
+                                queue_total,
+                                "Catalogue",
+                                state="analyse en erreur",
+                            )
                             break
                     if analysis is None:
                         continue
                     title = analysis.title
-                    pairs = analysis.pairs
+                    pairs = list(analysis.pairs or [])
                     metadata_by_url = dict(analysis.volume_metadata or {})
                     series_metadata = dict(analysis.series_metadata or {})
-                    self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
+                    existing_indices = get_existing_cbz_indices(title, pairs, metadata_by_url)
+                    self.run_on_ui(
+                        activate_queue_catalog_ui,
+                        source_url,
+                        queue_index,
+                        queue_total,
+                        title,
+                        pairs,
+                        metadata_by_url,
+                        series_metadata,
+                        existing_indices,
+                        wait=True,
+                    )
+                    cover_url = (series_metadata or {}).get("cover_url", "")
+                    try:
+                        cover_url = get_cover_image(analysis.html_content) or cover_url
+                    except Exception as cover_exc:
+                        self.log(f"File: couverture indisponible pour {title}: {cover_exc}", level="debug")
                     self.log(f"File: {len(pairs)} élément(s) détecté(s) pour {title}", level="success")
                     selected_pairs = [
-                        (vol, link)
-                        for vol, link in pairs
+                        (index, vol, link)
+                        for index, (vol, link) in enumerate(pairs)
                         if not bool((metadata_by_url.get((link or "").strip()) or {}).get("premium"))
                     ]
-                    for item_index, (vol, link) in enumerate(selected_pairs, start=1):
+                    for item_index, (_pair_index, vol, link) in enumerate(selected_pairs, start=1):
                         if self.cancel_event.is_set():
                             break
                         self.run_on_ui(self._set_current_volume_ui, vol)
+                        self.run_on_ui(
+                            update_queue_item_ui,
+                            queue_index,
+                            queue_total,
+                            title,
+                            item_index,
+                            len(selected_pairs),
+                            "préparation",
+                        )
                         self.log(f"File {queue_index}/{queue_total} - {item_index}/{len(selected_pairs)}: {vol}", level="info")
                         archive_label = get_archive_label_for_link(vol, link, metadata_by_url)
                         if cbz_enabled:
@@ -15392,7 +15525,18 @@ class MangaApp:
                             existing_cbz = os.path.join(output_root, clean_title, f"{clean_title} - {clean_archive_label}.cbz")
                             if os.path.isfile(existing_cbz) and os.path.getsize(existing_cbz) > 10_000:
                                 self.log(f"File: CBZ déjà existant, saut de {vol}.", level="info")
+                                self.run_on_ui(self._set_volume_runtime_status, link, "OK")
+                                self.run_on_ui(
+                                    update_queue_item_ui,
+                                    queue_index,
+                                    queue_total,
+                                    title,
+                                    item_index,
+                                    len(selected_pairs),
+                                    "déjà présent",
+                                )
                                 continue
+                        self.run_on_ui(self._set_volume_runtime_status, link, "DL")
                         try:
                             cookie_item, ua_item, images = self.get_images_with_cookie_recovery(
                                 link,
@@ -15400,8 +15544,39 @@ class MangaApp:
                                 cancel_event=self.cancel_event,
                             )
                         except Exception as exc:
-                            self.log(f"File: échec images {vol}: {exc}", level="error")
-                            self.add_volume_error(vol, "images", str(exc), None, recommend_action_for_failure(None, str(exc)))
+                            reason = str(exc)
+                            self.log(f"File: échec images {vol}: {reason}", level="error")
+                            self.run_on_ui(
+                                self._set_volume_runtime_status,
+                                link,
+                                "CF" if is_reader_cloudflare_challenge(reason) else "ERR",
+                            )
+                            self.run_on_ui(
+                                update_queue_item_ui,
+                                queue_index,
+                                queue_total,
+                                title,
+                                item_index,
+                                len(selected_pairs),
+                                "Cloudflare" if is_reader_cloudflare_challenge(reason) else "erreur",
+                            )
+                            self.add_volume_error(vol, "images", reason, None, recommend_action_for_failure(None, reason))
+                            continue
+
+                        if not images:
+                            reason = "Échec récupération images."
+                            self.log(f"File: {reason} ({vol})", level="warning")
+                            self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
+                            self.run_on_ui(
+                                update_queue_item_ui,
+                                queue_index,
+                                queue_total,
+                                title,
+                                item_index,
+                                len(selected_pairs),
+                                "erreur",
+                            )
+                            self.add_volume_error(vol, "images", reason, None, recommend_action_for_failure(None, reason))
                             continue
 
                         progress_state = {"last_done": -1, "last_ts": 0.0}
@@ -15424,6 +15599,15 @@ class MangaApp:
                                 done,
                                 total_images,
                             )
+                            self.run_on_ui(
+                                update_queue_item_ui,
+                                queue_index,
+                                queue_total,
+                                title,
+                                item_index,
+                                len(selected_pairs),
+                                f"{int(item_percent * 100)}%",
+                            )
 
                         def error_callback(payload, fallback_vol=vol):
                             if not isinstance(payload, dict):
@@ -15444,8 +15628,8 @@ class MangaApp:
                             vol,
                             images,
                             title,
-                            self.get_cookie(link),
-                            self.get_request_user_agent_for_url(link),
+                            cookie_item,
+                            ua_item,
                             self.log,
                             self.cancel_event,
                             cbz_enabled=cbz_enabled,
@@ -15460,12 +15644,35 @@ class MangaApp:
                             prompt_cookie_retry=True,
                             total_count=len(pairs),
                             series_metadata=series_metadata,
-                            cover_url=(series_metadata or {}).get("cover_url", ""),
+                            cover_url=cover_url,
                             download_threads=queue_threads,
                             archive_label=archive_label,
                         )
                         if result is False:
                             self.log(f"File: élément non finalisé: {vol}", level="warning")
+                            self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
+                            self.run_on_ui(
+                                update_queue_item_ui,
+                                queue_index,
+                                queue_total,
+                                title,
+                                item_index,
+                                len(selected_pairs),
+                                "erreur",
+                            )
+                        elif result is None and self.cancel_event.is_set():
+                            break
+                        else:
+                            self.run_on_ui(self._set_volume_runtime_status, link, "OK")
+                            self.run_on_ui(
+                                update_queue_item_ui,
+                                queue_index,
+                                queue_total,
+                                title,
+                                item_index,
+                                len(selected_pairs),
+                                "terminé",
+                            )
                 if self.cancel_event.is_set():
                     self.log("File d'attente annulée.", level="warning")
                 else:

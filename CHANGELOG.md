@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.26] - 2026-07-12
+
+### Ameliorations
+- File d'attente : l'onglet `Téléchargement` bascule désormais sur le catalogue en cours, affiche sa couverture et rend tous ses tomes ou chapitres.
+- File d'attente : la grille Canvas affiche l'avancement réel de chaque élément avec les badges `DL`, `OK`, `ERR` et `CF`; les CBZ déjà présents restent visibles en `OK` et sont sautés.
+
 ## [11.18.25] - 2026-07-12
 
 ### Corrections
