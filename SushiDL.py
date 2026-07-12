@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.4"
+APP_VERSION = "11.18.5"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2682,6 +2682,38 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                     }
                     await sleep(120);
                 }
+                // Certains chapitres ne créent le blob qu'après plusieurs changements
+                // réels de viewport. Ce chemin lent ne s'exécute qu'après l'échec du
+                // chemin rapide ci-dessus, avant de réinitialiser tout le lecteur.
+                for (let recoveryRound = 0; recoveryRound < 3; recoveryRound++) {
+                    const recoveryImages = images.slice(Math.max(0, index - 1), Math.min(images.length, index + 6));
+                    for (const upcoming of recoveryImages) {
+                        upcoming.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                        window.dispatchEvent(new Event('scroll'));
+                        await sleep(150);
+                    }
+                    img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                    window.scrollBy(0, recoveryRound % 2 === 0 ? 2 : -2);
+                    window.dispatchEvent(new Event('scroll'));
+                    await sleep(400 + recoveryRound * 250);
+                    const recoveredSrc = img.currentSrc || img.getAttribute('src') || '';
+                    if (!recoveredSrc.startsWith('blob:')) continue;
+                    try {
+                        const controller = new AbortController();
+                        const timeout = setTimeout(() => controller.abort(), 8000);
+                        const response = await fetch(recoveredSrc, {signal: controller.signal});
+                        clearTimeout(timeout);
+                        const bytes = new Uint8Array(await response.arrayBuffer());
+                        const contentType = response.headers.get('content-type') || '';
+                        if (response.ok && bytes.byteLength > 128 && looksLikeImage(bytes, contentType)) {
+                            return {ok: true, body: bytesToBase64(bytes), contentType};
+                        }
+                    } catch (error) {
+                        // Essai canvas ci-dessous.
+                    }
+                    const canvasPayload = await imageToJpegBase64(img);
+                    if (canvasPayload.ok) return canvasPayload;
+                }
                 const finalSrc = img.currentSrc || img.getAttribute('src') || '';
                 if (finalSrc.startsWith('blob:')) {
                     const src = img.getAttribute('src') || '';
@@ -2704,7 +2736,8 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         )
         if not payload or not payload.get("ok"):
             raise ImageDownloadError(
-                f"Lecteur navigateur: {payload.get('error') if isinstance(payload, dict) else 'blob indisponible'}",
+                f"Lecteur navigateur: image {index + 1}/{limit} - "
+                f"{payload.get('error') if isinstance(payload, dict) else 'blob indisponible'}",
                 kind="blocked_or_retryable",
                 phase="browser",
             )

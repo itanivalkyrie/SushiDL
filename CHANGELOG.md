@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.5] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : lorsqu'une image lazy ne génère pas immédiatement son blob, SushiDL effectue désormais une récupération lente ciblée par changements de viewport avant de réinitialiser le lecteur entier. Les erreurs indiquent aussi le numéro de l'image fautive.
+
 ## [11.18.4] - 2026-07-12
 
 ### Ameliorations

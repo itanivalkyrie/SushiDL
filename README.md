@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.4`
+Version actuelle : `11.18.5`
 
 ## Ce qui change sur `main`
 
@@ -46,6 +46,7 @@ Concretement :
 - support CrunchyScan et Scan-Hentai avec cookies dédiés, analyse catalogue, couvertures et téléchargement CBZ
 - récupération CrunchyScan / Scan-Hentai via Playwright obligatoire : le lecteur expose des blobs chiffrés générés côté navigateur, donc SushiDL réutilise une session navigateur unique au lieu de tenter des téléchargements directs lents et bruyants
 - Playwright CrunchyScan / Scan-Hentai est invisible pendant les téléchargements; seul le repli manuel ouvre le navigateur habituel après une détection Cloudflare
+- les images lazy CrunchyScan / Scan-Hentai disposent d'une récupération lente ciblée avant toute réinitialisation complète du lecteur, pour fiabiliser les chapitres hétérogènes
 - lecteur CrunchyScan / Scan-Hentai renforcé : chargement explicite des pages lazy et renouvellement ciblé du contexte navigateur après un échec transitoire
 - métadonnées CrunchyScan / Scan-Hentai complétées dans `ComicInfo.xml` : auteurs et artistes
 - journal Playwright détaillé pour Scan-Manga, CrunchyScan et Scan-Hentai : session, analyse lecteur, détection et récupération des images
