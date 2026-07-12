@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.13] - 2026-07-12
+
+### Corrections
+- Onglet Erreurs : rendu incrémental par lots et plafonnement des cartes visibles pour éviter les ralentissements et artefacts après un grand nombre d'échecs. Les 2 000 dernières entrées restent exportables.
+
 ## [11.18.12] - 2026-07-12
 
 ### Corrections

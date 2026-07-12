@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.12`
+Version actuelle : `11.18.13`
 
 ## Ce qui change sur `main`
 
@@ -54,6 +54,7 @@ Concretement :
 - le lecteur CrunchyScan / Scan-Hentai détecte aussi un formulaire Turnstile apparu après le chargement initial, afin de signaler explicitement la protection Cloudflare au lieu d'un faux diagnostic d'images absentes
 - une protection Cloudflare persistante après une mise à jour des cookies arrête désormais le chapitre sans boucle de popup; la grille Canvas affiche `CF` en rouge, `DL`, `OK` ou `ERR` selon l'état réel du chapitre
 - dès que Cloudflare est détecté pour CrunchyScan / Scan-Hentai, SushiDL n'ouvre plus de popup de renouvellement: le chapitre s'arrête avec un diagnostic lecteur non sensible dans le journal
+- l'onglet Erreurs rend les entrées par lots et limite les cartes visibles, pour rester réactif même après de nombreux échecs; l'historique complet reste disponible à l'export
 - lecteur CrunchyScan / Scan-Hentai renforcé : chargement explicite des pages lazy et renouvellement ciblé du contexte navigateur après un échec transitoire
 - métadonnées CrunchyScan / Scan-Hentai complétées dans `ComicInfo.xml` : auteurs et artistes
 - journal Playwright détaillé pour Scan-Manga, CrunchyScan et Scan-Hentai : session, analyse lecteur, détection et récupération des images

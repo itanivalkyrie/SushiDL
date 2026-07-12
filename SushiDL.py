@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.12"
+APP_VERSION = "11.18.13"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1016,7 +1016,8 @@ PROGRESS_UI_MIN_DELTA = 3
 ADAPTIVE_THREAD_FAILURE_CODES = {429, 500, 502, 503, 504}
 PERF_LOG_MIN_SECONDS = 0.05
 SPINNER_FRAMES = ("|", "/", "-", "\\")
-MAX_VISIBLE_ERROR_ROWS = 500
+MAX_VISIBLE_ERROR_ROWS = 120
+ERROR_RENDER_BATCH_SIZE = 12
 COOKIE_DOMAINS = (
     "fr",
     "net",
@@ -11485,6 +11486,8 @@ class MangaApp:
         self.volume_label_cache_lower = []
         self.volume_error_entries = []
         self.error_row_widgets = []
+        self.error_render_pending = []
+        self.error_render_scheduled = False
         self.download_output_root = os.path.abspath(ROOT_FOLDER)
 
         # Configuration de l'interface
@@ -11938,6 +11941,20 @@ class MangaApp:
             stale.destroy()
         self._scroll_error_rows_to_end()
 
+    def _flush_volume_error_rows(self):
+        self.error_render_scheduled = False
+        pending = getattr(self, "error_render_pending", [])
+        if not pending:
+            return
+        batch = pending[:ERROR_RENDER_BATCH_SIZE]
+        del pending[:ERROR_RENDER_BATCH_SIZE]
+        for entry in batch:
+            self._append_volume_error_row(entry)
+        self._update_error_tab_title(False)
+        if pending:
+            self.error_render_scheduled = True
+            self.root.after(20, self._flush_volume_error_rows)
+
     def add_volume_error(self, tome, stage, reason, status_code=None, action=None):
         entry = {
             "time": time.strftime("%H:%M:%S"),
@@ -11952,11 +11969,15 @@ class MangaApp:
         self.volume_error_entries.append(entry)
         if len(self.volume_error_entries) > 2000:
             self.volume_error_entries = self.volume_error_entries[-2000:]
-        self.run_on_ui(self._append_volume_error_row, entry)
-        self.run_on_ui(self._update_error_tab_title, True)
+        self.error_render_pending.append(entry)
+        if not self.error_render_scheduled:
+            self.error_render_scheduled = True
+            self.run_on_ui(self._flush_volume_error_rows)
 
     def clear_volume_errors(self):
         self.volume_error_entries = []
+        self.error_render_pending = []
+        self.error_render_scheduled = False
         for widget in getattr(self, "error_row_widgets", []) or []:
             try:
                 widget.destroy()
