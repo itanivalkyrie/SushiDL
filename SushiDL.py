@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.6"
+APP_VERSION = "11.18.7"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -11341,6 +11341,7 @@ class MangaApp:
         self.image_progress_index = None
         self.download_in_progress = False
         self.pairs = []
+        self.volume_existing_cbz_indices = set()
         self.title = ""
         self.source_title_var = tk.StringVar(value="Manga/Manhwa/Comics...")
         self.cancel_event = threading.Event()
@@ -15304,7 +15305,13 @@ class MangaApp:
             finish_analysis()
 
         def apply_pairs_ui():
-            self._start_volume_render(on_complete=finish_analysis)
+            total = len(self.pairs)
+            existing_indices = set(getattr(self, "volume_existing_cbz_indices", set()) or set())
+            selection_state = [index not in existing_indices for index in range(total)]
+            self._start_volume_render(
+                on_complete=finish_analysis,
+                selection_state=selection_state,
+            )
 
         def fetch_progress_callback(step):
             set_analysis_step(step)
@@ -15349,6 +15356,29 @@ class MangaApp:
                 self.pairs = pairs
                 self.volume_meta_by_url = dict(analysis.volume_metadata or {})
                 self.series_metadata = dict(analysis.series_metadata or {})
+                output_root = os.path.abspath(
+                    (getattr(self, "download_output_root", "") or ROOT_FOLDER).strip() or ROOT_FOLDER
+                )
+                series_folder = os.path.join(output_root, sanitize_folder_name(title))
+                existing_indices = set()
+                for index, (volume_label, volume_link) in enumerate(pairs):
+                    archive_label = get_archive_label_for_link(
+                        volume_label,
+                        volume_link,
+                        self.volume_meta_by_url,
+                    )
+                    filename = (
+                        f"{sanitize_folder_name(title)} - "
+                        f"{sanitize_folder_name(normalize_tome_label(archive_label or volume_label))}.cbz"
+                    )
+                    if os.path.isfile(os.path.join(series_folder, filename)):
+                        existing_indices.add(index)
+                self.volume_existing_cbz_indices = existing_indices
+                if existing_indices:
+                    self.log(
+                        f"{len(existing_indices)} CBZ déjà présent(s) détecté(s): éléments désélectionnés.",
+                        level="info",
+                    )
                 catalog_summary = update_catalog_state(
                     url,
                     title,

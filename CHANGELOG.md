@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.7] - 2026-07-12
+
+### Ameliorations
+- Analyse catalogue : SushiDL détecte les CBZ déjà présents dans le dossier de destination courant et désélectionne automatiquement les chapitres correspondants avant le téléchargement.
+
 ## [11.18.6] - 2026-07-12
 
 ### Ameliorations
