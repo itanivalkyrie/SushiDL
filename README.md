@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.17`
+Version actuelle : `11.18.18`
 
 ## Ce qui change sur `main`
 
@@ -55,9 +55,10 @@ Concretement :
 - une protection Cloudflare persistante après une mise à jour des cookies arrête désormais le chapitre sans boucle de popup; la grille Canvas affiche `CF` en rouge, `DL`, `OK` ou `ERR` selon l'état réel du chapitre
 - dès que Cloudflare est détecté pour CrunchyScan / Scan-Hentai, SushiDL n'ouvre plus de popup de renouvellement: le chapitre s'arrête avec un diagnostic lecteur non sensible dans le journal
 - l'onglet Erreurs rend les entrées par lots et limite les cartes visibles, pour rester réactif même après de nombreux échecs; l'historique complet reste disponible à l'export
-- les très longs chapitres CrunchyScan / Scan-Hentai préchargent une fenêtre lazy plus large et publient une progression plus fine, afin de réduire les pauses entre blobs tout en gardant un seul lecteur stable
+- les très longs chapitres CrunchyScan / Scan-Hentai préchargent une fenêtre lazy modérée et publient une progression plus fine, afin de réduire les pauses entre blobs sans saturer le lecteur
 - le dernier recours de lecture d'un blob CrunchyScan / Scan-Hentai est désormais limité dans le temps : une page lente déclenche une reprise ciblée plutôt que de bloquer le chapitre pendant plusieurs minutes
 - chaque évaluation d'image CrunchyScan / Scan-Hentai possède également un délai global de 15 secondes; le retry du lecteur reprend les blobs déjà extraits au lieu d'attendre indéfiniment une page lazy
+- un chapitre CrunchyScan / Scan-Hentai peut reprendre son lecteur jusqu'à quatre fois; les blobs déjà extraits sont conservés entre les reprises
 - les refus d'accès et les challenges lecteur sont distingués : un refus simple redemande le cookie, tandis qu'un Turnstile Cloudflare réellement détecté affiche le badge rouge `CF` sans ouvrir de boucle de renouvellement
 - lecteur CrunchyScan / Scan-Hentai renforcé : chargement explicite des pages lazy et renouvellement ciblé du contexte navigateur après un échec transitoire
 - métadonnées CrunchyScan / Scan-Hentai complétées dans `ComicInfo.xml` : auteurs et artistes

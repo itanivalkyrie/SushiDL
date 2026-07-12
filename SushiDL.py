@@ -990,7 +990,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.17"
+APP_VERSION = "11.18.18"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1029,10 +1029,11 @@ SPINNER_FRAMES = ("|", "/", "-", "\\")
 MAX_VISIBLE_ERROR_ROWS = 120
 ERROR_RENDER_BATCH_SIZE = 12
 CRUNCHY_LARGE_CHAPTER_THRESHOLD = 80
-CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW = 12
+CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW = 8
 CRUNCHY_DEFAULT_PRELOAD_WINDOW = 6
 CRUNCHY_BLOB_FINAL_FETCH_TIMEOUT_MS = 6000
 CRUNCHY_BLOB_EVALUATION_TIMEOUT_MS = 15000
+CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS = 4
 COOKIE_DOMAINS = (
     "fr",
     "net",
@@ -2854,9 +2855,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
 
 
 def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None, cancel_event=None):
-    """Récupère un chapitre, puis renouvelle une fois le contexte en cas d'état lecteur instable."""
+    """Récupère un chapitre et reprend les blobs après plusieurs contextes instables."""
     last_error = None
-    for attempt in range(2):
+    for attempt in range(1, CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS + 1):
         try:
             return _fetch_crunchy_reader_blobs_once(
                 state,
@@ -2870,10 +2871,11 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
             raise
         except Exception as exc:
             last_error = exc
-            if attempt:
+            if attempt >= CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS:
                 break
             runtime_log(
-                f"Playwright {get_site_domain_key(link)}: contexte lecteur réinitialisé après échec transitoire.",
+                f"Playwright {get_site_domain_key(link)}: contexte lecteur réinitialisé après échec transitoire "
+                f"(reprise {attempt + 1}/{CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS}).",
                 level="warning",
                 context={"action": "playwright_retry", "domain": get_site_domain_key(link)},
             )

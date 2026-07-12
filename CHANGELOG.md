@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.18] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : la fenêtre de préchargement des gros chapitres est ramenée à huit pages pour réduire la pression sur le lecteur lazy.
+- Un chapitre peut maintenant réinitialiser son contexte lecteur jusqu'à quatre fois. Chaque reprise continue à partir du dernier blob extrait, ce qui évite d'abandonner un long volume après deux incidents isolés.
+
 ## [11.18.17] - 2026-07-12
 
 ### Corrections
