@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.16] - 2026-07-12
+
+### Corrections
+- Les refus d'accès et les challenges Cloudflare du lecteur CrunchyScan / Scan-Hentai sont maintenant distingués. Un refus simple demande un nouveau cookie; seul un challenge Turnstile réellement détecté marque le chapitre `CF` en rouge et l'arrête sans boucle de renouvellement.
+
 ## [11.18.15] - 2026-07-12
 
 ### Corrections

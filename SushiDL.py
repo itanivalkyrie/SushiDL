@@ -232,13 +232,23 @@ def should_offer_cookie_refresh(status_code=None, reason=""):
     return any(marker in normalized for marker in markers)
 
 
-def is_manual_cloudflare_fallback(reason=""):
-    """Indique qu'un lecteur doit basculer vers la validation dans le navigateur normal."""
+def is_reader_cloudflare_challenge(reason=""):
+    """Distingue un challenge lecteur confirmé d'un simple refus d'accès/cookie."""
     normalized = "".join(
         ch for ch in unicodedata.normalize("NFKD", (reason or "").lower())
         if unicodedata.category(ch) != "Mn"
     )
-    return "detection cloudflare" in normalized
+    markers = (
+        "detection cloudflare dans le lecteur",
+        "cloudflare detecte dans le lecteur",
+        "formulaire turnstile remplace les images",
+    )
+    return any(marker in normalized for marker in markers)
+
+
+def is_manual_cloudflare_fallback(reason=""):
+    """Compatibilité : challenge lecteur confirmé, sans redemande de cookie."""
+    return is_reader_cloudflare_challenge(reason)
 
 
 def interruptible_sleep(cancel_event, duration):
@@ -980,7 +990,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.15"
+APP_VERSION = "11.18.16"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -16004,7 +16014,7 @@ class MangaApp:
                     self.run_on_ui(
                         self._set_volume_runtime_status,
                         link,
-                        "CF" if "cloudflare" in reason.lower() else "ERR",
+                        "CF" if is_reader_cloudflare_challenge(reason) else "ERR",
                     )
                     self.run_on_ui(self._set_progress_detail_ui, None, None)
                     self.log(
@@ -16552,6 +16562,14 @@ def run_self_test():
     check(
         "renouvellement cookie lecteur crunchy",
         should_offer_cookie_refresh(None, "Lecteur CrunchyScan/Scan-Hentai non chargé après l'ouverture du chapitre."),
+    )
+    check(
+        "challenge lecteur crunchy confirme",
+        is_reader_cloudflare_challenge("Detection Cloudflare dans le lecteur: le formulaire Turnstile remplace les images."),
+    )
+    check(
+        "refus cookie distinct du challenge lecteur",
+        not is_reader_cloudflare_challenge("HTTP Error 403"),
     )
     headers = build_request_headers(
         "https://sushiscan.net/catalogue/one-piece/",
