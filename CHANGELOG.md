@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.3] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : réduction forte des délais d'attente avant diagnostic du lecteur (environ quatorze secondes au maximum au lieu d'une quarantaine), sans modifier la récupération des pages une fois le lecteur chargé.
+
 ## [11.18.2] - 2026-07-12
 
 ### Corrections

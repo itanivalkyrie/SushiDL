@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.2`
+Version actuelle : `11.18.3`
 
 ## Ce qui change sur `main`
 

@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.2"
+APP_VERSION = "11.18.3"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2474,11 +2474,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         context={"action": "playwright_reader", "domain": site},
     )
     try:
-        response = page.goto(chapter_url, wait_until="commit", timeout=20000)
+        response = page.goto(chapter_url, wait_until="commit", timeout=7000)
     except Exception:
         response = None
     try:
-        page.wait_for_selector("body", timeout=8000)
+        page.wait_for_selector("body", timeout=2000)
     except Exception:
         pass
     challenge_state = get_crunchy_challenge_state(page)
@@ -2508,7 +2508,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     except Exception:
         pass
     try:
-        page.wait_for_selector("img.imageView, img[data-img]", timeout=15000)
+        page.wait_for_selector("img.imageView, img[data-img]", timeout=5000)
     except Exception:
         diagnostic = page.evaluate(
             """
@@ -2524,8 +2524,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         if isinstance(diagnostic, dict):
             detail = f" | titre={diagnostic.get('title') or '?'} | images={diagnostic.get('images', 0)}"
         raise AuthError(
-            "Lecteur CrunchyScan/Scan-Hentai non chargé après l'ouverture du chapitre. "
-            "Une validation Chrome est requise avant de relancer." + detail
+            "Lecteur CrunchyScan/Scan-Hentai non chargé après l'ouverture du chapitre." + detail
         )
 
     total = int(page.evaluate("() => document.querySelectorAll('img.imageView, img[data-img]').length") or 0)
