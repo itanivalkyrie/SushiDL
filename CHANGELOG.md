@@ -7,6 +7,14 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.21] - 2026-07-12
+
+### Ameliorations
+- CrunchyScan / Scan-Hentai : les blobs sont maintenant enregistrés progressivement dans un cache local de reprise, puis consommés comme des pages locales pour l'archive CBZ. Une interruption ne perd plus les pages déjà extraites et le cache est nettoyé après succès.
+- La barre de progression GUI est alimentée pendant l'extraction Playwright, avant l'écriture finale des pages.
+- En cas d'instabilité, le préchargement du chapitre est réduit automatiquement à chaque reprise et le contexte est isolé avant de poursuivre la file.
+- Onglet Erreurs : le résumé distingue maintenant les catégories Cloudflare, blob, timeout et HTTP.
+
 ## [11.18.20] - 2026-07-12
 
 ### Corrections

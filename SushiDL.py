@@ -682,6 +682,76 @@ def is_text_page_url(url):
     return str(url or "").startswith(TEXT_PAGE_URL_PREFIX)
 
 
+def is_reader_blob_page_url(url):
+    return str(url or "").startswith(READER_BLOB_PAGE_URL_PREFIX)
+
+
+def _reader_blob_stage_key(link):
+    return hashlib.sha1((link or "").strip().encode("utf-8", errors="replace")).hexdigest()[:24]
+
+
+def _reader_blob_stage_dir(link):
+    return READER_BLOB_STAGE_PATH / _reader_blob_stage_key(link)
+
+
+def _reader_blob_stage_file(link, page_index):
+    return _reader_blob_stage_dir(link) / f"{int(page_index):04d}.bin"
+
+
+def write_reader_blob_stage(link, page_index, raw):
+    path = _reader_blob_stage_file(link, page_index)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_suffix(".part")
+    with open(tmp_path, "wb") as handle:
+        handle.write(raw)
+    os.replace(tmp_path, path)
+    return str(path)
+
+
+def get_reader_blob_stage_paths(link, limit):
+    paths = []
+    for page_index in range(1, int(limit or 0) + 1):
+        path = _reader_blob_stage_file(link, page_index)
+        try:
+            if path.exists() and path.stat().st_size > 128:
+                paths.append(str(path))
+                continue
+        except OSError:
+            pass
+        break
+    return paths
+
+
+def get_reader_blob_stage_bytes(url):
+    if not is_reader_blob_page_url(url):
+        return None
+    parsed = urlparse(url)
+    key = (parsed.netloc or "").strip()
+    page_name = (parsed.path or "").strip("/").rsplit("/", 1)[-1]
+    try:
+        page_index = int(page_name.rsplit(".", 1)[0])
+    except (TypeError, ValueError):
+        return None
+    if not re.fullmatch(r"[0-9a-f]{24}", key) or page_index <= 0:
+        return None
+    path = (READER_BLOB_STAGE_PATH / key / f"{page_index:04d}.bin").resolve()
+    try:
+        path.relative_to(READER_BLOB_STAGE_PATH.resolve())
+        return path.read_bytes() if path.exists() else None
+    except (OSError, ValueError):
+        return None
+
+
+def clear_reader_blob_stage_for_urls(urls):
+    keys = {urlparse(url).netloc for url in (urls or []) if is_reader_blob_page_url(url)}
+    for key in keys:
+        if re.fullmatch(r"[0-9a-f]{24}", key or ""):
+            try:
+                remove_tree_safely(READER_BLOB_STAGE_PATH / key, expected_parent=READER_BLOB_STAGE_PATH)
+            except Exception:
+                pass
+
+
 def _text_block_text(block):
     if isinstance(block, dict):
         return normalize_novel_text(block.get("text", ""))
@@ -990,7 +1060,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.20"
+APP_VERSION = "11.18.21"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1069,6 +1139,7 @@ IMAGE_URL_CACHE = {}
 IMAGE_URL_CACHE_ORDER = []
 IMAGE_URL_CACHE_LOCK = threading.Lock()
 TEXT_PAGE_URL_PREFIX = "sushidl-textpage://"
+READER_BLOB_PAGE_URL_PREFIX = "sushidl-readerblob://"
 TEXT_PAGE_CACHE = {}
 TEXT_PAGE_CACHE_LOCK = threading.Lock()
 TEXT_PAGE_CACHE_MAX_ITEMS = 128
@@ -1080,6 +1151,7 @@ CRUNCHY_BROWSER_LOCK = threading.Lock()
 CRUNCHY_BROWSER_THREAD = None
 CRUNCHY_BROWSER_TASKS = None
 CRUNCHY_BROWSER_PROFILE_PATH = BASE_DIR / ".sushidl_crunchy_browser"
+READER_BLOB_STAGE_PATH = BASE_DIR / ".sushidl_reader_blobs"
 SCANMANGA_IMAGE_HOSTS = {
     "cdn.scan-manga.com",
     "data.scan-manga.com",
@@ -2477,7 +2549,7 @@ def get_crunchy_challenge_state(page):
     )
 
 
-def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, cancel_event=None):
+def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, cancel_event=None, progress_callback=None):
     """Récupère les images blob du lecteur CrunchyScan/Scan-Hentai depuis une session navigateur unique."""
     chapter_url = normalize_image_url(link)
     page = get_crunchy_browser_page(state, chapter_url, ua)
@@ -2617,11 +2689,12 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             f"Lecteur CrunchyScan/Scan-Hentai non initialisé: aucun blob créé ({ready_count}/{total} prêt).{suffix}"
         )
     limit = min(total, int(max_images or total))
-    preload_window = (
+    default_preload_window = (
         CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW
         if limit >= CRUNCHY_LARGE_CHAPTER_THRESHOLD
         else CRUNCHY_DEFAULT_PRELOAD_WINDOW
     )
+    preload_window = int((state.setdefault("reader_preload_by_link", {}).get(chapter_url) or default_preload_window))
     runtime_log(
         f"Playwright {site}: {total} image(s) détectée(s), récupération de {limit} page(s) "
         f"(préchargement {preload_window}).",
@@ -2650,7 +2723,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     )
     partial_blobs = state.setdefault("partial_blobs", {})
     partial_order = state.setdefault("partial_blob_order", [])
-    cached_blobs = list(partial_blobs.get(chapter_url) or [])[:limit]
+    cached_blobs = get_reader_blob_stage_paths(chapter_url, limit)
+    if not cached_blobs:
+        cached_blobs = list(partial_blobs.get(chapter_url) or [])[:limit]
     blobs = cached_blobs
     if blobs:
         runtime_log(
@@ -2913,8 +2988,13 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         raw = base64.b64decode(payload.get("body") or "")
         if not raw or _is_html_payload_start(raw):
             raise ImageDownloadError("Lecteur navigateur: payload invalide", kind="invalid_image", phase="browser")
-        blobs.append(raw)
+        blobs.append(write_reader_blob_stage(chapter_url, index + 1, raw))
         remember_partial_blobs()
+        if callable(progress_callback):
+            try:
+                progress_callback(index + 1, limit)
+            except Exception:
+                pass
         image_elapsed = time.perf_counter() - image_started_at
         if image_elapsed >= 1.0:
             runtime_log(
@@ -2933,28 +3013,41 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     return blobs
 
 
-def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None, cancel_event=None):
+def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None, cancel_event=None, progress_callback=None):
     """Récupère un chapitre et reprend les blobs après plusieurs contextes instables."""
     last_error = None
     for attempt in range(1, CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS + 1):
         try:
-            return _fetch_crunchy_reader_blobs_once(
+            result = _fetch_crunchy_reader_blobs_once(
                 state,
                 link,
                 cookie,
                 ua,
                 max_images=max_images,
                 cancel_event=cancel_event,
+                progress_callback=progress_callback,
             )
+            if attempt > 1:
+                runtime_log(
+                    f"Playwright {get_site_domain_key(link)}: contexte isolé après reprise du chapitre.",
+                    level="debug",
+                    context={"action": "playwright_isolate", "domain": get_site_domain_key(link)},
+                )
+                reset_crunchy_browser_context(state)
+            return result
         except (DownloadCancelled, AuthError):
             raise
         except Exception as exc:
             last_error = exc
             if attempt >= CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS:
                 break
+            chapter_url = normalize_image_url(link)
+            current_window = int((state.setdefault("reader_preload_by_link", {}).get(chapter_url) or CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW))
+            next_window = max(3, current_window - 2)
+            state["reader_preload_by_link"][chapter_url] = next_window
             runtime_log(
                 f"Playwright {get_site_domain_key(link)}: contexte lecteur réinitialisé après échec transitoire "
-                f"(reprise {attempt + 1}/{CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS}).",
+                f"(reprise {attempt + 1}/{CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS}, préchargement {next_window}).",
                 level="warning",
                 context={"action": "playwright_retry", "domain": get_site_domain_key(link)},
             )
@@ -2981,6 +3074,11 @@ def crunchy_browser_worker_loop(tasks):
                     task.get("cookie") or "",
                     task.get("ua") or DEFAULT_USER_AGENT,
                     max_images=task.get("max_images"),
+                    cancel_event=task.get("cancel_event"),
+                    progress_callback=(
+                        lambda done, total, q=task.get("progress"): q.put_nowait((done, total))
+                        if q is not None else None
+                    ),
                 )
                 if response is not None:
                     response.put({"ok": True, "result": result})
@@ -3007,9 +3105,10 @@ def get_crunchy_browser_tasks():
         return CRUNCHY_BROWSER_TASKS
 
 
-def fetch_crunchy_reader_images(link, cookie, ua, max_images=None, emit_logs=True, cancel_event=None):
+def fetch_crunchy_reader_images(link, cookie, ua, max_images=None, emit_logs=True, cancel_event=None, progress_callback=None):
     """Expose les blobs lecteur comme URLs temporaires pour le pipeline existant."""
     response = queue.Queue(maxsize=1)
+    progress = queue.Queue()
     get_crunchy_browser_tasks().put(
         {
             "action": "fetch_reader",
@@ -3018,11 +3117,20 @@ def fetch_crunchy_reader_images(link, cookie, ua, max_images=None, emit_logs=Tru
             "ua": ua,
             "max_images": max_images,
             "response": response,
+            "progress": progress,
+            "cancel_event": cancel_event,
         }
     )
     while True:
         if cancel_event is not None and cancel_event.is_set():
             raise DownloadCancelled("Téléchargement annulé.")
+        while True:
+            try:
+                done, total = progress.get_nowait()
+                if callable(progress_callback):
+                    progress_callback(done, total)
+            except queue.Empty:
+                break
         try:
             payload = response.get(timeout=0.2)
             break
@@ -3033,11 +3141,9 @@ def fetch_crunchy_reader_images(link, cookie, ua, max_images=None, emit_logs=Tru
         if isinstance(error, Exception):
             raise error
         raise ParseError(str(error or "Lecteur navigateur indisponible."))
-    page_bytes = payload.get("result") or []
-    key_payload = f"{link}|{len(page_bytes)}|{hashlib.sha1(b''.join(page_bytes[:1]) if page_bytes else b'').hexdigest()}"
-    key = hashlib.sha1(key_payload.encode("utf-8", errors="replace")).hexdigest()[:20]
-    store_text_page_bytes(key, page_bytes)
-    urls = [f"{TEXT_PAGE_URL_PREFIX}{key}/{idx + 1}.jpg" for idx in range(len(page_bytes))]
+    staged_pages = payload.get("result") or []
+    key = _reader_blob_stage_key(link)
+    urls = [f"{READER_BLOB_PAGE_URL_PREFIX}{key}/{idx + 1}.jpg" for idx in range(len(staged_pages))]
     if emit_logs:
         runtime_log(
             f"{len(urls)} image(s) récupérée(s) via lecteur navigateur.",
@@ -3653,14 +3759,15 @@ def download_image(
         register_failure("cancelled", "Annulation demandée avant téléchargement.")
         return
 
-    if is_text_page_url(normalized_url):
+    if is_text_page_url(normalized_url) or is_reader_blob_page_url(normalized_url):
         filename = os.path.join(folder, f"{str(i + 1).zfill(number_len)}.jpg")
-        tmp_filename = f"{filename}.part-text-{threading.get_ident()}"
+        page_kind = "texte" if is_text_page_url(normalized_url) else "lecteur"
+        tmp_filename = f"{filename}.part-{page_kind}-{threading.get_ident()}"
         try:
-            raw = get_text_page_bytes(normalized_url)
+            raw = get_text_page_bytes(normalized_url) if is_text_page_url(normalized_url) else get_reader_blob_stage_bytes(normalized_url)
             if not raw:
                 raise ImageDownloadError(
-                    "Page texte générée introuvable en cache.",
+                    f"Page {page_kind} introuvable dans le cache local.",
                     kind="missing",
                     phase="text-page",
                 )
@@ -3678,7 +3785,7 @@ def download_image(
         except Exception as exc:
             register_failure("retryable", str(exc))
             runtime_log(
-                f"Ecriture page texte Scan-Manga échouée: {exc}",
+                f"Ecriture page {page_kind} échouée: {exc}",
                 level="warning",
                 context={"action": "download_text_page", "url": normalized_url},
             )
@@ -5831,7 +5938,7 @@ def build_mangas_origines_list_url(url):
     return urlunparse((scheme, host, path, "", query, ""))
 
 
-def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_event=None, max_images=None, emit_logs=True):
+def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_event=None, max_images=None, emit_logs=True, extraction_progress=None):
     """
     Récupère la liste des URLs d'images pour un volume/chapitre
     
@@ -6124,6 +6231,7 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                 max_images=max_images,
                 emit_logs=emit_logs,
                 cancel_event=cancel_event,
+                progress_callback=extraction_progress,
             )
             if images:
                 store_cached_image_urls(link, images, max_images=max_images)
@@ -6650,6 +6758,7 @@ def download_volume(
                 )
 
         if archive_cbz(folder, title, archive_tome_label, remove_source=True):
+            clear_reader_blob_stage_for_urls(images)
             cbz_path = os.path.join(
                 base_output_dir, clean_title, f"{clean_title} - {clean_archive_tome}.cbz"
             )
@@ -9968,10 +10077,25 @@ class MangaApp:
                 )
         if hasattr(self, "error_summary_label"):
             if count > 0:
+                categories = {"CF": 0, "blob": 0, "timeout": 0, "HTTP": 0}
+                for entry in getattr(self, "volume_error_entries", []) or []:
+                    reason = (entry.get("reason") or "").lower()
+                    status = entry.get("status_code")
+                    if "cloudflare" in reason or "turnstile" in reason:
+                        categories["CF"] += 1
+                    elif "blob" in reason or "taille=0x0" in reason:
+                        categories["blob"] += 1
+                    elif "délai" in reason or "timeout" in reason:
+                        categories["timeout"] += 1
+                    elif status:
+                        categories["HTTP"] += 1
                 if count == 1:
                     summary_text = "1 erreur récente capturée. Utilise Copier ou Exporter pour diagnostiquer."
                 else:
                     summary_text = f"{count} erreurs récentes capturées. Utilise Copier ou Exporter pour diagnostiquer."
+                details = [f"{label} {value}" for label, value in categories.items() if value]
+                if details:
+                    summary_text = f"{summary_text}  {' | '.join(details)}"
                 self.error_summary_label.configure(
                     text=summary_text
                 )
@@ -14830,6 +14954,19 @@ class MangaApp:
         safe_volume = normalize_tome_label(volume_label or "") or "Chapitre"
         domain = self.get_domain_from_url(safe_link)
         cookie_refresh_attempted = False
+        extraction_state = {"done": -1, "total": 0, "timestamp": 0.0}
+
+        def reader_extraction_progress(done, total):
+            if not total:
+                return
+            now = time.monotonic()
+            if done != total and done == extraction_state["done"]:
+                return
+            if done != total and now - extraction_state["timestamp"] < 0.12:
+                return
+            extraction_state.update({"done": done, "total": total, "timestamp": now})
+            percent = (float(done) / float(total)) * 100.0
+            self.run_on_ui(self._set_download_runtime_ui, percent, done, total)
 
         while True:
             if cancel_event is not None and cancel_event.is_set():
@@ -14844,6 +14981,7 @@ class MangaApp:
                     cookie,
                     ua,
                     cancel_event=cancel_event,
+                    extraction_progress=reader_extraction_progress if domain in ("crunchyscan", "scanhentai") else None,
                 )
                 log_perf(self.log, "extraction images", extraction_started_at, tome=safe_volume, images=len(images))
                 return cookie, ua, images
