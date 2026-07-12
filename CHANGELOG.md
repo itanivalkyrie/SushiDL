@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.27] - 2026-07-12
+
+### Corrections
+- Sortie images : l'option `WEBP/AVIF en JPG` convertit aussi les AVIF, y compris lorsqu'ils proviennent du lecteur navigateur ou d'un blob. Les archives CBZ restent ainsi compatibles avec les lecteurs ne prenant pas en charge l'AVIF.
+
 ## [11.18.26] - 2026-07-12
 
 ### Ameliorations

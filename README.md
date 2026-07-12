@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.26`
+Version actuelle : `11.18.27`
 
 ## Ce qui change sur `main`
 
@@ -40,6 +40,7 @@ Concretement :
 - telechargement plus sobre en memoire avec ecriture directe sur disque
 - cache session des URLs d'images pour eviter les extractions repetees
 - progression GUI moins bavarde pour garder l'interface fluide
+- conversion optionnelle `WEBP/AVIF -> JPG` pour une meilleure compatibilité avec les lecteurs CBZ
 - ralentissement automatique des threads sur erreurs serveur/rate-limit
 - support Scan-Manga avec analyse catalogue, métadonnées, preview et téléchargement CBZ
 - récupération des images Scan-Manga exclusivement via Playwright pour contourner le blocage Cloudflare des URLs `data*.scan-manga.com` et `cdn.scan-manga.com`

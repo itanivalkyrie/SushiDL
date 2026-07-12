@@ -680,6 +680,54 @@ def validate_image_file(path):
         image.verify()
 
 
+COMPATIBILITY_JPEG_FORMATS = {"WEBP", "AVIF"}
+COMPATIBILITY_JPEG_EXTENSIONS = {".webp", ".avif"}
+
+
+def convert_webp_avif_to_jpg(path, enabled=True, quality=90):
+    """Convertit WebP/AVIF en JPEG, même si l'extension reçue est erronée."""
+    source_path = os.fspath(path)
+    if not enabled or not source_path:
+        return source_path
+
+    target_path = str(Path(source_path).with_suffix(".jpg"))
+    temporary_path = f"{target_path}.convert-{threading.get_ident()}.tmp"
+    try:
+        with Image.open(source_path) as source_image:
+            detected_format = str(source_image.format or "").upper()
+            source_extension = Path(source_path).suffix.lower()
+            needs_conversion = (
+                detected_format in COMPATIBILITY_JPEG_FORMATS
+                or source_extension in COMPATIBILITY_JPEG_EXTENSIONS
+            )
+            if not needs_conversion:
+                return source_path
+            source_image.load()
+            image = ImageOps.exif_transpose(source_image)
+            if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+                rgba = image.convert("RGBA")
+                converted = Image.new("RGB", rgba.size, (255, 255, 255))
+                converted.paste(rgba, mask=rgba.getchannel("A"))
+            else:
+                converted = image.convert("RGB")
+
+        converted.save(temporary_path, "JPEG", quality=max(1, min(100, int(quality))))
+        os.replace(temporary_path, target_path)
+        if os.path.normcase(os.path.abspath(source_path)) != os.path.normcase(os.path.abspath(target_path)):
+            try:
+                os.remove(source_path)
+            except OSError:
+                pass
+        return target_path
+    except Exception:
+        try:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
+        except OSError:
+            pass
+        raise
+
+
 def is_text_page_url(url):
     return str(url or "").startswith(TEXT_PAGE_URL_PREFIX)
 
@@ -1062,7 +1110,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.26"
+APP_VERSION = "11.18.27"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3741,7 +3789,7 @@ def download_image(
         failed_downloads (list): Liste des échecs à remplir
         progress_callback (func): Callback de progression
         referer_url (str): URL Referer à utiliser
-        webp2jpg_enabled (bool): Activer la conversion WebP->JPG
+        webp2jpg_enabled (bool): Activer la conversion WebP/AVIF->JPG
     """
     import os
 
@@ -3776,8 +3824,9 @@ def download_image(
             os.makedirs(folder, exist_ok=True)
             with open(tmp_filename, "wb") as out:
                 out.write(raw)
-            validate_image_file(tmp_filename)
             os.replace(tmp_filename, filename)
+            filename = convert_webp_avif_to_jpg(filename, enabled=webp2jpg_enabled)
+            validate_image_file(filename)
             if progress_callback:
                 progress_callback(i + 1)
             return
@@ -3808,7 +3857,7 @@ def download_image(
             normalized_url,
             cookie,
             ua,
-            accept="image/webp,image/jpeg,image/png,*/*;q=0.8",
+            accept="image/avif,image/webp,image/jpeg,image/png,*/*;q=0.8",
             referer_url=referer,
         )
 
@@ -3829,16 +3878,11 @@ def download_image(
                 ua,
                 cancel_event=cancel_event,
             )
-            if webp2jpg_enabled and filename.lower().endswith(".webp"):
+            if webp2jpg_enabled:
                 try:
-                    with Image.open(filename) as source_image:
-                        img = source_image.convert("RGB")
-                    new_path = filename[:-5] + ".jpg"
-                    img.save(new_path, "JPEG", quality=90)
-                    os.remove(filename)
-                    filename = new_path
+                    filename = convert_webp_avif_to_jpg(filename, enabled=True)
                 except Exception as conv_e:
-                    runtime_log(f"Erreur conversion WebP->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
+                    runtime_log(f"Erreur conversion WEBP/AVIF->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
             if progress_callback:
                 progress_callback(i + 1)
             return
@@ -3873,17 +3917,12 @@ def download_image(
             cancel_event=cancel_event,
         )
 
-        # Conversion WebP vers JPG si activée
-        if webp2jpg_enabled and filename.lower().endswith(".webp"):
+        # Conversion WebP/AVIF vers JPG si activée.
+        if webp2jpg_enabled:
             try:
-                with Image.open(filename) as source_image:
-                    img = source_image.convert("RGB")
-                new_path = filename[:-5] + ".jpg"
-                img.save(new_path, "JPEG", quality=90)
-                os.remove(filename)
-                filename = new_path
+                filename = convert_webp_avif_to_jpg(filename, enabled=True)
             except Exception as conv_e:
-                runtime_log(f"Erreur conversion WebP->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
+                runtime_log(f"Erreur conversion WEBP/AVIF->JPG: {conv_e}", level="warning", context={"action": "webp2jpg"})
 
         # Mise à jour de la progression
         if progress_callback:
@@ -6479,6 +6518,14 @@ def download_volume(
                     if os.path.exists(candidate_path):
                         try:
                             if os.path.getsize(candidate_path) > 128:
+                                if webp2jpg_enabled and Path(candidate_path).suffix.lower() in COMPATIBILITY_JPEG_EXTENSIONS:
+                                    try:
+                                        convert_webp_avif_to_jpg(candidate_path, enabled=True)
+                                    except Exception as conversion_exc:
+                                        logger(
+                                            f"Conversion reprise WEBP/AVIF impossible ({page_no}): {conversion_exc}",
+                                            level="warning",
+                                        )
                                 existing_indexes.add(i)
                                 break
                         except OSError:
@@ -13658,9 +13705,9 @@ class MangaApp:
         )
         add_option_line(
             output_inner,
-            "WEBP en JPG",
+            "WEBP/AVIF en JPG",
             self.webp2jpg_enabled,
-            "Convertit les images WEBP en JPG pour une compatibilité maximale.",
+            "Convertit les images WEBP et AVIF en JPG pour une compatibilité maximale.",
             bottom=6,
         )
         threads_line = ctk.CTkFrame(
@@ -17156,6 +17203,15 @@ def run_self_test():
         check("archive source supprimee", not folder.exists())
         check("archive finale presente", (tmp_root / "Title" / "Title - Chapitre 1.cbz").exists())
         check("archive tmp absente", not (tmp_root / "Title" / "Title - Chapitre 1.cbz.tmp").exists())
+        avif_path = tmp_root / "compatibility.avif"
+        Image.new("RGB", (24, 24), (24, 80, 160)).save(avif_path, "AVIF")
+        converted_path = Path(convert_webp_avif_to_jpg(avif_path, enabled=True))
+        with Image.open(converted_path) as converted_image:
+            converted_format = converted_image.format
+        check(
+            "conversion avif jpg",
+            converted_path.suffix.lower() == ".jpg" and converted_format == "JPEG" and not avif_path.exists(),
+        )
 
     global ANALYSIS_CACHE_PATH, ANALYSIS_CACHE_MEMORY, CATALOG_STATE_PATH, CATALOG_STATE_MEMORY, WATCHLIST_PATH, WATCHLIST_MEMORY
     old_cache_path = ANALYSIS_CACHE_PATH
@@ -17543,7 +17599,7 @@ def run_batch_cli(argv, backend=None):
     parser.add_argument("--no-cbz", action="store_true", help="Desactive la creation CBZ.")
     parser.add_argument("--no-comicinfo", action="store_true", help="Desactive ComicInfo.xml.")
     parser.add_argument("--no-cover", action="store_true", help="Desactive la couverture en premiere page des chapitres.")
-    parser.add_argument("--no-webp2jpg", action="store_true", help="Desactive la conversion WEBP en JPG.")
+    parser.add_argument("--no-webp2jpg", action="store_true", help="Desactive la conversion WEBP/AVIF en JPG.")
     parser.add_argument("--no-resume", action="store_true", help="Desactive la reprise intelligente.")
     parser.add_argument("--threads", type=int, default=None, help="Nombre de telechargements paralleles (1-8).")
     parser.add_argument("--self-test", action="store_true", help="Execute les tests internes sans reseau.")
