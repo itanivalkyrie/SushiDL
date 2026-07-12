@@ -238,7 +238,7 @@ def is_manual_cloudflare_fallback(reason=""):
         ch for ch in unicodedata.normalize("NFKD", (reason or "").lower())
         if unicodedata.category(ch) != "Mn"
     )
-    return "detection cloudflare" in normalized and "mode manuel" in normalized
+    return "detection cloudflare" in normalized
 
 
 def interruptible_sleep(cancel_event, duration):
@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.10"
+APP_VERSION = "11.18.11"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2493,8 +2493,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         )
         reset_crunchy_browser_context(state)
         raise AuthError(
-            "Detection Cloudflare dans le lecteur: mode manuel requis. "
-            "Ouvre la page dans Chrome normal, valide Cloudflare, puis colle le cookie cf_clearance dans SushiDL."
+            "Detection Cloudflare dans le lecteur: les cookies de session sont requis avant relance."
         )
     try:
         for selector in (
@@ -8405,11 +8404,26 @@ class MangaApp:
             "left_margin": left_margin,
         }
 
+    def _set_volume_runtime_status(self, link, status=""):
+        safe_link = (link or "").strip()
+        if not safe_link:
+            return
+        statuses = getattr(self, "volume_runtime_status_by_url", None)
+        if statuses is None:
+            statuses = {}
+            self.volume_runtime_status_by_url = statuses
+        if status:
+            statuses[safe_link] = status
+        else:
+            statuses.pop(safe_link, None)
+        if getattr(self, "volume_virtualized", False):
+            self._refresh_virtualized_volume_view(force=True, reset_scroll=False)
+
     def _render_canvas_volume_entry(self, entry, absolute_index, visible_position, total_visible, columns, metrics, kind, grid_row=None, grid_col=None):
         canvas = getattr(getattr(self, "vol_frame", None), "_parent_canvas", None)
         if canvas is None:
             return
-        vol, _link = self.pairs[absolute_index]
+        vol, volume_link = self.pairs[absolute_index]
         var = self.check_vars[absolute_index]
         if grid_row is None or grid_col is None:
             row, col = self._get_centered_volume_grid_position(
@@ -8433,7 +8447,9 @@ class MangaApp:
         checkbox_outline = self.palette["accent"] if selected else self.palette["border"]
         premium = self.is_volume_premium(index=absolute_index)
         existing_cbz = absolute_index in (getattr(self, "volume_existing_cbz_indices", set()) or set())
-        auxiliary_badge = premium or existing_cbz
+        runtime_status = (getattr(self, "volume_runtime_status_by_url", {}) or {}).get(volume_link, "")
+        status_badge = runtime_status or ("OK" if existing_cbz else "")
+        auxiliary_badge = premium or bool(status_badge)
         display_vol = self._compact_display_label(vol)
         title_text = f"{absolute_index + 1}. {display_vol}" if kind == "fast" else str(display_vol)
         index_text = "" if kind == "fast" else str(absolute_index + 1)
@@ -8471,16 +8487,16 @@ class MangaApp:
             canvas.coords(entry["premium_bg_id"], premium_x1, checkbox_y1, premium_x2, checkbox_y2)
             canvas.itemconfigure(
                 entry["premium_bg_id"],
-                fill="#f4dd8c" if premium else "#dfeee5",
-                outline="#d6b44d" if premium else "#a3cab1",
+                fill="#f4dd8c" if premium else ("#f8dddd" if status_badge in {"CF", "ERR"} else "#dfeee5"),
+                outline="#d6b44d" if premium else ("#e0a1a1" if status_badge in {"CF", "ERR"} else "#a3cab1"),
                 state="normal",
             )
             canvas.coords(entry["premium_text_id"], (premium_x1 + premium_x2) / 2.0, (checkbox_y1 + checkbox_y2) / 2.0)
             canvas.itemconfigure(
                 entry["premium_text_id"],
-                text="$" if premium else "OK",
-                fill="#8f6500" if premium else "#2f6d4a",
-                font=("Segoe UI Semibold", 8 if existing_cbz and not premium else 10),
+                text="$" if premium else status_badge,
+                fill="#8f6500" if premium else ("#9d3232" if status_badge in {"CF", "ERR"} else "#2f6d4a"),
+                font=("Segoe UI Semibold", 8 if status_badge and not premium else 10),
                 state="normal",
             )
         else:
@@ -11389,6 +11405,7 @@ class MangaApp:
         self.download_in_progress = False
         self.pairs = []
         self.volume_existing_cbz_indices = set()
+        self.volume_runtime_status_by_url = {}
         self.title = ""
         self.source_title_var = tk.StringVar(value="Manga/Manhwa/Comics...")
         self.cancel_event = threading.Event()
@@ -14664,6 +14681,7 @@ class MangaApp:
         safe_link = (link or "").strip()
         safe_volume = normalize_tome_label(volume_label or "") or "Chapitre"
         domain = self.get_domain_from_url(safe_link)
+        cookie_refresh_attempted = False
 
         while True:
             if cancel_event is not None and cancel_event.is_set():
@@ -14685,6 +14703,15 @@ class MangaApp:
                 raise
             except Exception as exc:
                 reason = str(exc)
+                cloudflare_persists = (
+                    domain in ("crunchyscan", "scanhentai")
+                    and is_manual_cloudflare_fallback(reason)
+                    and cookie_refresh_attempted
+                )
+                if cloudflare_persists:
+                    raise AuthError(
+                        "Cloudflare persiste malgré la mise à jour des cookies de session; chapitre arrêté."
+                    )
                 if domain in COOKIE_DOMAINS and should_offer_cookie_refresh(None, reason):
                     self.log(
                         f"Extraction images bloquée pour {safe_volume}: {reason}",
@@ -14698,6 +14725,7 @@ class MangaApp:
                         source_url=safe_link,
                     )
                     if confirmed:
+                        cookie_refresh_attempted = True
                         self.sync_cookie_source_for_domain(domain)
                         self.persist_settings()
                         continue
@@ -15876,6 +15904,7 @@ class MangaApp:
                 cookie = self.get_cookie(link)
                 self.run_on_ui(self.root.title, f"SushiDL - {vol}")
                 self.run_on_ui(self._set_current_volume_ui, vol)
+                self.run_on_ui(self._set_volume_runtime_status, link, "DL")
 
                 if not cookie and domain in COOKIE_DOMAINS:
                     self.log(
@@ -15916,6 +15945,11 @@ class MangaApp:
                     break
                 except Exception as exc:
                     reason = str(exc)
+                    self.run_on_ui(
+                        self._set_volume_runtime_status,
+                        link,
+                        "CF" if "cloudflare" in reason.lower() else "ERR",
+                    )
                     self.run_on_ui(self._set_progress_detail_ui, None, None)
                     self.log(
                         f"Échec récupération images: {reason}",
@@ -16044,6 +16078,7 @@ class MangaApp:
                         break
 
                     if dl_result is False:
+                        self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
                         self.log(
                             "Tome non finalisé.",
                             level="warning",
@@ -16062,6 +16097,7 @@ class MangaApp:
                         if should_retry:
                             failed.append((vol, link))
                     else:
+                        self.run_on_ui(self._set_volume_runtime_status, link, "OK")
                         self.run_on_ui(self._set_progress_ui, 100)
                         elapsed = max(0.0, time.time() - volume_start)
                         completed_volume_durations.append(elapsed)
@@ -16071,6 +16107,7 @@ class MangaApp:
                             context={"domain": domain, "tome": vol, "action": "download_done"},
                         )
                 else:
+                    self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
                     self.run_on_ui(self._set_progress_detail_ui, None, None)
                     reason = "Échec récupération images."
                     self.log(

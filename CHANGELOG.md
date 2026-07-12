@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.11] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : après une relance avec cookies de session, une protection Cloudflare toujours présente arrête proprement le chapitre au lieu de boucler sur la même fenêtre de renouvellement.
+- Grille Canvas : ajout des badges d'état runtime `DL`, `OK`, `ERR` et `CF` pour visualiser immédiatement le traitement ou un blocage Cloudflare par chapitre.
+
 ## [11.18.10] - 2026-07-12
 
 ### Corrections
