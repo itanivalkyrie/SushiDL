@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.19] - 2026-07-12
+
+### Ameliorations
+- CrunchyScan / Scan-Hentai : ajout d'un diagnostic de page lazy au moment précis d'un blocage. Le journal expose l'état de chargement et de décodage de l'image, le nombre de blobs présents et la position de scroll, sans exposer d'URL ou de cookie.
+
 ## [11.18.18] - 2026-07-12
 
 ### Corrections

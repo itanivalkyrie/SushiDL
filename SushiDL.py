@@ -990,7 +990,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.18"
+APP_VERSION = "11.18.19"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2682,8 +2682,32 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         payload = page.evaluate(
             """
             async ({index, preloadWindow, finalFetchTimeout, evaluationTimeout}) => {
+                const sourceKind = (src) => {
+                    if (!src) return 'vide';
+                    if (src.startsWith('blob:')) return 'blob';
+                    if (src.startsWith('data:')) return 'data';
+                    if (/^https?:/i.test(src)) return 'http';
+                    return 'autre';
+                };
+                const snapshotImage = () => {
+                    const allImages = Array.from(document.querySelectorAll('img.imageView, img[data-img]'));
+                    const target = allImages[index];
+                    const src = target ? (target.currentSrc || target.getAttribute('src') || '') : '';
+                    const rect = target ? target.getBoundingClientRect() : null;
+                    return {
+                        index: index + 1,
+                        total: allImages.length,
+                        source: sourceKind(src),
+                        complete: Boolean(target && target.complete),
+                        width: target ? Number(target.naturalWidth || 0) : 0,
+                        height: target ? Number(target.naturalHeight || 0) : 0,
+                        visible: Boolean(rect && rect.bottom > 0 && rect.top < window.innerHeight),
+                        blobCount: allImages.filter(image => (image.currentSrc || image.getAttribute('src') || '').startsWith('blob:')).length,
+                        scrollY: Math.round(window.scrollY || 0),
+                    };
+                };
                 const deadline = new Promise(resolve => setTimeout(
-                    () => resolve({ok: false, error: 'délai lecteur dépassé'}),
+                    () => resolve({ok: false, error: 'délai lecteur dépassé', diagnostic: snapshotImage()}),
                     evaluationTimeout,
                 ));
                 const extract = (async () => {
@@ -2723,7 +2747,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 };
                 const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]'));
                 const img = images[index];
-                if (!img) return {ok: false, error: 'image introuvable'};
+                if (!img) return {ok: false, error: 'image introuvable', diagnostic: snapshotImage()};
 
                 // Le lecteur ne déchiffre les images lazy qu'une fois visibles. Une fenêtre
                 // légèrement plus large garde les très longs chapitres en mouvement sans
@@ -2810,7 +2834,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                     }
                     return await imageToJpegBase64(img);
                 }
-                return {ok: false, error: 'blob non chargé'};
+                return {ok: false, error: 'blob non chargé', diagnostic: snapshotImage()};
                 })();
                 return await Promise.race([extract, deadline]);
             }
@@ -2825,9 +2849,27 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         if not payload or not payload.get("ok"):
             reader_errors = "; ".join(state.get("reader_errors") or [])
             error_suffix = f" | erreur lecteur={reader_errors}" if reader_errors else ""
+            diagnostic = payload.get("diagnostic") if isinstance(payload, dict) else None
+            diagnostic_suffix = ""
+            if isinstance(diagnostic, dict):
+                diagnostic_suffix = (
+                    " | diagnostic="
+                    f"source={diagnostic.get('source', '?')}; "
+                    f"complete={bool(diagnostic.get('complete'))}; "
+                    f"taille={diagnostic.get('width', 0)}x{diagnostic.get('height', 0)}; "
+                    f"visible={bool(diagnostic.get('visible'))}; "
+                    f"blobs={diagnostic.get('blobCount', 0)}/{diagnostic.get('total', 0)}; "
+                    f"scroll={diagnostic.get('scrollY', 0)}"
+                )
+                runtime_log(
+                    f"Playwright {site}: image {index + 1}/{limit} bloquée.{diagnostic_suffix}",
+                    level="warning",
+                    context={"action": "playwright_blob_diagnostic", "domain": site},
+                )
             raise ImageDownloadError(
                 f"Lecteur navigateur: image {index + 1}/{limit} - "
-                f"{payload.get('error') if isinstance(payload, dict) else 'blob indisponible'}{error_suffix}",
+                f"{payload.get('error') if isinstance(payload, dict) else 'blob indisponible'}"
+                f"{diagnostic_suffix}{error_suffix}",
                 kind="blocked_or_retryable",
                 phase="browser",
             )
