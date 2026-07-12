@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.3"
+APP_VERSION = "11.18.4"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2355,11 +2355,10 @@ def get_crunchy_browser_page(state, url, ua=""):
         CRUNCHY_BROWSER_PROFILE_PATH.mkdir(parents=True, exist_ok=True)
         chromium = state["playwright"].chromium
         launch_options = {
-            "headless": False,
-            "args": ["--disable-blink-features=AutomationControlled"],
+            "headless": True,
             "user_agent": safe_ua,
             "locale": "fr-FR",
-            "viewport": {"width": 1280, "height": 1600},
+            "viewport": {"width": 1200, "height": 900},
         }
         try:
             state["context"] = chromium.launch_persistent_context(
@@ -2372,14 +2371,11 @@ def get_crunchy_browser_page(state, url, ua=""):
                 str(CRUNCHY_BROWSER_PROFILE_PATH),
                 **launch_options,
             )
-        state["context"].add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-        )
         state["page"] = None
         state["ua"] = safe_ua
         state["site"] = site
         runtime_log(
-            f"Playwright {site}: session Chrome persistante initialisée.",
+            f"Playwright {site}: session navigateur invisible initialisée.",
             level="info",
             context={"action": "playwright_session", "domain": site},
         )
@@ -2585,12 +2581,12 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         """
         async ({limit}) => {
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-            const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]')).slice(0, Math.min(limit, 12));
+            const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]')).slice(0, Math.min(limit, 8));
             for (const image of images) {
                 image.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
-                window.dispatchEvent(new Event('scroll'));
-                await sleep(100);
             }
+            window.dispatchEvent(new Event('scroll'));
+            await sleep(50);
             if (images[0]) images[0].scrollIntoView({block: 'start', inline: 'nearest', behavior: 'auto'});
         }
         """,
@@ -2656,12 +2652,12 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 // seulement les quatre suivantes pour ne pas saturer le lecteur long format.
                 for (const upcoming of images.slice(index, index + 4)) {
                     upcoming.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
-                    window.dispatchEvent(new Event('scroll'));
-                    await sleep(80);
                 }
+                window.dispatchEvent(new Event('scroll'));
+                await sleep(35);
                 img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
                 for (let round = 0; round < 2; round++) {
-                    for (let i = 0; i < 25; i++) {
+                    for (let i = 0; i < 20; i++) {
                         const src = img.currentSrc || img.getAttribute('src') || '';
                         if (src.startsWith('blob:')) {
                             try {
@@ -2682,9 +2678,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                             const canvasPayload = await imageToJpegBase64(img);
                             if (canvasPayload.ok) return canvasPayload;
                         }
-                        await sleep(100);
+                        await sleep(75);
                     }
-                    await sleep(180);
+                    await sleep(120);
                 }
                 const finalSrc = img.currentSrc || img.getAttribute('src') || '';
                 if (finalSrc.startsWith('blob:')) {

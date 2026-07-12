@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.4] - 2026-07-12
+
+### Ameliorations
+- CrunchyScan / Scan-Hentai : Playwright s'exécute désormais sans fenêtre pendant les téléchargements; seul un challenge Cloudflare déclenche le repli manuel dans le navigateur habituel.
+- CrunchyScan / Scan-Hentai : préchargement lazy et pauses de la récupération blob allégés afin d'accélérer sensiblement les chapitres longs, tout en conservant une fenêtre de chargement limitée.
+
 ## [11.18.3] - 2026-07-12
 
 ### Corrections
