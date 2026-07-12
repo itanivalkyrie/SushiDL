@@ -289,6 +289,8 @@ def normalize_tome_label(label):
     if not cleaned:
         return ""
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" -–—|:")
+    # Certains catalogues CrunchyScan/Scan-Hentai préfixent les volumes d'un point.
+    cleaned = re.sub(r"^[._]+\s*", "", cleaned)
 
     number_pattern = r"([0-9]+(?:[.,][0-9]+)?(?:\s*[A-Za-z])?)"
 
@@ -1060,7 +1062,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.21"
+APP_VERSION = "11.18.22"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -4288,11 +4290,11 @@ def parse_crunchy_family_chapters_from_html(url, soup, html_content=""):
 
 
 def crunchy_family_chapter_sort_key(item):
-    """Trie les chapitres CrunchyScan/Scan-Hentai par numéro plutôt que par position HTML."""
+    """Trie les chapitres et volumes CrunchyScan/Scan-Hentai naturellement."""
     index, pair = item
     label, link = pair
     text = f"{label or ''} {urlparse(link or '').path.rsplit('/', 1)[-1].replace('-', ' ')}"
-    match = re.search(r"(?i)\b(?:chapitre|chapter|episode|ep)\s*([0-9]+(?:[.,][0-9]+)?)", text)
+    match = re.search(r"(?i)\b(?:tome|volume|chapitre|chapter|episode|ep)\s*([0-9]+(?:[.,][0-9]+)?)", text)
     if match:
         try:
             return (0, float(match.group(1).replace(",", ".")), index)
@@ -17010,6 +17012,17 @@ def run_self_test():
         emit_logs=False,
     )
     check("crunchyscan tri naturel", [label for label, _ in crunchy_sorted_pairs] == ["Chapitre 227", "Chapitre 228"])
+    crunchy_volume_pairs = [
+        (".Tome 14", "https://crunchyscan.fr/lecture-en-ligne/test/read/volume-14"),
+        (".Tome 2", "https://crunchyscan.fr/lecture-en-ligne/test/read/volume-2"),
+        (".Tome 10", "https://crunchyscan.fr/lecture-en-ligne/test/read/volume-10"),
+    ]
+    normalized_volume_pairs = [(normalize_tome_label(label), link) for label, link in crunchy_volume_pairs]
+    ordered_volume_pairs = [
+        pair for _index, pair in sorted(enumerate(normalized_volume_pairs), key=crunchy_family_chapter_sort_key)
+    ]
+    check("crunchyscan volume point retire", [label for label, _ in normalized_volume_pairs] == ["Tome 14", "Tome 2", "Tome 10"])
+    check("crunchyscan volumes tri naturel", [label for label, _ in ordered_volume_pairs] == ["Tome 2", "Tome 10", "Tome 14"])
     hentai_html = """
     <div aria-labelledby="status-section"><h3>🚦 Status</h3><p>En cours</p></div>
     <div aria-labelledby="sortie-section"><h3>📅 Sortie</h3><p>2026</p></div>

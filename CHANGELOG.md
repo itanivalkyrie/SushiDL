@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.22] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : suppression des points parasites devant les libellés de volumes et tri naturel des tomes (`Tome 1`, `Tome 2`, ..., `Tome 14`) au lieu de conserver l'ordre descendant du site.
+
 ## [11.18.21] - 2026-07-12
 
 ### Ameliorations
