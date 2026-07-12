@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.6] - 2026-07-12
+
+### Ameliorations
+- CrunchyScan / Scan-Hentai : les blobs déjà extraits sont conservés en mémoire pendant un échec et réutilisés au retry; seuls les derniers blobs manquants sont redemandés.
+- CrunchyScan / Scan-Hentai : le journal technique indique le temps d'extraction des images lentes et inclut les erreurs JavaScript du lecteur dans l'erreur associée.
+
 ## [11.18.5] - 2026-07-12
 
 ### Corrections

@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.5"
+APP_VERSION = "11.18.6"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2294,7 +2294,11 @@ def download_preview_image_with_browser(img_url, referer_url, ua, cancel_event=N
 
 
 def new_crunchy_browser_state():
-    return {"playwright": None, "browser": None, "context": None, "page": None, "ua": "", "site": "", "persistent": True}
+    return {
+        "playwright": None, "browser": None, "context": None, "page": None,
+        "ua": "", "site": "", "persistent": True,
+        "partial_blobs": {}, "partial_blob_order": [],
+    }
 
 
 def dispose_crunchy_browser_state(state):
@@ -2597,8 +2601,27 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         level="info",
         context={"action": "playwright_preload", "domain": site},
     )
-    blobs = []
-    for index in range(limit):
+    partial_blobs = state.setdefault("partial_blobs", {})
+    partial_order = state.setdefault("partial_blob_order", [])
+    cached_blobs = list(partial_blobs.get(chapter_url) or [])[:limit]
+    blobs = cached_blobs
+    if blobs:
+        runtime_log(
+            f"Playwright {site}: reprise blob {len(blobs)}/{limit} image(s) déjà extraite(s).",
+            level="info",
+            context={"action": "playwright_blob_resume", "domain": site},
+        )
+
+    def remember_partial_blobs():
+        partial_blobs[chapter_url] = list(blobs)
+        if chapter_url in partial_order:
+            partial_order.remove(chapter_url)
+        partial_order.append(chapter_url)
+        while len(partial_order) > 3:
+            expired_url = partial_order.pop(0)
+            partial_blobs.pop(expired_url, None)
+
+    for index in range(len(blobs), limit):
         if cancel_event is not None and cancel_event.is_set():
             raise DownloadCancelled("Téléchargement annulé.")
         if index == 0 or (index + 1) % 10 == 0 or index + 1 == limit:
@@ -2607,6 +2630,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 level="info",
                 context={"action": "playwright_progress", "domain": site},
             )
+        image_started_at = time.perf_counter()
         payload = page.evaluate(
             """
             async ({index}) => {
@@ -2735,9 +2759,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             {"index": index},
         )
         if not payload or not payload.get("ok"):
+            reader_errors = "; ".join(state.get("reader_errors") or [])
+            error_suffix = f" | erreur lecteur={reader_errors}" if reader_errors else ""
             raise ImageDownloadError(
                 f"Lecteur navigateur: image {index + 1}/{limit} - "
-                f"{payload.get('error') if isinstance(payload, dict) else 'blob indisponible'}",
+                f"{payload.get('error') if isinstance(payload, dict) else 'blob indisponible'}{error_suffix}",
                 kind="blocked_or_retryable",
                 phase="browser",
             )
@@ -2745,6 +2771,17 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         if not raw or _is_html_payload_start(raw):
             raise ImageDownloadError("Lecteur navigateur: payload invalide", kind="invalid_image", phase="browser")
         blobs.append(raw)
+        remember_partial_blobs()
+        image_elapsed = time.perf_counter() - image_started_at
+        if image_elapsed >= 1.0:
+            runtime_log(
+                f"Playwright {site}: image {index + 1}/{limit} extraite en {image_elapsed:.2f}s.",
+                level="debug",
+                context={"action": "playwright_image_perf", "domain": site},
+            )
+    partial_blobs.pop(chapter_url, None)
+    if chapter_url in partial_order:
+        partial_order.remove(chapter_url)
     runtime_log(
         f"Playwright {site}: récupération terminée ({len(blobs)} image(s)).",
         level="success",
