@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.10] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : détection du formulaire Turnstile qui peut remplacer le lecteur après le chargement initial. L'application signale maintenant explicitement Cloudflare au lieu d'indiquer à tort que le chapitre ne contient aucune image.
+
 ## [11.18.9] - 2026-07-12
 
 ### Ameliorations

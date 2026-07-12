@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.9"
+APP_VERSION = "11.18.10"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2445,7 +2445,10 @@ def get_crunchy_challenge_state(page):
                 challenge: title.includes('just a moment') || title.includes('un instant') ||
                     text.includes('verification de securite') || text.includes('vérification de sécurité') ||
                     (text.includes('cloudflare') && text.includes('ray id')),
-                turnstile: hasVisibleFrame && hasValidateButton,
+                turnstile: hasValidateButton && (
+                    hasVisibleFrame ||
+                    Boolean(document.querySelector('.cf-turnstile, [name="cf-turnstile-response"]'))
+                ),
                 forbidden: text.includes('error 403') || text.includes('http 403')
             };
         }
@@ -2510,6 +2513,20 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     try:
         page.wait_for_selector("img.imageView, img[data-img]", timeout=5000)
     except Exception:
+        late_challenge_state = get_crunchy_challenge_state(page)
+        if isinstance(late_challenge_state, dict) and (
+            late_challenge_state.get("turnstile") or late_challenge_state.get("challenge")
+        ):
+            runtime_log(
+                f"Cloudflare detecte après chargement du lecteur {site}: mode manuel requis.",
+                level="warning",
+                context={"domain": site, "action": "cloudflare_reader_late"},
+            )
+            reset_crunchy_browser_context(state)
+            raise AuthError(
+                "Detection Cloudflare dans le lecteur: le formulaire Turnstile remplace les images. "
+                "Renseigne les cookies de session requis avant de relancer."
+            )
         diagnostic = page.evaluate(
             """
             () => ({
