@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.11"
+APP_VERSION = "11.18.12"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2449,7 +2449,11 @@ def get_crunchy_challenge_state(page):
                     hasVisibleFrame ||
                     Boolean(document.querySelector('.cf-turnstile, [name="cf-turnstile-response"]'))
                 ),
-                forbidden: text.includes('error 403') || text.includes('http 403')
+                forbidden: text.includes('error 403') || text.includes('http 403'),
+                imageCount: document.querySelectorAll('img.imageView, img[data-img]').length,
+                blobCount: Array.from(document.querySelectorAll('img.imageView, img[data-img]'))
+                    .filter(image => (image.currentSrc || image.getAttribute('src') || '').startsWith('blob:')).length,
+                readerContainer: Boolean(document.querySelector('#imageContainer, #readerarea'))
             };
         }
         """
@@ -2487,7 +2491,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     challenge_state = get_crunchy_challenge_state(page)
     if isinstance(challenge_state, dict) and (challenge_state.get("turnstile") or challenge_state.get("challenge")):
         runtime_log(
-            f"Cloudflare detecte dans le lecteur {site}: bascule vers le mode manuel.",
+            f"Cloudflare detecte dans le lecteur {site}: titre={challenge_state.get('title') or '?'} | "
+            f"images={challenge_state.get('imageCount', 0)} | blobs={challenge_state.get('blobCount', 0)} | "
+            f"conteneur={bool(challenge_state.get('readerContainer'))}.",
             level="warning",
             context={"domain": site, "action": "cloudflare_manual_fallback"},
         )
@@ -2517,7 +2523,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
             late_challenge_state.get("turnstile") or late_challenge_state.get("challenge")
         ):
             runtime_log(
-                f"Cloudflare detecte après chargement du lecteur {site}: mode manuel requis.",
+                f"Cloudflare detecte après chargement du lecteur {site}: titre={late_challenge_state.get('title') or '?'} | "
+                f"images={late_challenge_state.get('imageCount', 0)} | blobs={late_challenge_state.get('blobCount', 0)} | "
+                f"conteneur={bool(late_challenge_state.get('readerContainer'))}.",
                 level="warning",
                 context={"domain": site, "action": "cloudflare_reader_late"},
             )
@@ -14703,6 +14711,14 @@ class MangaApp:
                 raise
             except Exception as exc:
                 reason = str(exc)
+                if domain in ("crunchyscan", "scanhentai") and is_manual_cloudflare_fallback(reason):
+                    self.log(
+                        f"Cloudflare détecté pour {safe_volume}: arrêt sans renouvellement de cookie.",
+                        level="warning",
+                    )
+                    raise AuthError(
+                        "Cloudflare détecté dans le lecteur; chapitre arrêté sans relance de cookie."
+                    )
                 cloudflare_persists = (
                     domain in ("crunchyscan", "scanhentai")
                     and is_manual_cloudflare_fallback(reason)

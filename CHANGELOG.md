@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.12] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : une détection Cloudflare arrête désormais immédiatement le chapitre sans proposer de renouveler les mêmes cookies. Le journal indique le titre, la présence du conteneur lecteur et les compteurs images/blobs, sans exposer de donnée de session.
+
 ## [11.18.11] - 2026-07-12
 
 ### Corrections
