@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.17] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : chaque évaluation de blob est désormais bornée à quinze secondes. Une page lazy bloquée déclenche la réinitialisation déjà prévue, puis la reprise à la dernière image extraite, au lieu de retenir le chapitre pendant plusieurs minutes.
+
 ## [11.18.16] - 2026-07-12
 
 ### Corrections

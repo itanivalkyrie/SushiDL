@@ -990,7 +990,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.16"
+APP_VERSION = "11.18.17"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1032,6 +1032,7 @@ CRUNCHY_LARGE_CHAPTER_THRESHOLD = 80
 CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW = 12
 CRUNCHY_DEFAULT_PRELOAD_WINDOW = 6
 CRUNCHY_BLOB_FINAL_FETCH_TIMEOUT_MS = 6000
+CRUNCHY_BLOB_EVALUATION_TIMEOUT_MS = 15000
 COOKIE_DOMAINS = (
     "fr",
     "net",
@@ -2679,7 +2680,12 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         image_started_at = time.perf_counter()
         payload = page.evaluate(
             """
-            async ({index, preloadWindow, finalFetchTimeout}) => {
+            async ({index, preloadWindow, finalFetchTimeout, evaluationTimeout}) => {
+                const deadline = new Promise(resolve => setTimeout(
+                    () => resolve({ok: false, error: 'délai lecteur dépassé'}),
+                    evaluationTimeout,
+                ));
+                const extract = (async () => {
                 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                 const bytesToBase64 = (bytes) => {
                     let binary = '';
@@ -2804,12 +2810,15 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                     return await imageToJpegBase64(img);
                 }
                 return {ok: false, error: 'blob non chargé'};
+                })();
+                return await Promise.race([extract, deadline]);
             }
             """,
             {
                 "index": index,
                 "preloadWindow": preload_window,
                 "finalFetchTimeout": CRUNCHY_BLOB_FINAL_FETCH_TIMEOUT_MS,
+                "evaluationTimeout": CRUNCHY_BLOB_EVALUATION_TIMEOUT_MS,
             },
         )
         if not payload or not payload.get("ok"):
