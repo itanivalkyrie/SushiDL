@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.15] - 2026-07-12
+
+### Corrections
+- CrunchyScan / Scan-Hentai : le dernier essai de lecture d'un blob dispose maintenant d'un délai maximal de six secondes. Un blob bloqué ne peut plus immobiliser l'extraction de tout un chapitre pendant plusieurs minutes avant la reprise du contexte navigateur.
+
 ## [11.18.14] - 2026-07-12
 
 ### Ameliorations

@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.14"
+APP_VERSION = "11.18.15"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1021,6 +1021,7 @@ ERROR_RENDER_BATCH_SIZE = 12
 CRUNCHY_LARGE_CHAPTER_THRESHOLD = 80
 CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW = 12
 CRUNCHY_DEFAULT_PRELOAD_WINDOW = 6
+CRUNCHY_BLOB_FINAL_FETCH_TIMEOUT_MS = 6000
 COOKIE_DOMAINS = (
     "fr",
     "net",
@@ -2668,7 +2669,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         image_started_at = time.perf_counter()
         payload = page.evaluate(
             """
-            async ({index, preloadWindow}) => {
+            async ({index, preloadWindow, finalFetchTimeout}) => {
                 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
                 const bytesToBase64 = (bytes) => {
                     let binary = '';
@@ -2778,7 +2779,10 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 if (finalSrc.startsWith('blob:')) {
                     const src = img.getAttribute('src') || '';
                     try {
-                        const response = await fetch(src);
+                        const controller = new AbortController();
+                        const timeout = setTimeout(() => controller.abort(), finalFetchTimeout);
+                        const response = await fetch(src, {signal: controller.signal});
+                        clearTimeout(timeout);
                         const bytes = new Uint8Array(await response.arrayBuffer());
                         const contentType = response.headers.get('content-type') || '';
                         if (response.ok && bytes.byteLength > 128 && looksLikeImage(bytes, contentType)) {
@@ -2792,7 +2796,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 return {ok: false, error: 'blob non chargé'};
             }
             """,
-            {"index": index, "preloadWindow": preload_window},
+            {
+                "index": index,
+                "preloadWindow": preload_window,
+                "finalFetchTimeout": CRUNCHY_BLOB_FINAL_FETCH_TIMEOUT_MS,
+            },
         )
         if not payload or not payload.get("ok"):
             reader_errors = "; ".join(state.get("reader_errors") or [])
