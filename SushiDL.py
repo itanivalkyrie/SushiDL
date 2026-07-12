@@ -1062,7 +1062,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.24"
+APP_VERSION = "11.18.25"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -15298,7 +15298,14 @@ class MangaApp:
 
     def start_download_queue(self, urls, output_root):
         """Télécharge plusieurs catalogues à la suite en sélection totale."""
-        clean_urls = [url.strip() for url in urls if is_valid_catalogue_url(url.strip())]
+        clean_urls = []
+        seen_urls = set()
+        for raw_url in urls:
+            safe_url = (raw_url or "").strip()
+            if not is_valid_catalogue_url(safe_url) or safe_url in seen_urls:
+                continue
+            seen_urls.add(safe_url)
+            clean_urls.append(safe_url)
         if not clean_urls:
             self.log("File d'attente vide ou URL non supportées.", level="warning")
             return
@@ -15330,15 +15337,42 @@ class MangaApp:
                     ua_for_url = self.get_request_user_agent_for_url(source_url)
                     self.run_on_ui(self.url.set, source_url)
                     self.log(f"File {queue_index}/{queue_total}: analyse {source_url}", level="info")
-                    try:
-                        analysis = fetch_manga_analysis(source_url, cookie, ua_for_url, emit_logs=False)
-                        title = analysis.title
-                        pairs = analysis.pairs
-                        metadata_by_url = dict(analysis.volume_metadata or {})
-                        series_metadata = dict(analysis.series_metadata or {})
-                    except Exception as exc:
-                        self.log(f"File: analyse échouée pour {source_url}: {exc}", level="error")
+                    analysis = None
+                    for analysis_attempt in range(2):
+                        try:
+                            analysis = fetch_manga_analysis(source_url, cookie, ua_for_url, emit_logs=False)
+                            break
+                        except Exception as exc:
+                            reason = str(exc)
+                            if (
+                                analysis_attempt == 0
+                                and domain in COOKIE_DOMAINS
+                                and should_offer_cookie_refresh(None, reason)
+                            ):
+                                self.log(
+                                    f"File: analyse bloquée pour .{domain}; renouvellement cookie demandé.",
+                                    level="warning",
+                                )
+                                if self.prompt_cookie_refresh(
+                                    domain,
+                                    f"File {queue_index}/{queue_total}",
+                                    reason,
+                                    cancel_event=self.cancel_event,
+                                    source_url=source_url,
+                                ):
+                                    self.sync_cookie_source_for_domain(domain)
+                                    self.persist_settings()
+                                    cookie = self.get_cookie(source_url)
+                                    ua_for_url = self.get_request_user_agent_for_url(source_url)
+                                    continue
+                            self.log(f"File: analyse échouée pour {source_url}: {reason}", level="error")
+                            break
+                    if analysis is None:
                         continue
+                    title = analysis.title
+                    pairs = analysis.pairs
+                    metadata_by_url = dict(analysis.volume_metadata or {})
+                    series_metadata = dict(analysis.series_metadata or {})
                     self.run_on_ui(lambda resolved_title=title: self._refresh_source_title_label(resolved_title))
                     self.log(f"File: {len(pairs)} élément(s) détecté(s) pour {title}", level="success")
                     selected_pairs = [
@@ -15351,10 +15385,20 @@ class MangaApp:
                             break
                         self.run_on_ui(self._set_current_volume_ui, vol)
                         self.log(f"File {queue_index}/{queue_total} - {item_index}/{len(selected_pairs)}: {vol}", level="info")
+                        archive_label = get_archive_label_for_link(vol, link, metadata_by_url)
+                        if cbz_enabled:
+                            clean_title = sanitize_folder_name(title)
+                            clean_archive_label = sanitize_folder_name(normalize_tome_label(archive_label or vol))
+                            existing_cbz = os.path.join(output_root, clean_title, f"{clean_title} - {clean_archive_label}.cbz")
+                            if os.path.isfile(existing_cbz) and os.path.getsize(existing_cbz) > 10_000:
+                                self.log(f"File: CBZ déjà existant, saut de {vol}.", level="info")
+                                continue
                         try:
-                            cookie_item = self.get_cookie(link)
-                            ua_item = self.get_request_user_agent_for_url(link)
-                            images = get_images(link, cookie_item, ua_item, cancel_event=self.cancel_event, emit_logs=False)
+                            cookie_item, ua_item, images = self.get_images_with_cookie_recovery(
+                                link,
+                                volume_label=vol,
+                                cancel_event=self.cancel_event,
+                            )
                         except Exception as exc:
                             self.log(f"File: échec images {vol}: {exc}", level="error")
                             self.add_volume_error(vol, "images", str(exc), None, recommend_action_for_failure(None, str(exc)))
@@ -15413,12 +15457,12 @@ class MangaApp:
                             smart_resume_enabled=smart_resume_enabled,
                             error_callback=error_callback,
                             output_root=output_root,
-                            prompt_cookie_retry=False,
+                            prompt_cookie_retry=True,
                             total_count=len(pairs),
                             series_metadata=series_metadata,
                             cover_url=(series_metadata or {}).get("cover_url", ""),
                             download_threads=queue_threads,
-                            archive_label=get_archive_label_for_link(vol, link, metadata_by_url),
+                            archive_label=archive_label,
                         )
                         if result is False:
                             self.log(f"File: élément non finalisé: {vol}", level="warning")

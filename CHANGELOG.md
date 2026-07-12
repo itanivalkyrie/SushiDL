@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.25] - 2026-07-12
+
+### Corrections
+- File d'attente : les échecs d'analyse, d'extraction et de téléchargement utilisent désormais la même récupération interactive de cookie que le téléchargement classique. Un long lot peut donc demander un renouvellement de cookie puis reprendre l'élément concerné.
+- File d'attente : déduplication des URL et saut des CBZ existants pour éviter les traitements répétés.
+
 ## [11.18.24] - 2026-07-12
 
 ### Corrections
