@@ -990,7 +990,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.19"
+APP_VERSION = "11.18.20"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2682,6 +2682,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         payload = page.evaluate(
             """
             async ({index, preloadWindow, finalFetchTimeout, evaluationTimeout}) => {
+                let targetedRefreshes = 0;
                 const sourceKind = (src) => {
                     if (!src) return 'vide';
                     if (src.startsWith('blob:')) return 'blob';
@@ -2704,6 +2705,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                         visible: Boolean(rect && rect.bottom > 0 && rect.top < window.innerHeight),
                         blobCount: allImages.filter(image => (image.currentSrc || image.getAttribute('src') || '').startsWith('blob:')).length,
                         scrollY: Math.round(window.scrollY || 0),
+                        refreshes: targetedRefreshes,
                     };
                 };
                 const deadline = new Promise(resolve => setTimeout(
@@ -2748,6 +2750,39 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 const images = Array.from(document.querySelectorAll('img.imageView, img[data-img]'));
                 const img = images[index];
                 if (!img) return {ok: false, error: 'image introuvable', diagnostic: snapshotImage()};
+                const reviveZeroDimensionBlob = async () => {
+                    const originalSrc = img.getAttribute('src') || '';
+                    if (!originalSrc.startsWith('blob:') || img.naturalWidth || img.naturalHeight) return false;
+                    img.loading = 'eager';
+                    img.decoding = 'sync';
+                    for (let pass = 0; pass < 2; pass++) {
+                        const rect = img.getBoundingClientRect();
+                        const targetY = Math.max(0, window.scrollY + rect.top - (window.innerHeight * 0.35));
+                        window.scrollTo(0, Math.max(0, targetY - (window.innerHeight * 1.4)));
+                        window.dispatchEvent(new Event('scroll'));
+                        await sleep(180);
+                        window.scrollTo(0, targetY);
+                        img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                        window.dispatchEvent(new Event('scroll'));
+                        await sleep(260);
+                        if (img.naturalWidth && img.naturalHeight) return true;
+                    }
+                    // Rejoue le même blob dans l'élément après un vrai changement d'attribut.
+                    // Certains lecteurs ne relancent le décodage qu'à cette condition.
+                    targetedRefreshes += 1;
+                    img.removeAttribute('src');
+                    await sleep(70);
+                    img.setAttribute('src', originalSrc);
+                    try {
+                        await Promise.race([
+                            img.decode().catch(() => false),
+                            sleep(1200),
+                        ]);
+                    } catch (error) {
+                        // Le chemin normal de récupération reste disponible ci-dessous.
+                    }
+                    return Boolean(img.naturalWidth && img.naturalHeight);
+                };
 
                 // Le lecteur ne déchiffre les images lazy qu'une fois visibles. Une fenêtre
                 // légèrement plus large garde les très longs chapitres en mouvement sans
@@ -2758,6 +2793,7 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                 window.dispatchEvent(new Event('scroll'));
                 await sleep(35);
                 img.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'auto'});
+                await reviveZeroDimensionBlob();
                 for (let round = 0; round < 2; round++) {
                     for (let i = 0; i < 20; i++) {
                         const src = img.currentSrc || img.getAttribute('src') || '';
@@ -2859,7 +2895,8 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
                     f"taille={diagnostic.get('width', 0)}x{diagnostic.get('height', 0)}; "
                     f"visible={bool(diagnostic.get('visible'))}; "
                     f"blobs={diagnostic.get('blobCount', 0)}/{diagnostic.get('total', 0)}; "
-                    f"scroll={diagnostic.get('scrollY', 0)}"
+                    f"scroll={diagnostic.get('scrollY', 0)}; "
+                    f"refresh={diagnostic.get('refreshes', 0)}"
                 )
                 runtime_log(
                     f"Playwright {site}: image {index + 1}/{limit} bloquée.{diagnostic_suffix}",
