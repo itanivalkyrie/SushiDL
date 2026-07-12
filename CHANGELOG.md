@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.9] - 2026-07-12
+
+### Ameliorations
+- Fenêtre de renouvellement CrunchyScan / Scan-Hentai : ajout des champs dédiés `cf_clearance`, `crunchyscan_session` et `XSRF-TOKEN`. Le bouton Coller répartit automatiquement un header Cookie complet entre ces champs.
+
 ## [11.18.8] - 2026-07-12
 
 ### Corrections

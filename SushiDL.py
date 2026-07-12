@@ -980,7 +980,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.8"
+APP_VERSION = "11.18.9"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -10109,11 +10109,8 @@ class MangaApp:
         )
         if manual_cloudflare:
             detail = (
-                "Le challenge Cloudflare ne peut pas être validé depuis le lecteur automatisé.\n"
-                "1. Ouvre la page dans Chrome normal.\n"
-                "2. Valide Cloudflare dans ce navigateur.\n"
-                "3. Copie le cookie cf_clearance de ce domaine et colle-le ci-dessous.\n"
-                "4. Clique sur OK et relancer."
+                "Le lecteur requiert les cookies de session complets.\n"
+                "Renseigne cf_clearance, crunchyscan_session et XSRF-TOKEN, puis relance."
             )
         if domain in COOKIE_DOMAINS:
             probe_url = STARTUP_COOKIE_LISTING_PROBE_URLS.get(domain) or "n/a"
@@ -10184,31 +10181,59 @@ class MangaApp:
         cookie_box.pack(fill="x", padx=14, pady=(0, 12))
         cookie_box.grid_columnconfigure(0, weight=1)
 
+        crunchy_cookie_fields = domain in ("crunchyscan", "scanhentai")
         ctk.CTkLabel(
             cookie_box,
-            text=f"Nouveau cookie {domain_label}",
+            text=("Cookies de session lecteur" if crunchy_cookie_fields else f"Nouveau cookie {domain_label}"),
             font=("Segoe UI Semibold", 12),
             text_color=self.palette["text"],
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", padx=10, pady=(8, 4))
 
-        cookie_input = ctk.CTkTextbox(
-            cookie_box,
-            height=78,
-            corner_radius=6,
-            border_width=1,
-            border_color=self.palette["border"],
-            fg_color=self.palette["input_bg"],
-            text_color=self.palette["text"],
-            font=("Segoe UI", 11),
-            wrap="none",
-        )
-        cookie_input.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+        cookie_input = None
+        cookie_fields = {}
+        if crunchy_cookie_fields:
+            for row, field_name in enumerate(("cf_clearance", "crunchyscan_session", "XSRF-TOKEN"), start=1):
+                ctk.CTkLabel(
+                    cookie_box,
+                    text=field_name,
+                    font=("Segoe UI Semibold", 10),
+                    text_color=self.palette["muted_strong"],
+                    anchor="w",
+                ).grid(row=row * 2 - 1, column=0, sticky="ew", padx=10, pady=((2 if row == 1 else 5), 2))
+                field = ctk.CTkEntry(
+                    cookie_box,
+                    height=30,
+                    corner_radius=5,
+                    border_width=1,
+                    border_color=self.palette["border"],
+                    fg_color=self.palette["input_bg"],
+                    text_color=self.palette["text"],
+                    font=("Segoe UI", 10),
+                    show="",
+                )
+                field.grid(row=row * 2, column=0, sticky="ew", padx=10)
+                cookie_fields[field_name] = field
+            status_row = 8
+        else:
+            cookie_input = ctk.CTkTextbox(
+                cookie_box,
+                height=78,
+                corner_radius=6,
+                border_width=1,
+                border_color=self.palette["border"],
+                fg_color=self.palette["input_bg"],
+                text_color=self.palette["text"],
+                font=("Segoe UI", 11),
+                wrap="none",
+            )
+            cookie_input.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+            status_row = 2
 
         status_var = tk.StringVar(
             value=(
-                "Mode manuel requis: ouvre Chrome normal, valide Cloudflare et colle cf_clearance."
-                if manual_cloudflare
+                "Les trois valeurs sont stockées comme un header Cookie complet."
+                if crunchy_cookie_fields
                 else "Accepte cf_clearance seul ou un header Cookie complet."
             )
         )
@@ -10218,7 +10243,7 @@ class MangaApp:
             font=("Segoe UI", 10),
             text_color=self.palette["muted"],
             anchor="w",
-        ).grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
+        ).grid(row=status_row, column=0, sticky="ew", padx=10, pady=(8 if crunchy_cookie_fields else 0, 8))
 
         def paste_cookie():
             try:
@@ -10226,31 +10251,40 @@ class MangaApp:
             except Exception:
                 status_var.set("Presse-papiers sans texte exploitable.")
                 return
+            raw_value = repair_mojibake_text(value or "").strip()
+            if crunchy_cookie_fields:
+                pairs = {}
+                for part in re.sub(r"^\s*cookie\s*:\s*", "", raw_value, flags=re.IGNORECASE).split(";"):
+                    if "=" in part:
+                        name, field_value = part.split("=", 1)
+                        pairs[name.strip()] = field_value.strip()
+                for name, field in cookie_fields.items():
+                    field.delete(0, "end")
+                    field.insert(0, pairs.get(name, ""))
+                status_var.set("Cookies répartis dans les trois champs. Vérifie puis relance.")
+                return
             cookie_input.delete("1.0", "end")
-            cookie_input.insert("1.0", repair_mojibake_text(value or "").strip())
+            cookie_input.insert("1.0", raw_value)
             status_var.set("Cookie collé. Clique sur OK et relancer.")
 
         def confirm_and_retry():
-            cookie_text = cookie_input.get("1.0", "end").strip()
+            if crunchy_cookie_fields:
+                values = {name: field.get().strip() for name, field in cookie_fields.items()}
+                if not values.get("cf_clearance"):
+                    status_var.set("cf_clearance est requis avant de relancer.")
+                    return
+                cookie_text = "; ".join(f"{name}={value}" for name, value in values.items() if value)
+            else:
+                cookie_text = cookie_input.get("1.0", "end").strip()
             if apply_cookie_from_prompt(cookie_text, status_var):
                 finalize(True)
-
-        def open_browser_validation():
-            if domain not in ("crunchyscan", "scanhentai"):
-                return
-            chapter_url = (source_url or "").strip()
-            if not chapter_url:
-                status_var.set("URL de chapitre indisponible pour ouvrir la validation.")
-                return
-            webbrowser.open(chapter_url, new=1, autoraise=True)
-            status_var.set("Chrome normal ouvert. Valide Cloudflare, copie cf_clearance, puis colle-le ici.")
 
         actions = ctk.CTkFrame(outer, fg_color="transparent")
         actions.pack(fill="x", padx=14, pady=(0, 14))
         actions.grid_columnconfigure(0, weight=1)
         actions.grid_columnconfigure(1, weight=0)
         actions.grid_columnconfigure(2, weight=0)
-        actions.grid_columnconfigure(3, weight=0)
+        actions.grid_columnconfigure(2, weight=0)
 
         ctk.CTkButton(
             actions,
@@ -10266,23 +10300,6 @@ class MangaApp:
             border_color=self.palette["border"],
         ).grid(row=0, column=0, sticky="w")
 
-        browser_button = ctk.CTkButton(
-            actions,
-            text="Ouvrir dans Chrome",
-            command=open_browser_validation,
-            height=32,
-            width=126,
-            corner_radius=6,
-            fg_color=self.palette["panel_bg"],
-            hover_color=self.palette["card_alt"],
-            text_color=self.palette["text"],
-            border_width=1,
-            border_color=self.palette["border"],
-        )
-        browser_button.grid(row=0, column=1, sticky="w", padx=(8, 0))
-        if domain not in ("crunchyscan", "scanhentai"):
-            browser_button.configure(state="disabled")
-
         ctk.CTkButton(
             actions,
             text="Annuler",
@@ -10295,7 +10312,7 @@ class MangaApp:
             text_color=self.palette["danger_text"],
             border_width=1,
             border_color=self.palette["danger_border"],
-        ).grid(row=0, column=2, sticky="e", padx=(8, 8))
+        ).grid(row=0, column=1, sticky="e", padx=(8, 8))
 
         ok_button = ctk.CTkButton(
             actions,
@@ -10310,7 +10327,7 @@ class MangaApp:
             border_width=1,
             border_color=self.palette["success_border"],
         )
-        ok_button.grid(row=0, column=3)
+        ok_button.grid(row=0, column=2)
 
         holder["window"] = win
         self.cookie_refresh_prompt_window = win
@@ -10326,7 +10343,7 @@ class MangaApp:
             pass
 
         try:
-            cookie_input.focus_set()
+            (cookie_fields.get("cf_clearance") if crunchy_cookie_fields else cookie_input).focus_set()
         except Exception:
             pass
 
