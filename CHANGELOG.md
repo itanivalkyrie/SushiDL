@@ -7,6 +7,11 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.24] - 2026-07-12
+
+### Corrections
+- Le bouton `Vider le cache` supprime désormais aussi le suivi et l'état mémorisé des analyses de liens. La liste Suivi est rafraîchie immédiatement; les cookies et CBZ restent conservés.
+
 ## [11.18.23] - 2026-07-12
 
 ### Ameliorations

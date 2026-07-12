@@ -1062,7 +1062,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.23"
+APP_VERSION = "11.18.24"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -16583,10 +16583,10 @@ class MangaApp:
         if not self.ask_yes_no(
             "Vider le cache",
             "Supprimer les analyses mémorisées, aperçus, URLs d'images et reprises de blobs ?\n\n"
-            "Les cookies, le suivi et les téléchargements ne seront pas modifiés.",
+            "Les cookies, le profil navigateur et les téléchargements ne seront pas modifiés.",
         ):
             return
-        global ANALYSIS_CACHE_MEMORY
+        global ANALYSIS_CACHE_MEMORY, CATALOG_STATE_MEMORY, WATCHLIST_MEMORY
         removed = []
         try:
             with ANALYSIS_CACHE_LOCK:
@@ -16596,6 +16596,20 @@ class MangaApp:
                     removed.append("analyses")
         except OSError as exc:
             self.log(f"Impossible de supprimer le cache d'analyse : {exc}", level="warning")
+        for cache_path, memory_name, label in (
+            (CATALOG_STATE_PATH, "catalog", "état des analyses"),
+            (WATCHLIST_PATH, "watch", "suivi"),
+        ):
+            try:
+                if memory_name == "catalog":
+                    CATALOG_STATE_MEMORY = None
+                else:
+                    WATCHLIST_MEMORY = None
+                if cache_path.exists():
+                    cache_path.unlink()
+                removed.append(label)
+            except OSError as exc:
+                self.log(f"Impossible de supprimer {label} : {exc}", level="warning")
         with IMAGE_URL_CACHE_LOCK:
             IMAGE_URL_CACHE.clear()
             IMAGE_URL_CACHE_ORDER.clear()
@@ -16604,6 +16618,8 @@ class MangaApp:
             TEXT_PAGE_CACHE_ORDER.clear()
         self.preview_cache.clear()
         self.preview_cache_order.clear()
+        self.catalog_state_summary = {}
+        self.refresh_watchlist_view()
         try:
             if READER_BLOB_STAGE_PATH.exists():
                 remove_tree_safely(READER_BLOB_STAGE_PATH, expected_parent=BASE_DIR)
@@ -16611,7 +16627,7 @@ class MangaApp:
         except Exception as exc:
             self.log(f"Impossible de supprimer les reprises lecteur : {exc}", level="warning")
         self.log(
-            f"Cache vidé : {', '.join(removed) if removed else 'caches mémoire'}. Cookies et suivi conservés.",
+            f"Cache vidé : {', '.join(removed) if removed else 'caches mémoire'}. Cookies et CBZ conservés.",
             level="success",
         )
         self.toast("Cache vidé")
