@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.31] - 2026-07-13
+
+### Ameliorations
+- Reprise locale : les URLs déjà extraites d'un chapitre sont mémorisées dans son dossier de travail. Après une interruption, SushiDL peut reprendre le téléchargement sans rouvrir le lecteur lorsque les données nécessaires sont toujours disponibles.
+- File d'attente : chaque catalogue restant mémorise son état (`analyse`, `DL`, `ERR`). Une file terminée avec erreurs reste donc disponible à la reprise, tandis qu'une file entièrement réussie est nettoyée.
+- Téléchargements : un ralentissement adaptatif est appliqué après les erreurs et un seuil d'espace libre protège les téléchargements classiques comme ceux de la file.
+
 ## [11.18.30] - 2026-07-13
 
 ### Ameliorations

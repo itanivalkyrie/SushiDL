@@ -842,6 +842,42 @@ def cleanup_reader_blob_stages(max_age_seconds=172800):
     return removed, stats
 
 
+def get_volume_resume_manifest_path(output_root, title, volume_label):
+    return (
+        Path(output_root or ROOT_FOLDER)
+        / sanitize_folder_name(title)
+        / sanitize_folder_name(normalize_tome_label(volume_label))
+        / ".sushidl_resume.json"
+    )
+
+
+def load_volume_resume_images(output_root, title, volume_label, source_url):
+    """Charge les URLs déjà extraites pour reprendre sans rouvrir le lecteur."""
+    path = get_volume_resume_manifest_path(output_root, title, volume_label)
+    try:
+        with path.open("r", encoding="utf-8-sig") as handle:
+            data = json.load(handle)
+        if normalize_image_url(data.get("source_url") or "") != normalize_image_url(source_url or ""):
+            return []
+        images = [str(url).strip() for url in data.get("images") or [] if str(url).strip()]
+        if any(is_reader_blob_page_url(url) and not get_reader_blob_stage_bytes(url) for url in images):
+            return []
+        return [] if not images or any(is_text_page_url(url) for url in images) else images
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return []
+
+
+def save_volume_resume_images(output_root, title, volume_label, source_url, images):
+    """Checkpoint atomique des URLs d'un volume, sans cookie ni en-tête."""
+    clean_images = [str(url).strip() for url in images or [] if str(url).strip()]
+    if not clean_images or any(is_text_page_url(url) for url in clean_images):
+        return
+    _write_json_file(
+        get_volume_resume_manifest_path(output_root, title, volume_label),
+        {"source_url": normalize_image_url(source_url or ""), "images": clean_images, "updated_at": int(time.time())},
+    )
+
+
 def _text_block_text(block):
     if isinstance(block, dict):
         return normalize_novel_text(block.get("text", ""))
@@ -1150,10 +1186,11 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.30"
+APP_VERSION = "11.18.31"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
+MIN_FREE_DISK_BYTES = 256 * 1024 * 1024
 MIN_DOWNLOAD_THREADS = 1
 MAX_DOWNLOAD_THREADS = 8
 THREADS = DEFAULT_DOWNLOAD_THREADS  # Compatibilite interne historique.
@@ -1366,12 +1403,20 @@ def load_download_queue_state():
             if safe_url and is_valid_catalogue_url(safe_url) and safe_url not in urls:
                 urls.append(safe_url)
         output_root = str(data.get("output_root") or "").strip()
-        return {"urls": urls, "output_root": output_root}
+        states = {}
+        for raw_url, raw_state in (data.get("states") or {}).items():
+            safe_url = str(raw_url or "").strip()
+            if safe_url in urls and isinstance(raw_state, dict):
+                states[safe_url] = {
+                    "status": str(raw_state.get("status") or "").upper()[:8],
+                    "updated_at": int(raw_state.get("updated_at") or 0),
+                }
+        return {"urls": urls, "output_root": output_root, "states": states}
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        return {"urls": [], "output_root": ""}
+        return {"urls": [], "output_root": "", "states": {}}
 
 
-def save_download_queue_state(urls, output_root):
+def save_download_queue_state(urls, output_root, states=None):
     """Sauvegarde les sources restantes pour une reprise explicite au prochain lancement."""
     safe_urls = []
     for raw_url in urls or []:
@@ -1383,7 +1428,16 @@ def save_download_queue_state(urls, output_root):
         return
     _write_json_file(
         DOWNLOAD_QUEUE_STATE_PATH,
-        {"schema_version": 1, "urls": safe_urls, "output_root": os.path.abspath(output_root or ROOT_FOLDER)},
+        {
+            "schema_version": 2,
+            "urls": safe_urls,
+            "output_root": os.path.abspath(output_root or ROOT_FOLDER),
+            "states": {
+                url: {"status": str((states or {}).get(url, {}).get("status") or "").upper()[:8], "updated_at": int((states or {}).get(url, {}).get("updated_at") or 0)}
+                for url in safe_urls
+                if isinstance((states or {}).get(url), dict)
+            },
+        },
     )
 
 
@@ -3548,6 +3602,8 @@ def archive_cbz(folder_path, title, volume, remove_source=True):
         with ZipFile(tmp_cbz_name, "w") as cbz:
             for root, _, files in os.walk(folder_path):
                 for file in sorted(files):  # Tri alphabétique pour l'ordre des pages
+                    if file == ".sushidl_resume.json":
+                        continue
                     full_path = os.path.join(root, file)
                     arcname = os.path.relpath(full_path, folder_path)
                     cbz.write(full_path, arcname)
@@ -6623,6 +6679,10 @@ def download_volume(
             logger(f"Erreur création dossier: {e}", level="error")
             report_error("prepare", f"Erreur création dossier: {e}")
             return False
+        try:
+            save_volume_resume_images(base_output_dir, title, tome_label, referer_url, images)
+        except Exception as exc:
+            logger(f"Checkpoint reprise non sauvegardé pour {tome_label}: {exc}", level="debug")
 
         number_len = max(1, len(str(len(images))))
         failed_downloads = []
@@ -15374,6 +15434,15 @@ class MangaApp:
         domain = self.get_domain_from_url(safe_link)
         cookie_refresh_attempted = False
         extraction_state = {"done": -1, "total": 0, "timestamp": 0.0}
+        resumed_images = load_volume_resume_images(
+            getattr(self, "download_output_root", ROOT_FOLDER), self.title, safe_volume, safe_link
+        )
+        if resumed_images:
+            self.log(
+                f"Reprise locale: {len(resumed_images)} URL(s) déjà extraites pour {safe_volume}; lecteur ignoré.",
+                level="info",
+            )
+            return self.get_cookie(safe_link), self.get_request_user_agent_for_url(safe_link), resumed_images
 
         def reader_extraction_progress(done, total):
             if not total:
@@ -15741,7 +15810,21 @@ class MangaApp:
         self._set_progress_ui(0)
         self._set_current_volume_ui(None)
         os.makedirs(output_root, exist_ok=True)
-        save_download_queue_state(clean_urls, output_root)
+        previous_queue_state = load_download_queue_state()
+        queue_states = {
+            url: dict((previous_queue_state.get("states") or {}).get(url) or {})
+            for url in clean_urls
+        }
+        queue_remaining_urls = list(clean_urls)
+
+        def persist_queue_state():
+            save_download_queue_state(queue_remaining_urls, output_root, queue_states)
+
+        def set_queue_source_state(source_url, status):
+            queue_states[source_url] = {"status": status, "updated_at": int(time.time())}
+            persist_queue_state()
+
+        persist_queue_state()
 
         cbz_enabled = self.cbz_enabled.get()
         comicinfo_enabled = self.comicinfo_enabled.get()
@@ -15820,7 +15903,7 @@ class MangaApp:
                 for queue_index, source_url in enumerate(clean_urls, start=1):
                     if self.cancel_event.is_set():
                         break
-                    save_download_queue_state(clean_urls[queue_index - 1:], output_root)
+                    set_queue_source_state(source_url, "ANALYSE")
                     domain = self.get_domain_from_url(source_url)
                     cookie = self.get_cookie(source_url)
                     ua_for_url = self.get_request_user_agent_for_url(source_url)
@@ -15871,6 +15954,7 @@ class MangaApp:
                             )
                             break
                     if analysis is None:
+                        set_queue_source_state(source_url, "ERR")
                         continue
                     title = analysis.title
                     pairs = list(analysis.pairs or [])
@@ -15900,9 +15984,21 @@ class MangaApp:
                         for index, (vol, link) in enumerate(pairs)
                         if not bool((metadata_by_url.get((link or "").strip()) or {}).get("premium"))
                     ]
+                    source_failed = False
+                    set_queue_source_state(source_url, "DL")
                     for item_index, (_pair_index, vol, link) in enumerate(selected_pairs, start=1):
                         if self.cancel_event.is_set():
                             break
+                        try:
+                            if shutil.disk_usage(output_root).free < MIN_FREE_DISK_BYTES:
+                                reason = "Espace disque insuffisant pour poursuivre la file."
+                                self.log(reason, level="error")
+                                self.add_volume_error(vol, "disk", reason, None, "Libère de l'espace disque puis relance la file.")
+                                self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
+                                source_failed = True
+                                break
+                        except OSError:
+                            pass
                         self.run_on_ui(self._set_current_volume_ui, vol, link)
                         self.run_on_ui(
                             update_queue_item_ui,
@@ -15941,6 +16037,7 @@ class MangaApp:
                             )
                         except Exception as exc:
                             reason = str(exc)
+                            source_failed = True
                             self.log(f"File: échec images {vol}: {reason}", level="error")
                             self.run_on_ui(
                                 self._set_volume_runtime_status,
@@ -15961,6 +16058,7 @@ class MangaApp:
 
                         if not images:
                             reason = "Échec récupération images."
+                            source_failed = True
                             self.log(f"File: {reason} ({vol})", level="warning")
                             self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
                             self.run_on_ui(
@@ -16049,6 +16147,7 @@ class MangaApp:
                         )
                         if result is False:
                             self.log(f"File: élément non finalisé: {vol}", level="warning")
+                            source_failed = True
                             self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
                             self.run_on_ui(
                                 update_queue_item_ui,
@@ -16072,11 +16171,23 @@ class MangaApp:
                                 len(selected_pairs),
                                 "terminé",
                             )
+                    if self.cancel_event.is_set():
+                        set_queue_source_state(source_url, "DL")
+                        break
+                    if source_failed:
+                        set_queue_source_state(source_url, "ERR")
+                    else:
+                        queue_remaining_urls[:] = [url for url in queue_remaining_urls if url != source_url]
+                        set_queue_source_state(source_url, "OK")
                 if self.cancel_event.is_set():
+                    persist_queue_state()
                     self.log("File d'attente annulée.", level="warning")
-                else:
+                elif not queue_remaining_urls:
                     clear_download_queue_state()
                     self.log("File d'attente terminée.", level="success")
+                else:
+                    persist_queue_state()
+                    self.log("File terminée avec des éléments à reprendre.", level="warning")
             finally:
                 self.download_in_progress = False
                 self.cancel_event.clear()
@@ -16834,6 +16945,8 @@ class MangaApp:
 
         def task():
             failed = []
+            adaptive_pause = 0.0
+            halted_for_disk = False
             total_volumes = len(selected)
             completed_volumes = 0
             completed_volume_durations = []
@@ -16858,10 +16971,24 @@ class MangaApp:
             for vol, link in selected:
                 if self.cancel_event.is_set():
                     break
-                if delay_between_volumes and completed_volumes > 0:
-                    interruptible_sleep(self.cancel_event, delay_between_volumes)
+                effective_delay = delay_between_volumes + adaptive_pause
+                if effective_delay and completed_volumes > 0:
+                    interruptible_sleep(self.cancel_event, effective_delay)
+
+                try:
+                    if shutil.disk_usage(output_root).free < MIN_FREE_DISK_BYTES:
+                        reason = "Espace disque insuffisant pour poursuivre le téléchargement."
+                        self.log(reason, level="error")
+                        self.add_volume_error(vol, "disk", reason, None, "Libère de l'espace disque puis relance les erreurs.")
+                        self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
+                        failed.append((vol, link))
+                        halted_for_disk = True
+                        break
+                except OSError:
+                    pass
 
                 volume_start = time.time()
+                volume_failed = False
                 domain = self.get_domain_from_url(link)
                 cookie = self.get_cookie(link)
                 self.run_on_ui(self.root.title, f"SushiDL - {vol}")
@@ -16906,6 +17033,7 @@ class MangaApp:
                 except DownloadCancelled:
                     break
                 except Exception as exc:
+                    volume_failed = True
                     reason = str(exc)
                     self.run_on_ui(
                         self._set_volume_runtime_status,
@@ -16927,6 +17055,7 @@ class MangaApp:
                     )
                     failed.append((vol, link))
                     completed_volumes += 1
+                    adaptive_pause = min(3.0, adaptive_pause + 0.4)
                     push_idle_global_eta()
                     continue
                 self.log(
@@ -17043,6 +17172,7 @@ class MangaApp:
                         break
 
                     if dl_result is False:
+                        volume_failed = True
                         self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
                         self.log(
                             "Tome non finalisé.",
@@ -17073,6 +17203,7 @@ class MangaApp:
                             context={"domain": domain, "tome": vol, "action": "download_done"},
                         )
                 else:
+                    volume_failed = True
                     self.run_on_ui(self._set_volume_runtime_status, link, "ERR")
                     self.run_on_ui(self._set_progress_detail_ui, None, None)
                     reason = "Échec récupération images."
@@ -17091,9 +17222,16 @@ class MangaApp:
                     failed.append((vol, link))
 
                 completed_volumes += 1
+                if volume_failed:
+                    adaptive_pause = min(3.0, adaptive_pause + 0.4)
+                    self.log(f"Ralentissement adaptatif: pause suivante {adaptive_pause:.1f}s.", level="debug")
+                else:
+                    adaptive_pause = max(0.0, adaptive_pause - 0.15)
                 push_idle_global_eta()
 
-            if not self.cancel_event.is_set() and failed:
+            if halted_for_disk:
+                self.log("Téléchargement suspendu: espace disque insuffisant.", level="warning")
+            elif not self.cancel_event.is_set() and failed:
                 self.run_on_ui(self._set_eta_ui, None, None)
                 self.log(
                     f"Retry des tomes échoués ({len(failed)} restants)",
@@ -17584,11 +17722,20 @@ def run_self_test():
         folder.mkdir(parents=True)
         for idx in range(1, 4):
             Image.effect_noise((900, 1200), 80).convert("RGB").save(folder / f"{idx:03d}.jpg", quality=90)
+        save_volume_resume_images(
+            tmp_root,
+            "Title",
+            "Chapitre 1",
+            "https://sushiscan.net/catalogue/test/chapitre-1/",
+            ["https://cdn.example.test/page-001.jpg"],
+        )
         archive_ok = archive_cbz(str(folder), "Title", "Chapitre 1", remove_source=True)
         check("archive cbz atomique", archive_ok)
         check("archive source supprimee", not folder.exists())
         check("archive finale presente", (tmp_root / "Title" / "Title - Chapitre 1.cbz").exists())
         check("archive tmp absente", not (tmp_root / "Title" / "Title - Chapitre 1.cbz.tmp").exists())
+        with ZipFile(tmp_root / "Title" / "Title - Chapitre 1.cbz", "r") as archive_file:
+            check("archive sans manifeste reprise", ".sushidl_resume.json" not in archive_file.namelist())
         avif_path = tmp_root / "compatibility.avif"
         Image.new("RGB", (24, 24), (24, 80, 160)).save(avif_path, "AVIF")
         converted_path = Path(convert_webp_avif_to_jpg(avif_path, enabled=True))
@@ -17597,6 +17744,17 @@ def run_self_test():
         check(
             "conversion avif jpg",
             converted_path.suffix.lower() == ".jpg" and converted_format == "JPEG" and not avif_path.exists(),
+        )
+        resume_images = ["https://cdn.example.test/page-001.jpg", "https://cdn.example.test/page-002.jpg"]
+        resume_source = "https://sushiscan.net/catalogue/test/chapitre-2/"
+        save_volume_resume_images(tmp_root, "Resume", "Chapitre 2", resume_source, resume_images)
+        check(
+            "checkpoint reprise volume",
+            load_volume_resume_images(tmp_root, "Resume", "Chapitre 2", resume_source) == resume_images,
+        )
+        check(
+            "checkpoint reprise source distincte",
+            not load_volume_resume_images(tmp_root, "Resume", "Chapitre 2", "https://sushiscan.net/catalogue/autre/"),
         )
 
     global ANALYSIS_CACHE_PATH, ANALYSIS_CACHE_MEMORY, CATALOG_STATE_PATH, CATALOG_STATE_MEMORY, WATCHLIST_PATH, WATCHLIST_MEMORY, DOWNLOAD_QUEUE_STATE_PATH
@@ -17666,12 +17824,18 @@ def run_self_test():
         watch_entries = get_watchlist_entries_with_state()
         check("watchlist etat enrichi", bool(watch_entries and watch_entries[0].get("last_count") == 2 and watch_entries[0].get("last_new_count") == 1))
         check("watchlist suppression url", remove_watchlist_url("https://sushiscan.net/catalogue/test/") and not get_watchlist_entries_with_state())
-        save_download_queue_state(["https://sushiscan.net/catalogue/test/"], str(Path(tmp) / "output"))
+        queue_url = "https://sushiscan.net/catalogue/test/"
+        save_download_queue_state(
+            [queue_url],
+            str(Path(tmp) / "output"),
+            {queue_url: {"status": "ERR", "updated_at": 123}},
+        )
         queued_state = load_download_queue_state()
         check(
             "reprise file attente",
-            queued_state.get("urls") == ["https://sushiscan.net/catalogue/test/"] and bool(queued_state.get("output_root")),
+            queued_state.get("urls") == [queue_url] and bool(queued_state.get("output_root")),
         )
+        check("etat reprise file", queued_state.get("states", {}).get(queue_url, {}).get("status") == "ERR")
         clear_download_queue_state()
         check("reprise file effacee", not load_download_queue_state().get("urls"))
     ANALYSIS_CACHE_PATH = old_cache_path

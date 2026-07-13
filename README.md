@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.30`
+Version actuelle : `11.18.31`
 
 ## Ce qui change sur `main`
 
@@ -52,6 +52,9 @@ Concretement :
 - après un échec lecteur CrunchyScan / Scan-Hentai, les blobs déjà extraits sont conservés temporairement pour reprendre au point d'arrêt lors du retry
 - le contexte Playwright CrunchyScan / Scan-Hentai est recyclé préventivement après quelques chapitres pour limiter les blocages cumulés
 - une file interrompue est proposée à la reprise au prochain lancement; seuls les URLs restantes et le dossier de sortie sont mémorisés
+- les chapitres interrompus conservent leurs URLs déjà extraites dans leur dossier de travail, ce qui évite de rouvrir le lecteur lors d'une reprise locale quand les données sont encore disponibles
+- la file mémorise aussi l'état de chaque catalogue restant (`analyse`, `DL`, `ERR`) et conserve les catalogues en erreur pour une reprise ultérieure
+- un garde-fou vérifie l'espace disque disponible avant chaque chapitre et un léger ralentissement adaptatif protège les gros lots après des erreurs
 - l'analyse vérifie le dossier de destination courant et désélectionne par défaut les chapitres dont le CBZ final existe déjà
 - la grille Canvas affiche un badge vert `OK` sur les chapitres déjà archivés, afin de distinguer visuellement leur désélection automatique
 - la fenêtre de renouvellement CrunchyScan / Scan-Hentai présente des champs séparés pour `cf_clearance`, `crunchyscan_session` et `XSRF-TOKEN`, avec collage d'un header Cookie complet pris en charge
