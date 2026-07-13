@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.29`
+Version actuelle : `11.18.30`
 
 ## Ce qui change sur `main`
 
@@ -68,6 +68,11 @@ Concretement :
 - lorsqu'une page lazy bloque, le journal Playwright indique son état technique non sensible : type de source, dimensions décodées, visibilité, nombre de blobs disponibles et position de défilement
 - lorsqu'un blob est présent mais décodé à `0x0`, SushiDL effectue d'abord une récupération locale de l'image et de son viewport avant de recréer tout le lecteur
 - les blobs CrunchyScan / Scan-Hentai sont checkpointés sur disque pendant l'extraction, repris après interruption, puis supprimés après création du CBZ; la barre de progression affiche désormais cette phase lecteur
+- le bouton `Nettoyer reprises` supprime uniquement les checkpoints lecteur inactifs depuis plus de 48 heures et conserve les reprises récentes
+- le lecteur CrunchyScan / Scan-Hentai réduit son préchargement pour les chapitres suivants après une instabilité, afin de privilégier la continuité sur les gros lots
+- l'onglet Erreurs permet de relancer uniquement les éléments marqués `ERR` ou `CF`; la récupération de cookie reste proposée lorsque nécessaire
+- la zone de progression affiche les temps `Lecture`, `CBZ` et `Total` du chapitre terminé
+- la preview des visual novels indique explicitement quand elle affiche une page texte rendue
 - après une reprise lecteur, SushiDL réduit automatiquement le préchargement pour le chapitre concerné et isole le contexte avant le chapitre suivant
 - les catalogues CrunchyScan / Scan-Hentai normalisent les préfixes ponctués et trient naturellement les tomes comme les chapitres
 - Options : un bouton `Vider le cache` supprime les analyses, aperçus, URLs d'images, reprises de blobs et suivi après confirmation, sans toucher aux cookies ni aux CBZ

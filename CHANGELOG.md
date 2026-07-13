@@ -7,6 +7,15 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.30] - 2026-07-13
+
+### Ameliorations
+- Reprises lecteur : les checkpoints blobs restent réutilisables après redémarrage; un nettoyage sélectif des reprises inactives depuis 48 heures est disponible dans Options.
+- CrunchyScan / Scan-Hentai : le préchargement Playwright devient adaptatif après une instabilité et conserve le réglage prudent pour les chapitres suivants.
+- Erreurs : ajout de `Relancer ERR/CF`, qui relance uniquement les éléments en échec et laisse le mécanisme de renouvellement de cookie intervenir si nécessaire.
+- Téléchargement : les mesures `Lecture`, `CBZ` et `Total` sont visibles pour le chapitre terminé.
+- Preview : les visual novels signalent explicitement les pages texte rendues.
+
 ## [11.18.29] - 2026-07-13
 
 ### Ameliorations

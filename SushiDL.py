@@ -802,6 +802,46 @@ def clear_reader_blob_stage_for_urls(urls):
                 pass
 
 
+def get_reader_blob_stage_stats(max_age_seconds=None):
+    """Retourne le nombre et la taille des checkpoints lecteur locaux."""
+    stats = {"chapters": 0, "files": 0, "bytes": 0, "stale_chapters": []}
+    if not READER_BLOB_STAGE_PATH.exists():
+        return stats
+    now = time.time()
+    try:
+        for child in READER_BLOB_STAGE_PATH.iterdir():
+            if not child.is_dir() or not re.fullmatch(r"[0-9a-f]{24}", child.name):
+                continue
+            stats["chapters"] += 1
+            try:
+                if max_age_seconds and now - child.stat().st_mtime >= float(max_age_seconds):
+                    stats["stale_chapters"].append(child)
+            except OSError:
+                continue
+            for item in child.glob("*.bin"):
+                try:
+                    stats["files"] += 1
+                    stats["bytes"] += item.stat().st_size
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return stats
+
+
+def cleanup_reader_blob_stages(max_age_seconds=172800):
+    """Supprime uniquement les checkpoints de lecteurs inactifs depuis le délai demandé."""
+    stats = get_reader_blob_stage_stats(max_age_seconds=max_age_seconds)
+    removed = 0
+    for path in stats["stale_chapters"]:
+        try:
+            remove_tree_safely(path, expected_parent=READER_BLOB_STAGE_PATH)
+            removed += 1
+        except Exception:
+            pass
+    return removed, stats
+
+
 def _text_block_text(block):
     if isinstance(block, dict):
         return normalize_novel_text(block.get("text", ""))
@@ -1110,7 +1150,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.29"
+APP_VERSION = "11.18.30"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2479,6 +2519,7 @@ def new_crunchy_browser_state():
         "playwright": None, "browser": None, "context": None, "page": None,
         "ua": "", "site": "", "persistent": True,
         "partial_blobs": {}, "partial_blob_order": [],
+        "reader_preload_by_link": {}, "reader_preload_by_site": {},
         "completed_reader_chapters": 0,
     }
 
@@ -2787,7 +2828,11 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         if limit >= CRUNCHY_LARGE_CHAPTER_THRESHOLD
         else CRUNCHY_DEFAULT_PRELOAD_WINDOW
     )
-    preload_window = int((state.setdefault("reader_preload_by_link", {}).get(chapter_url) or default_preload_window))
+    preload_window = int(
+        state.setdefault("reader_preload_by_link", {}).get(chapter_url)
+        or state.setdefault("reader_preload_by_site", {}).get(site)
+        or default_preload_window
+    )
     runtime_log(
         f"Playwright {site}: {total} image(s) détectée(s), récupération de {limit} page(s) "
         f"(préchargement {preload_window}).",
@@ -3142,6 +3187,11 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
                 state["completed_reader_chapters"] = 0
             else:
                 state["completed_reader_chapters"] = int(state.get("completed_reader_chapters") or 0) + 1
+                site = get_site_domain_key(link)
+                # Un réglage validé sur un chapitre est réutilisé pour les suivants.
+                current_window = int(state.setdefault("reader_preload_by_link", {}).get(normalize_image_url(link)) or 0)
+                if current_window:
+                    state.setdefault("reader_preload_by_site", {})[site] = current_window
             return result
         except (DownloadCancelled, AuthError):
             raise
@@ -3150,9 +3200,15 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
             if attempt >= CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS:
                 break
             chapter_url = normalize_image_url(link)
-            current_window = int((state.setdefault("reader_preload_by_link", {}).get(chapter_url) or CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW))
+            site = get_site_domain_key(link)
+            current_window = int(
+                state.setdefault("reader_preload_by_link", {}).get(chapter_url)
+                or state.setdefault("reader_preload_by_site", {}).get(site)
+                or CRUNCHY_LARGE_CHAPTER_PRELOAD_WINDOW
+            )
             next_window = max(3, current_window - 2)
             state["reader_preload_by_link"][chapter_url] = next_window
+            state.setdefault("reader_preload_by_site", {})[site] = next_window
             runtime_log(
                 f"Playwright {get_site_domain_key(link)}: contexte lecteur réinitialisé après échec transitoire "
                 f"(reprise {attempt + 1}/{CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS}, préchargement {next_window}).",
@@ -6503,6 +6559,7 @@ def download_volume(
     cover_url=None,
     download_threads=None,
     archive_label=None,
+    perf_callback=None,
 ):
     """Télécharge un volume complet avec gestion de progression et archivage."""
     if cancel_event.is_set():
@@ -6534,6 +6591,13 @@ def download_volume(
                 )
             except Exception as cb_exc:
                 logger(f"Erreur callback erreurs tome: {cb_exc}", level="debug")
+
+    def report_perf(phase, started_at):
+        if callable(perf_callback):
+            try:
+                perf_callback(phase, max(0.0, time.perf_counter() - started_at))
+            except Exception:
+                pass
 
     def infer_ext(page_url):
         parsed_path = (urlparse(normalize_image_url(page_url)).path or "").lower()
@@ -6802,6 +6866,7 @@ def download_volume(
         if not cbz_enabled:
             logger(f"CBZ desactive pour {clean_tome}: images conservees.", level="info")
             log_perf(logger, "volume termine", volume_started_at, tome=tome_label, cbz=False)
+            report_perf("Total", volume_started_at)
             return True
 
         archive_started_at = time.perf_counter()
@@ -6882,6 +6947,8 @@ def download_volume(
             logger(f"CBZ créé : {cbz_path} ({size_mb} MB)", level="cbz")
             log_perf(logger, "archive cbz", archive_started_at, tome=tome_label, taille=f"{size_mb} MB")
             log_perf(logger, "volume termine", volume_started_at, tome=tome_label, cbz=True)
+            report_perf("CBZ", archive_started_at)
+            report_perf("Total", volume_started_at)
             return True
         logger(f"Échec de création CBZ pour {clean_tome}", level="warning")
         report_error("archive_cbz", f"Échec de création CBZ pour {clean_tome}")
@@ -7514,7 +7581,7 @@ class MangaApp:
             self.progress_bar.set(safe_percent / 100.0)
         self.progress_label.configure(text=label_text)
 
-    def _set_current_volume_ui(self, volume_label=None):
+    def _set_current_volume_ui(self, volume_label=None, link=None, completed=False):
         if not hasattr(self, "current_volume_status_label"):
             return
         label = (volume_label or "").strip()
@@ -7524,10 +7591,23 @@ class MangaApp:
             text = f"{label} en cours"
         else:
             text = f"Tome/Chapitre {label} en cours"
+        metrics = (getattr(self, "volume_perf_by_url", {}) or {}).get(link or "", {})
+        if metrics:
+            details = " · ".join(f"{name} {value:.1f}s" for name, value in metrics.items())
+            text = f"{label}{' terminé' if completed else ' en cours'} · {details}"
         if text == self.last_current_volume_text_ui:
             return
         self.last_current_volume_text_ui = text
         self.current_volume_status_label.configure(text=text)
+
+    def _record_volume_perf(self, link, phase, elapsed):
+        if not link:
+            return
+        values = self.volume_perf_by_url.setdefault(link, {})
+        values[str(phase)] = max(0.0, float(elapsed or 0.0))
+        if len(values) > 4:
+            for key in list(values)[:-4]:
+                values.pop(key, None)
 
     def _set_queue_runtime_status_ui(self, queue_index, queue_total, title, item_index=None, item_total=None, state=""):
         """Affiche l'élément actif de la file sans masquer le catalogue rendu."""
@@ -7587,6 +7667,8 @@ class MangaApp:
                 self.invert_button.configure(state="disabled")
             if hasattr(self, "master_toggle_button"):
                 self.master_toggle_button.configure(state="disabled")
+            if hasattr(self, "retry_errors_button"):
+                self.retry_errors_button.configure(state="disabled")
             self._style_clear_filter_button(disabled=True)
             self._set_workflow_step("download", "Téléchargement en cours...")
         else:
@@ -7606,6 +7688,8 @@ class MangaApp:
                 self.invert_button.configure(state="normal")
             if hasattr(self, "master_toggle_button"):
                 self.master_toggle_button.configure(state="normal")
+            if hasattr(self, "retry_errors_button"):
+                self.retry_errors_button.configure(state="normal")
             self._style_clear_filter_button(disabled=False)
             if hasattr(self, "set_filter_placeholder") and not self.filter_text.get().strip():
                 self.set_filter_placeholder()
@@ -8069,7 +8153,11 @@ class MangaApp:
         state["index"] = current_index
         self.preview_header_label.configure(text=state.get("title") or "Prévisualisation")
         self.preview_count_label.configure(text=f"{current_index + 1}/{len(images)}")
-        self.preview_status_label.configure(text=f"{len(images)} page(s) chargée(s)")
+        text_pages = sum(1 for url in state.get("urls") or [] if is_text_page_url(url))
+        status = f"{len(images)} page(s) chargée(s)"
+        if text_pages:
+            status += " · aperçu texte rendu"
+        self.preview_status_label.configure(text=status)
         self.preview_prev_button.configure(state=("normal" if current_index > 0 else "disabled"))
         self.preview_next_button.configure(state=("normal" if current_index < len(images) - 1 else "disabled"))
         image = images[current_index]
@@ -11824,6 +11912,7 @@ class MangaApp:
         self.pairs = []
         self.volume_existing_cbz_indices = set()
         self.volume_runtime_status_by_url = {}
+        self.volume_perf_by_url = {}
         self.title = ""
         self.source_title_var = tk.StringVar(value="Manga/Manhwa/Comics...")
         self.cancel_event = threading.Event()
@@ -12427,8 +12516,10 @@ class MangaApp:
                 (action or "").strip() or recommend_action_for_failure(status_code, reason)
             ),
         }
+        normalized_reason = re.sub(r"https?://\S+", "<url>", entry["reason"])
+        normalized_reason = re.sub(r"image \d+/\d+", "image <n>/<total>", normalized_reason)
         entry["key"] = "\x1f".join(
-            str(entry.get(part) or "")
+            str(normalized_reason if part == "reason" else entry.get(part) or "")
             for part in ("tome", "stage", "status_code", "reason", "action")
         )
         entry["occurrences"] = 1
@@ -12477,6 +12568,24 @@ class MangaApp:
         self.error_row_widgets = []
         self.error_row_by_key = {}
         self.run_on_ui(self._update_error_tab_title, False)
+
+    def retry_failed_volumes(self):
+        """Sélectionne et relance uniquement les éléments marqués ERR ou CF."""
+        if getattr(self, "download_in_progress", False):
+            self.toast("Un téléchargement est déjà en cours.")
+            return
+        statuses = getattr(self, "volume_runtime_status_by_url", {}) or {}
+        targets = {link for link, status in statuses.items() if str(status).upper() in {"ERR", "CF"}}
+        if not targets:
+            self.log("Aucun élément ERR/CF à relancer.", level="info")
+            self.toast("Aucun ERR/CF à relancer")
+            return
+        for (_label, link), variable in zip(getattr(self, "pairs", []) or [], getattr(self, "check_vars", []) or []):
+            variable.set(link in targets)
+        self._set_volume_status_filter("Tous")
+        self._update_selection_status()
+        self.log(f"Relance ciblée préparée : {len(targets)} élément(s) ERR/CF.", level="info")
+        self.download_selected()
 
     def export_volume_errors(self):
         if not self.volume_error_entries:
@@ -13766,6 +13875,7 @@ class MangaApp:
         save_row.grid(row=1, column=0, sticky="nsew", pady=(6, 0))
         save_row.grid_columnconfigure(0, weight=1)
         save_row.grid_columnconfigure(1, weight=1)
+        save_row.grid_columnconfigure(2, weight=1)
 
         logs_box = ctk.CTkFrame(
             options_groups,
@@ -13815,7 +13925,20 @@ class MangaApp:
             border_color=self.palette["border"],
             text_color=self.palette["text"],
             font=("Segoe UI Semibold", 10),
-        ).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        ).grid(row=0, column=1, sticky="ew", padx=4)
+        ctk.CTkButton(
+            save_row,
+            text="Nettoyer reprises",
+            command=self.cleanup_reader_checkpoints,
+            height=34,
+            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+            font=("Segoe UI Semibold", 10),
+        ).grid(row=0, column=2, sticky="ew", padx=(4, 0))
 
         def add_option_line(parent, text, variable, description, command=None, bottom=6):
             line = ctk.CTkFrame(
@@ -14524,6 +14647,21 @@ class MangaApp:
             font=button_font,
         )
         self.error_count_badge.pack(side="left", padx=(0, 10))
+        self.retry_errors_button = ctk.CTkButton(
+            error_actions,
+            text="Relancer ERR/CF",
+            command=self.retry_failed_volumes,
+            width=132,
+            height=compact_button_h,
+            corner_radius=6,
+            fg_color=self.palette["accent_soft"],
+            hover_color="#dce9f7",
+            text_color=self.palette["accent_hover"],
+            border_width=1,
+            border_color=self.palette["border"],
+            font=button_font,
+        )
+        self.retry_errors_button.pack(side="right", padx=(6, 0))
         for label, command in (
             ("Exporter", self.export_volume_errors),
             ("Copier", self.copy_volume_errors),
@@ -15265,6 +15403,12 @@ class MangaApp:
                     extraction_progress=reader_extraction_progress if domain in ("crunchyscan", "scanhentai") else None,
                 )
                 log_perf(self.log, "extraction images", extraction_started_at, tome=safe_volume, images=len(images))
+                self.run_on_ui(
+                    self._record_volume_perf,
+                    safe_link,
+                    "Lecture",
+                    time.perf_counter() - extraction_started_at,
+                )
                 return cookie, ua, images
             except DownloadCancelled:
                 raise
@@ -15644,6 +15788,7 @@ class MangaApp:
             self.cover_url = ""
             self.volume_existing_cbz_indices = set(existing_indices or set())
             self.volume_runtime_status_by_url = {}
+            self.volume_perf_by_url = {}
             self.catalog_state_summary = {}
             self.filter_text.set("")
             self.filter_placeholder_active = False
@@ -15758,7 +15903,7 @@ class MangaApp:
                     for item_index, (_pair_index, vol, link) in enumerate(selected_pairs, start=1):
                         if self.cancel_event.is_set():
                             break
-                        self.run_on_ui(self._set_current_volume_ui, vol)
+                        self.run_on_ui(self._set_current_volume_ui, vol, link)
                         self.run_on_ui(
                             update_queue_item_ui,
                             queue_index,
@@ -15898,6 +16043,9 @@ class MangaApp:
                             cover_url=cover_url,
                             download_threads=queue_threads,
                             archive_label=archive_label,
+                            perf_callback=lambda phase, elapsed, current_link=link: self.run_on_ui(
+                                self._record_volume_perf, current_link, phase, elapsed
+                            ),
                         )
                         if result is False:
                             self.log(f"File: élément non finalisé: {vol}", level="warning")
@@ -16717,7 +16865,7 @@ class MangaApp:
                 domain = self.get_domain_from_url(link)
                 cookie = self.get_cookie(link)
                 self.run_on_ui(self.root.title, f"SushiDL - {vol}")
-                self.run_on_ui(self._set_current_volume_ui, vol)
+                self.run_on_ui(self._set_current_volume_ui, vol, link)
                 self.run_on_ui(self._set_volume_runtime_status, link, "DL")
 
                 if not cookie and domain in COOKIE_DOMAINS:
@@ -16887,6 +17035,9 @@ class MangaApp:
                         cover_url=getattr(self, "cover_url", ""),
                         download_threads=download_threads,
                         archive_label=get_archive_label_for_link(vol, link, getattr(self, "volume_meta_by_url", {}) or {}),
+                        perf_callback=lambda phase, elapsed, current_link=link: self.run_on_ui(
+                            self._record_volume_perf, current_link, phase, elapsed
+                        ),
                     )
                     if dl_result is None and self.cancel_event.is_set():
                         break
@@ -16912,6 +17063,7 @@ class MangaApp:
                             failed.append((vol, link))
                     else:
                         self.run_on_ui(self._set_volume_runtime_status, link, "OK")
+                        self.run_on_ui(self._set_current_volume_ui, vol, link, True)
                         self.run_on_ui(self._set_progress_ui, 100)
                         elapsed = max(0.0, time.time() - volume_start)
                         completed_volume_durations.append(elapsed)
@@ -16952,7 +17104,7 @@ class MangaApp:
                 for vol, link in failed:
                     if self.cancel_event.is_set():
                         break
-                    self.run_on_ui(self._set_current_volume_ui, vol)
+                    self.run_on_ui(self._set_current_volume_ui, vol, link)
                     try:
                         cookie, ua, images = self.get_images_with_cookie_recovery(
                             link,
@@ -17013,6 +17165,9 @@ class MangaApp:
                             cover_url=getattr(self, "cover_url", ""),
                             download_threads=download_threads,
                             archive_label=get_archive_label_for_link(vol, link, getattr(self, "volume_meta_by_url", {}) or {}),
+                            perf_callback=lambda phase, elapsed, current_link=link: self.run_on_ui(
+                                self._record_volume_perf, current_link, phase, elapsed
+                            ),
                         )
                         if retry_result is False:
                             if not retry_error_state["reported"]:
@@ -17134,6 +17289,32 @@ class MangaApp:
             level="success",
         )
         self.toast("Cache vidé")
+
+    def cleanup_reader_checkpoints(self):
+        """Supprime les reprises blob abandonnées depuis plus de deux jours."""
+        if getattr(self, "download_in_progress", False):
+            self.toast("Attends la fin du téléchargement avant le nettoyage.")
+            return
+        stats = get_reader_blob_stage_stats(max_age_seconds=172800)
+        size_mb = stats["bytes"] / (1024 * 1024)
+        stale = len(stats["stale_chapters"])
+        if stale <= 0:
+            self.log(
+                f"Reprises lecteur : {stats['chapters']} chapitre(s), {size_mb:.1f} MB. Aucun checkpoint ancien à supprimer.",
+                level="info",
+            )
+            self.toast("Aucun checkpoint ancien")
+            return
+        if not self.ask_yes_no(
+            "Nettoyer les reprises lecteur",
+            f"{stats['chapters']} checkpoint(s) occupent {size_mb:.1f} MB.\n\n"
+            f"Supprimer les {stale} checkpoint(s) inactifs depuis plus de 48 heures ?\n"
+            "Les reprises récentes restent disponibles.",
+        ):
+            return
+        removed, _stats = cleanup_reader_blob_stages(max_age_seconds=172800)
+        self.log(f"Nettoyage reprises lecteur : {removed} checkpoint(s) supprimé(s).", level="success")
+        self.toast(f"{removed} reprise(s) supprimée(s)")
 
 
 class SushiCliBackend:
