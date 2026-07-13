@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.27`
+Version actuelle : `11.18.28`
 
 ## Ce qui change sur `main`
 
@@ -34,6 +34,7 @@ Concretement :
   - barre d'actions,
   - progression runtime
 - rendu dense optimise et virtualise pour les gros catalogues
+- filtre d'état des chapitres : `Tous`, `DL`, `OK`, `ERR` et `CF`
 - popup de preview rapide `3 a 5` pages depuis le listing
 - indicateurs de chargement pendant l'analyse, le rendu de liste et la preview
 - generation optionnelle de `ComicInfo.xml` dans les archives CBZ pour Komga
@@ -49,6 +50,8 @@ Concretement :
 - Playwright CrunchyScan / Scan-Hentai est invisible pendant les téléchargements; seul le repli manuel ouvre le navigateur habituel après une détection Cloudflare
 - les images lazy CrunchyScan / Scan-Hentai disposent d'une récupération lente ciblée avant toute réinitialisation complète du lecteur, pour fiabiliser les chapitres hétérogènes
 - après un échec lecteur CrunchyScan / Scan-Hentai, les blobs déjà extraits sont conservés temporairement pour reprendre au point d'arrêt lors du retry
+- le contexte Playwright CrunchyScan / Scan-Hentai est recyclé préventivement après quelques chapitres pour limiter les blocages cumulés
+- une file interrompue est proposée à la reprise au prochain lancement; seuls les URLs restantes et le dossier de sortie sont mémorisés
 - l'analyse vérifie le dossier de destination courant et désélectionne par défaut les chapitres dont le CBZ final existe déjà
 - la grille Canvas affiche un badge vert `OK` sur les chapitres déjà archivés, afin de distinguer visuellement leur désélection automatique
 - la fenêtre de renouvellement CrunchyScan / Scan-Hentai présente des champs séparés pour `cf_clearance`, `crunchyscan_session` et `XSRF-TOKEN`, avec collage d'un header Cookie complet pris en charge

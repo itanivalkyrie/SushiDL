@@ -1110,7 +1110,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.27"
+APP_VERSION = "11.18.28"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1154,6 +1154,7 @@ CRUNCHY_DEFAULT_PRELOAD_WINDOW = 6
 CRUNCHY_BLOB_FINAL_FETCH_TIMEOUT_MS = 6000
 CRUNCHY_BLOB_EVALUATION_TIMEOUT_MS = 15000
 CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS = 4
+CRUNCHY_READER_CONTEXT_RECYCLE_CHAPTERS = 3
 COOKIE_DOMAINS = (
     "fr",
     "net",
@@ -1176,6 +1177,7 @@ CONFIG_PATH = BASE_DIR / "config.json"  # Configuration globale de l'application
 ANALYSIS_CACHE_PATH = BASE_DIR / "analysis_cache.json"
 CATALOG_STATE_PATH = BASE_DIR / "catalog_state.json"
 WATCHLIST_PATH = BASE_DIR / "watchlist.json"
+DOWNLOAD_QUEUE_STATE_PATH = BASE_DIR / "download_queue.json"
 ANALYSIS_CACHE_LOCK = threading.Lock()
 ANALYSIS_CACHE_MEMORY = None
 ANALYSIS_CACHE_SCHEMA_VERSION = 6
@@ -1311,6 +1313,46 @@ def _write_json_file(path, data):
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp_path, path)
+
+
+def load_download_queue_state():
+    """Charge une file interrompue, sans y conserver de donnée sensible."""
+    try:
+        with DOWNLOAD_QUEUE_STATE_PATH.open("r", encoding="utf-8-sig") as handle:
+            data = json.load(handle)
+        urls = []
+        for raw_url in data.get("urls") or []:
+            safe_url = str(raw_url or "").strip()
+            if safe_url and is_valid_catalogue_url(safe_url) and safe_url not in urls:
+                urls.append(safe_url)
+        output_root = str(data.get("output_root") or "").strip()
+        return {"urls": urls, "output_root": output_root}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {"urls": [], "output_root": ""}
+
+
+def save_download_queue_state(urls, output_root):
+    """Sauvegarde les sources restantes pour une reprise explicite au prochain lancement."""
+    safe_urls = []
+    for raw_url in urls or []:
+        safe_url = str(raw_url or "").strip()
+        if safe_url and is_valid_catalogue_url(safe_url) and safe_url not in safe_urls:
+            safe_urls.append(safe_url)
+    if not safe_urls:
+        clear_download_queue_state()
+        return
+    _write_json_file(
+        DOWNLOAD_QUEUE_STATE_PATH,
+        {"schema_version": 1, "urls": safe_urls, "output_root": os.path.abspath(output_root or ROOT_FOLDER)},
+    )
+
+
+def clear_download_queue_state():
+    try:
+        if DOWNLOAD_QUEUE_STATE_PATH.exists():
+            DOWNLOAD_QUEUE_STATE_PATH.unlink()
+    except OSError:
+        pass
 
 
 def set_private_file_permissions(path):
@@ -2437,6 +2479,7 @@ def new_crunchy_browser_state():
         "playwright": None, "browser": None, "context": None, "page": None,
         "ua": "", "site": "", "persistent": True,
         "partial_blobs": {}, "partial_blob_order": [],
+        "completed_reader_chapters": 0,
     }
 
 
@@ -3065,6 +3108,16 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
 
 def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None, cancel_event=None, progress_callback=None):
     """Récupère un chapitre et reprend les blobs après plusieurs contextes instables."""
+    completed_chapters = int(state.get("completed_reader_chapters") or 0)
+    if completed_chapters >= CRUNCHY_READER_CONTEXT_RECYCLE_CHAPTERS:
+        site = get_site_domain_key(link)
+        runtime_log(
+            f"Playwright {site}: recyclage préventif du contexte après {completed_chapters} chapitre(s).",
+            level="debug",
+            context={"action": "playwright_recycle", "domain": site},
+        )
+        reset_crunchy_browser_context(state)
+        state["completed_reader_chapters"] = 0
     last_error = None
     for attempt in range(1, CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS + 1):
         try:
@@ -3084,6 +3137,9 @@ def fetch_crunchy_reader_blobs_in_state(state, link, cookie, ua, max_images=None
                     context={"action": "playwright_isolate", "domain": get_site_domain_key(link)},
                 )
                 reset_crunchy_browser_context(state)
+                state["completed_reader_chapters"] = 0
+            else:
+                state["completed_reader_chapters"] = int(state.get("completed_reader_chapters") or 0) + 1
             return result
         except (DownloadCancelled, AuthError):
             raise
@@ -9052,10 +9108,35 @@ class MangaApp:
     def _compute_filtered_volume_indices(self, raw_filter=None):
         raw = self._get_active_volume_filter_text() if raw_filter is None else (raw_filter or "").strip().lower()
         labels = getattr(self, "volume_label_cache_lower", None) or [str(vol or "").lower() for vol, _link in getattr(self, "pairs", []) or []]
+        requested_status = self.volume_status_filter.get().strip().upper() if hasattr(self, "volume_status_filter") else "TOUS"
+        runtime_statuses = getattr(self, "volume_runtime_status_by_url", {}) or {}
+        existing_indices = set(getattr(self, "volume_existing_cbz_indices", set()) or set())
         return [
             index for index, label in enumerate(labels)
             if self._volume_matches_filter(label, raw)
+            and (
+                requested_status == "TOUS"
+                or (
+                    runtime_statuses.get(((self.pairs or [])[index][1] or "").strip(), "")
+                    or ("OK" if index in existing_indices else "")
+                ) == requested_status
+            )
         ]
+
+    def _set_volume_status_filter(self, value="Tous"):
+        """Filtre la grille par état sans modifier les sélections."""
+        self.volume_status_filter.set(value or "Tous")
+        self.last_applied_filter_raw = None
+        if getattr(self, "volume_virtualized", False):
+            self.filtered_volume_indices = self._compute_filtered_volume_indices()
+            self.volume_virtual_window = None
+            self.volume_grouped_virtual_rows_cache_key = None
+            self.volume_grouped_virtual_rows_cache = []
+            self._refresh_virtualized_volume_view(force=True, reset_scroll=True)
+            self._update_selection_status()
+            self._refresh_volume_empty_state()
+            return
+        self.apply_filter()
 
     def _schedule_virtual_volume_refresh(self, delay_ms=60, force=False, reset_scroll=False):
         if not getattr(self, "volume_virtualized", False):
@@ -11612,6 +11693,7 @@ class MangaApp:
         self.runtime_status = tk.StringVar(value="Prêt.")
         self.log_filter_level = tk.StringVar(value="all")
         self.volume_layout_mode = tk.StringVar(value="Dense")
+        self.volume_status_filter = tk.StringVar(value="Tous")
         self.log_autoscroll = tk.BooleanVar(value=True)
         self.watchlist_url = tk.StringVar()
         self.watchlist_status = tk.StringVar(value="Aucune vérification lancée.")
@@ -14013,6 +14095,22 @@ class MangaApp:
         self.clear_filter_button.bind("<Enter>", self.on_clear_filter_enter)
         self.clear_filter_button.bind("<Leave>", self.on_clear_filter_leave)
 
+        self.volume_status_filter_menu = ctk.CTkOptionMenu(
+            left_group,
+            values=["Tous", "DL", "OK", "ERR", "CF"],
+            variable=self.volume_status_filter,
+            command=self._set_volume_status_filter,
+            width=94,
+            height=button_h,
+            corner_radius=6,
+            fg_color=self.palette["panel_bg"],
+            button_color=self.palette["accent"],
+            button_hover_color=self.palette["accent_hover"],
+            text_color=self.palette["text"],
+            font=button_font,
+        )
+        self.volume_status_filter_menu.pack(side="left", padx=(0, 10))
+
         action_group = ctk.CTkFrame(left_group, fg_color="transparent")
         action_group.pack(side="left", padx=(0, 10))
 
@@ -15274,6 +15372,8 @@ class MangaApp:
 
     def open_download_queue_dialog(self):
         """Ouvre une file d'attente simple: une URL catalogue par ligne."""
+        pending_queue = load_download_queue_state()
+        pending_urls = list(pending_queue.get("urls") or [])
         window = ctk.CTkToplevel(self.root)
         window.title("File d'attente")
         window.geometry("760x520")
@@ -15294,7 +15394,11 @@ class MangaApp:
         ).grid(row=0, column=0, sticky="ew")
         ctk.CTkLabel(
             header_frame,
-            text="Une URL catalogue par ligne. SushiDL analysera chaque source et téléchargera tous les éléments non premium.",
+            text=(
+                "Reprise disponible : les URLs restantes sont préremplies."
+                if pending_urls
+                else "Une URL catalogue par ligne. SushiDL analysera chaque source et téléchargera tous les éléments non premium."
+            ),
             text_color=self.palette["muted"],
             font=("Segoe UI", 10),
             anchor="w",
@@ -15312,10 +15416,19 @@ class MangaApp:
         )
         urls_box.grid(row=1, column=0, sticky="nsew", padx=18, pady=(0, 10))
         current_url = self.url.get().strip()
-        if current_url:
-            urls_box.insert("1.0", current_url + "\n")
+        initial_urls = list(pending_urls)
+        if current_url and current_url not in initial_urls:
+            initial_urls.append(current_url)
+        if initial_urls:
+            urls_box.insert("1.0", "\n".join(initial_urls) + "\n")
 
-        output_var = tk.StringVar(value=getattr(self, "download_output_root", "") or os.path.abspath(ROOT_FOLDER))
+        output_var = tk.StringVar(
+            value=(
+                pending_queue.get("output_root")
+                or getattr(self, "download_output_root", "")
+                or os.path.abspath(ROOT_FOLDER)
+            )
+        )
         output_row = ctk.CTkFrame(window, fg_color="transparent")
         output_row.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 10))
         output_row.grid_columnconfigure(1, weight=1)
@@ -15395,6 +15508,7 @@ class MangaApp:
         self._set_progress_ui(0)
         self._set_current_volume_ui(None)
         os.makedirs(output_root, exist_ok=True)
+        save_download_queue_state(clean_urls, output_root)
 
         cbz_enabled = self.cbz_enabled.get()
         comicinfo_enabled = self.comicinfo_enabled.get()
@@ -15472,6 +15586,7 @@ class MangaApp:
                 for queue_index, source_url in enumerate(clean_urls, start=1):
                     if self.cancel_event.is_set():
                         break
+                    save_download_queue_state(clean_urls[queue_index - 1:], output_root)
                     domain = self.get_domain_from_url(source_url)
                     cookie = self.get_cookie(source_url)
                     ua_for_url = self.get_request_user_agent_for_url(source_url)
@@ -15723,6 +15838,7 @@ class MangaApp:
                 if self.cancel_event.is_set():
                     self.log("File d'attente annulée.", level="warning")
                 else:
+                    clear_download_queue_state()
                     self.log("File d'attente terminée.", level="success")
             finally:
                 self.download_in_progress = False
@@ -16873,15 +16989,15 @@ class MangaApp:
             self.log(f"Erreur sauvegarde: {e}", level="error")
 
     def clear_application_cache(self):
-        """Vide les caches non sensibles sans toucher aux cookies, au suivi ou aux CBZ."""
+        """Vide les caches non sensibles, le suivi et les reprises, sans toucher aux cookies ni aux CBZ."""
         if getattr(self, "download_in_progress", False):
             self.toast("Attends la fin du téléchargement avant de vider le cache.")
             self.log("Vidage cache refusé pendant un téléchargement actif.", level="warning")
             return
         if not self.ask_yes_no(
             "Vider le cache",
-            "Supprimer les analyses mémorisées, aperçus, URLs d'images et reprises de blobs ?\n\n"
-            "Les cookies, le profil navigateur et les téléchargements ne seront pas modifiés.",
+            "Supprimer les analyses mémorisées, le suivi, les aperçus, URLs d'images et reprises de blobs ?\n\n"
+            "Les cookies, le profil navigateur et les téléchargements CBZ ne seront pas modifiés.",
         ):
             return
         global ANALYSIS_CACHE_MEMORY, CATALOG_STATE_MEMORY, WATCHLIST_MEMORY
@@ -17213,17 +17329,19 @@ def run_self_test():
             converted_path.suffix.lower() == ".jpg" and converted_format == "JPEG" and not avif_path.exists(),
         )
 
-    global ANALYSIS_CACHE_PATH, ANALYSIS_CACHE_MEMORY, CATALOG_STATE_PATH, CATALOG_STATE_MEMORY, WATCHLIST_PATH, WATCHLIST_MEMORY
+    global ANALYSIS_CACHE_PATH, ANALYSIS_CACHE_MEMORY, CATALOG_STATE_PATH, CATALOG_STATE_MEMORY, WATCHLIST_PATH, WATCHLIST_MEMORY, DOWNLOAD_QUEUE_STATE_PATH
     old_cache_path = ANALYSIS_CACHE_PATH
     old_cache_memory = ANALYSIS_CACHE_MEMORY
     old_catalog_state_path = CATALOG_STATE_PATH
     old_catalog_state_memory = CATALOG_STATE_MEMORY
     old_watchlist_path = WATCHLIST_PATH
     old_watchlist_memory = WATCHLIST_MEMORY
+    old_download_queue_state_path = DOWNLOAD_QUEUE_STATE_PATH
     with tempfile.TemporaryDirectory() as tmp:
         ANALYSIS_CACHE_PATH = Path(tmp) / "analysis_cache.json"
         CATALOG_STATE_PATH = Path(tmp) / "catalog_state.json"
         WATCHLIST_PATH = Path(tmp) / "watchlist.json"
+        DOWNLOAD_QUEUE_STATE_PATH = Path(tmp) / "download_queue.json"
         ANALYSIS_CACHE_MEMORY = None
         CATALOG_STATE_MEMORY = None
         WATCHLIST_MEMORY = None
@@ -17278,12 +17396,21 @@ def run_self_test():
         watch_entries = get_watchlist_entries_with_state()
         check("watchlist etat enrichi", bool(watch_entries and watch_entries[0].get("last_count") == 2 and watch_entries[0].get("last_new_count") == 1))
         check("watchlist suppression url", remove_watchlist_url("https://sushiscan.net/catalogue/test/") and not get_watchlist_entries_with_state())
+        save_download_queue_state(["https://sushiscan.net/catalogue/test/"], str(Path(tmp) / "output"))
+        queued_state = load_download_queue_state()
+        check(
+            "reprise file attente",
+            queued_state.get("urls") == ["https://sushiscan.net/catalogue/test/"] and bool(queued_state.get("output_root")),
+        )
+        clear_download_queue_state()
+        check("reprise file effacee", not load_download_queue_state().get("urls"))
     ANALYSIS_CACHE_PATH = old_cache_path
     ANALYSIS_CACHE_MEMORY = old_cache_memory
     CATALOG_STATE_PATH = old_catalog_state_path
     CATALOG_STATE_MEMORY = old_catalog_state_memory
     WATCHLIST_PATH = old_watchlist_path
     WATCHLIST_MEMORY = old_watchlist_memory
+    DOWNLOAD_QUEUE_STATE_PATH = old_download_queue_state_path
 
     class FakeResponse:
         status_code = 200

@@ -7,6 +7,16 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.28] - 2026-07-13
+
+### Ameliorations
+- Téléchargement : ajout du filtre de grille `Tous`, `DL`, `OK`, `ERR` et `CF`, utilisable pour suivre un lot en cours.
+- File d'attente : les URLs restantes et le dossier de sortie sont mémorisés; une reprise explicite est proposée au prochain lancement, sans stocker de cookie.
+- Lecteur CrunchyScan / Scan-Hentai : recyclage préventif du contexte Playwright après trois chapitres réussis afin de limiter les blocages cumulés.
+
+### Corrections
+- `Vider le cache` indique désormais clairement qu'il supprime aussi le suivi, comme le faisait déjà son implémentation.
+
 ## [11.18.27] - 2026-07-12
 
 ### Corrections

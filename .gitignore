@@ -5,6 +5,7 @@ cookie_cache.json
 analysis_cache.json
 catalog_state.json
 watchlist.json
+download_queue.json
 scanmanga-fetch-result.json
 DL SushiScan/
 *.log
