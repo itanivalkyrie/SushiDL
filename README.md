@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.31`
+Version actuelle : `11.18.32`
 
 ## Ce qui change sur `main`
 
@@ -54,6 +54,7 @@ Concretement :
 - une file interrompue est proposée à la reprise au prochain lancement; seuls les URLs restantes et le dossier de sortie sont mémorisés
 - les chapitres interrompus conservent leurs URLs déjà extraites dans leur dossier de travail, ce qui évite de rouvrir le lecteur lors d'une reprise locale quand les données sont encore disponibles
 - la file mémorise aussi l'état de chaque catalogue restant (`analyse`, `DL`, `ERR`) et conserve les catalogues en erreur pour une reprise ultérieure
+- la fenêtre de file permet de recharger uniquement les catalogues `ERR`; les CBZ sont validés contre le nombre d'images du dossier avant d'être considérés terminés
 - un garde-fou vérifie l'espace disque disponible avant chaque chapitre et un léger ralentissement adaptatif protège les gros lots après des erreurs
 - l'analyse vérifie le dossier de destination courant et désélectionne par défaut les chapitres dont le CBZ final existe déjà
 - la grille Canvas affiche un badge vert `OK` sur les chapitres déjà archivés, afin de distinguer visuellement leur désélection automatique

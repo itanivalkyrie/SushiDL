@@ -1186,7 +1186,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.31"
+APP_VERSION = "11.18.32"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -3577,7 +3577,7 @@ def remove_tree_safely(folder_path, expected_parent=None):
         shutil.rmtree(target)
 
 
-def archive_cbz(folder_path, title, volume, remove_source=True):
+def archive_cbz(folder_path, title, volume, remove_source=True, expected_image_count=None):
     """
     Crée une archive CBZ à partir d'un dossier d'images
     
@@ -3632,6 +3632,17 @@ def archive_cbz(folder_path, title, volume, remove_source=True):
                 if name.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".avif"))
             ]
             if not image_members:
+                try:
+                    os.remove(tmp_cbz_name)
+                except OSError:
+                    pass
+                return False
+            if expected_image_count is not None and len(image_members) < int(expected_image_count):
+                runtime_log(
+                    f"Validation CBZ incomplète: {len(image_members)}/{int(expected_image_count)} images.",
+                    level="warning",
+                    context={"action": "archive_cbz"},
+                )
                 try:
                     os.remove(tmp_cbz_name)
                 except OSError:
@@ -6989,7 +7000,14 @@ def download_volume(
                     level="warning",
                 )
 
-        if archive_cbz(folder, title, archive_tome_label, remove_source=True):
+        expected_archive_images = count_downloaded_images(folder)
+        if archive_cbz(
+            folder,
+            title,
+            archive_tome_label,
+            remove_source=True,
+            expected_image_count=expected_archive_images,
+        ):
             clear_reader_blob_stage_for_urls(images)
             cbz_path = os.path.join(
                 base_output_dir, clean_title, f"{clean_title} - {clean_archive_tome}.cbz"
@@ -15754,6 +15772,18 @@ class MangaApp:
         actions.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 16))
         actions.grid_columnconfigure(0, weight=1)
 
+        error_urls = [
+            url for url in pending_urls
+            if str((pending_queue.get("states") or {}).get(url, {}).get("status") or "").upper() == "ERR"
+        ]
+
+        def load_error_urls():
+            if not error_urls:
+                self.toast("Aucune source ERR à relancer")
+                return
+            urls_box.delete("1.0", "end")
+            urls_box.insert("1.0", "\n".join(error_urls) + "\n")
+
         def launch_queue():
             raw_urls = [line.strip() for line in urls_box.get("1.0", "end-1c").splitlines()]
             urls = [line for line in raw_urls if line and not line.startswith("#")]
@@ -15765,6 +15795,19 @@ class MangaApp:
             window.destroy()
             self.start_download_queue(urls, output_root)
 
+        ctk.CTkButton(
+            actions,
+            text="Relancer ERR",
+            command=load_error_urls,
+            width=120,
+            height=34,
+            state="normal" if error_urls else "disabled",
+            fg_color=self.palette["panel_bg"],
+            hover_color=self.palette["card_alt"],
+            border_width=1,
+            border_color=self.palette["border"],
+            text_color=self.palette["text"],
+        ).grid(row=0, column=0, sticky="w")
         ctk.CTkButton(
             actions,
             text="Annuler",
@@ -17729,7 +17772,7 @@ def run_self_test():
             "https://sushiscan.net/catalogue/test/chapitre-1/",
             ["https://cdn.example.test/page-001.jpg"],
         )
-        archive_ok = archive_cbz(str(folder), "Title", "Chapitre 1", remove_source=True)
+        archive_ok = archive_cbz(str(folder), "Title", "Chapitre 1", remove_source=True, expected_image_count=3)
         check("archive cbz atomique", archive_ok)
         check("archive source supprimee", not folder.exists())
         check("archive finale presente", (tmp_root / "Title" / "Title - Chapitre 1.cbz").exists())

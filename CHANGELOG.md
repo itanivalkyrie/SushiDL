@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.32] - 2026-07-13
+
+### Ameliorations
+- File d'attente : le bouton `Relancer ERR` recharge uniquement les catalogues restés en erreur.
+- CBZ : avant validation finale, SushiDL vérifie que toutes les images présentes dans le dossier de chapitre ont été intégrées à l'archive.
+
 ## [11.18.31] - 2026-07-13
 
 ### Ameliorations
