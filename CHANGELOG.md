@@ -7,6 +7,15 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.29] - 2026-07-13
+
+### Ameliorations
+- Journal : réduction des messages de progression Playwright pour les longs chapitres, tout en conservant l'avancement réel dans l'interface.
+- Erreurs : les répétitions d'une même erreur sont regroupées avec un compteur; la copie et l'export indiquent aussi le nombre d'occurrences.
+
+### Corrections
+- Erreurs : synchronisation du rendu différé pour éviter les ralentissements et artefacts lors d'une succession importante d'échecs.
+
 ## [11.18.28] - 2026-07-13
 
 ### Ameliorations

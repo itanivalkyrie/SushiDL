@@ -1110,7 +1110,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.28"
+APP_VERSION = "11.18.29"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -2839,7 +2839,9 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     for index in range(len(blobs), limit):
         if cancel_event is not None and cancel_event.is_set():
             raise DownloadCancelled("Téléchargement annulé.")
-        progress_interval = 5 if limit >= CRUNCHY_LARGE_CHAPTER_THRESHOLD else 10
+        # Les gros chapitres génèrent beaucoup de retours Playwright: le statut UI
+        # est déjà cadencé, les logs peuvent donc être plus espacés.
+        progress_interval = 15 if limit >= 120 else 10
         if index == 0 or (index + 1) % progress_interval == 0 or index + 1 == limit:
             runtime_log(
                 f"Playwright {site}: récupération image {index + 1}/{limit}.",
@@ -10220,7 +10222,9 @@ class MangaApp:
     def _update_error_tab_title(self, focus_errors=False):
         if not hasattr(self, "error_tab"):
             return
-        count = len(getattr(self, "volume_error_entries", []) or [])
+        entries = list(getattr(self, "volume_error_entries", []) or [])
+        group_count = len(entries)
+        count = sum(max(1, int(entry.get("occurrences", 1) or 1)) for entry in entries)
         self.error_tab_title = f"Erreurs ({count})"
         if hasattr(self, "error_count_badge"):
             if count > 0:
@@ -10238,21 +10242,22 @@ class MangaApp:
         if hasattr(self, "error_summary_label"):
             if count > 0:
                 categories = {"CF": 0, "blob": 0, "timeout": 0, "HTTP": 0}
-                for entry in getattr(self, "volume_error_entries", []) or []:
+                for entry in entries:
+                    occurrences = max(1, int(entry.get("occurrences", 1) or 1))
                     reason = (entry.get("reason") or "").lower()
                     status = entry.get("status_code")
                     if "cloudflare" in reason or "turnstile" in reason:
-                        categories["CF"] += 1
+                        categories["CF"] += occurrences
                     elif "blob" in reason or "taille=0x0" in reason:
-                        categories["blob"] += 1
+                        categories["blob"] += occurrences
                     elif "délai" in reason or "timeout" in reason:
-                        categories["timeout"] += 1
+                        categories["timeout"] += occurrences
                     elif status:
-                        categories["HTTP"] += 1
+                        categories["HTTP"] += occurrences
                 if count == 1:
                     summary_text = "1 erreur récente capturée. Utilise Copier ou Exporter pour diagnostiquer."
                 else:
-                    summary_text = f"{count} erreurs récentes capturées. Utilise Copier ou Exporter pour diagnostiquer."
+                    summary_text = f"{count} erreurs capturées ({group_count} groupe(s)). Utilise Copier ou Exporter pour diagnostiquer."
                 details = [f"{label} {value}" for label, value in categories.items() if value]
                 if details:
                     summary_text = f"{summary_text}  {' | '.join(details)}"
@@ -11889,9 +11894,14 @@ class MangaApp:
         self.volume_index_to_widget = {}
         self.volume_label_cache_lower = []
         self.volume_error_entries = []
+        self.volume_error_lock = threading.Lock()
+        self.volume_error_by_key = {}
         self.error_row_widgets = []
+        self.error_row_by_key = {}
         self.error_render_pending = []
         self.error_render_scheduled = False
+        self.error_occurrence_refresh_pending = {}
+        self.error_occurrence_refresh_scheduled = False
         self.download_output_root = os.path.abspath(ROOT_FOLDER)
 
         # Configuration de l'interface
@@ -12026,7 +12036,7 @@ class MangaApp:
         context = entry.get("context") if isinstance(entry.get("context"), dict) else {}
         action = str(context.get("action") or "").strip()
         compactable = (
-            action in {"image_retry", "download", "get_images_cache"}
+            action in {"image_retry", "download", "get_images_cache", "playwright_progress"}
             or message.startswith("Progression image:")
             or "Tentative " in message and "échouée" in message
         )
@@ -12044,15 +12054,19 @@ class MangaApp:
             self.gui_log_compact_count = 0
             return entry
 
+        compact_message = re.sub(r"récupération image \d+/\d+", "récupération image <n>/<total>", message)
         key = (
             normalize_log_level(entry.get("level", "info")),
             action,
-            re.sub(r"https?://\S+", "<url>", message),
+            re.sub(r"https?://\S+", "<url>", compact_message),
         )
         previous = getattr(self, "gui_log_compact_entry", None)
         previous_key = previous.get("_compact_key") if isinstance(previous, dict) else None
         now = time.time()
         if previous is not None and previous_key == key and now - float(getattr(self, "gui_log_compact_updated_at", 0.0) or 0.0) < 2.0:
+            # Conserve le dernier avancement utile au lieu de remplir le journal.
+            entry["_compact_key"] = key
+            self.gui_log_compact_entry = entry
             self.gui_log_compact_count = int(getattr(self, "gui_log_compact_count", 1) or 1) + 1
             self.gui_log_compact_updated_at = now
             return None
@@ -12248,6 +12262,7 @@ class MangaApp:
 
         badges = ctk.CTkFrame(header, fg_color="transparent")
         badges.grid(row=0, column=0, sticky="w")
+        occurrence_count = max(1, int(entry.get("occurrences", 1) or 1))
         ctk.CTkLabel(
             badges,
             text=time_value,
@@ -12279,6 +12294,18 @@ class MangaApp:
                 text_color=self.palette["danger_text"],
                 font=("Segoe UI Semibold", 10),
             ).pack(side="left")
+        occurrence_label = ctk.CTkLabel(
+            badges,
+            text=f"x{occurrence_count}",
+            width=42,
+            height=28,
+            corner_radius=8,
+            fg_color=self.palette["warning_soft"],
+            text_color=self.palette["warning_text"],
+            font=("Segoe UI Semibold", 10),
+        )
+        if occurrence_count > 1:
+            occurrence_label.pack(side="left", padx=(8, 0))
 
         ctk.CTkLabel(
             header,
@@ -12331,6 +12358,8 @@ class MangaApp:
             justify="left",
             wraplength=760,
         ).grid(row=1, column=1, sticky="ew", pady=(6, 0))
+        row._error_key = entry.get("key")
+        row._occurrence_label = occurrence_label
         return row
 
     def _append_volume_error_row(self, entry):
@@ -12340,23 +12369,51 @@ class MangaApp:
         row = self._create_error_row_widget(self.error_list_frame, entry, row_index)
         row.pack(fill="x", pady=(0, 10))
         self.error_row_widgets.append(row)
+        entry_key = entry.get("key")
+        if entry_key:
+            self.error_row_by_key[entry_key] = row
         if len(self.error_row_widgets) > MAX_VISIBLE_ERROR_ROWS:
             stale = self.error_row_widgets.pop(0)
+            stale_key = getattr(stale, "_error_key", None)
+            if stale_key:
+                self.error_row_by_key.pop(stale_key, None)
             stale.destroy()
         self._scroll_error_rows_to_end()
 
+    def _refresh_volume_error_occurrence(self, entry):
+        row = getattr(self, "error_row_by_key", {}).get(entry.get("key"))
+        label = getattr(row, "_occurrence_label", None) if row is not None else None
+        if label is not None:
+            count = max(1, int(entry.get("occurrences", 1) or 1))
+            label.configure(text=f"x{count}")
+            if count > 1:
+                label.pack(side="left", padx=(8, 0))
+
+    def _flush_volume_error_occurrences(self):
+        with self.volume_error_lock:
+            entries = list(self.error_occurrence_refresh_pending.values())
+            self.error_occurrence_refresh_pending = {}
+            self.error_occurrence_refresh_scheduled = False
+        for entry in entries:
+            self._refresh_volume_error_occurrence(entry)
+        self._update_error_tab_title(False)
+
     def _flush_volume_error_rows(self):
-        self.error_render_scheduled = False
-        pending = getattr(self, "error_render_pending", [])
-        if not pending:
-            return
-        batch = pending[:ERROR_RENDER_BATCH_SIZE]
-        del pending[:ERROR_RENDER_BATCH_SIZE]
+        with self.volume_error_lock:
+            self.error_render_scheduled = False
+            pending = self.error_render_pending
+            if not pending:
+                return
+            batch = pending[:ERROR_RENDER_BATCH_SIZE]
+            del pending[:ERROR_RENDER_BATCH_SIZE]
         for entry in batch:
             self._append_volume_error_row(entry)
         self._update_error_tab_title(False)
-        if pending:
-            self.error_render_scheduled = True
+        with self.volume_error_lock:
+            has_pending = bool(self.error_render_pending)
+            if has_pending:
+                self.error_render_scheduled = True
+        if has_pending:
             self.root.after(20, self._flush_volume_error_rows)
 
     def add_volume_error(self, tome, stage, reason, status_code=None, action=None):
@@ -12370,24 +12427,55 @@ class MangaApp:
                 (action or "").strip() or recommend_action_for_failure(status_code, reason)
             ),
         }
-        self.volume_error_entries.append(entry)
-        if len(self.volume_error_entries) > 2000:
-            self.volume_error_entries = self.volume_error_entries[-2000:]
-        self.error_render_pending.append(entry)
-        if not self.error_render_scheduled:
-            self.error_render_scheduled = True
+        entry["key"] = "\x1f".join(
+            str(entry.get(part) or "")
+            for part in ("tome", "stage", "status_code", "reason", "action")
+        )
+        entry["occurrences"] = 1
+        existing = None
+        should_refresh_occurrences = False
+        with self.volume_error_lock:
+            existing = self.volume_error_by_key.get(entry["key"])
+            if existing is not None:
+                existing["occurrences"] = max(1, int(existing.get("occurrences", 1) or 1)) + 1
+                existing["time"] = entry["time"]
+                self.error_occurrence_refresh_pending[entry["key"]] = existing
+                should_refresh_occurrences = not self.error_occurrence_refresh_scheduled
+                self.error_occurrence_refresh_scheduled = True
+            else:
+                self.volume_error_entries.append(entry)
+                self.volume_error_by_key[entry["key"]] = entry
+                if len(self.volume_error_entries) > 2000:
+                    stale = self.volume_error_entries.pop(0)
+                    self.volume_error_by_key.pop(stale.get("key"), None)
+                self.error_render_pending.append(entry)
+        if existing is not None:
+            if should_refresh_occurrences:
+                self.run_on_ui(self._flush_volume_error_occurrences)
+            return
+        should_render = False
+        with self.volume_error_lock:
+            if not self.error_render_scheduled:
+                self.error_render_scheduled = True
+                should_render = True
+        if should_render:
             self.run_on_ui(self._flush_volume_error_rows)
 
     def clear_volume_errors(self):
-        self.volume_error_entries = []
-        self.error_render_pending = []
-        self.error_render_scheduled = False
+        with self.volume_error_lock:
+            self.volume_error_entries = []
+            self.volume_error_by_key = {}
+            self.error_render_pending = []
+            self.error_render_scheduled = False
+            self.error_occurrence_refresh_pending = {}
+            self.error_occurrence_refresh_scheduled = False
         for widget in getattr(self, "error_row_widgets", []) or []:
             try:
                 widget.destroy()
             except Exception:
                 pass
         self.error_row_widgets = []
+        self.error_row_by_key = {}
         self.run_on_ui(self._update_error_tab_title, False)
 
     def export_volume_errors(self):
@@ -12407,11 +12495,11 @@ class MangaApp:
         try:
             with open(out_path, "w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(
-                    f, fieldnames=["time", "tome", "stage", "status_code", "reason", "action"]
+                    f, fieldnames=["time", "tome", "stage", "status_code", "occurrences", "reason", "action"]
                 )
                 writer.writeheader()
                 for entry in self.volume_error_entries:
-                    writer.writerow(entry)
+                    writer.writerow({name: entry.get(name, "") for name in writer.fieldnames})
             self.log(f"Erreurs par tome exportées: {out_path}", level="success")
         except Exception as exc:
             self.log(f"Erreur export erreurs par tome: {exc}", level="error")
@@ -12421,7 +12509,7 @@ class MangaApp:
             self.log("Aucune erreur tome à copier.", level="info")
             return
         try:
-            rows = ["Heure\tTome\tÉtape\tHTTP\tCause\tAction recommandée"]
+            rows = ["Heure\tTome\tÉtape\tHTTP\tOccurrences\tCause\tAction recommandée"]
             for entry in self.volume_error_entries:
                 status_code = entry.get("status_code")
                 status_text = "" if status_code in (None, "") else str(status_code)
@@ -12430,6 +12518,7 @@ class MangaApp:
                     str(entry.get("tome", "")),
                     str(entry.get("stage", "")),
                     status_text,
+                    str(entry.get("occurrences", 1) or 1),
                     str(entry.get("reason", "")),
                     str(entry.get("action", "")),
                 ]
