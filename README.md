@@ -45,7 +45,8 @@ Concretement :
 - ralentissement automatique des threads sur erreurs serveur/rate-limit
 - support Scan-Manga avec analyse catalogue, métadonnées, preview et téléchargement CBZ
 - récupération des images Scan-Manga exclusivement via Playwright pour contourner le blocage Cloudflare des URLs `data*.scan-manga.com` et `cdn.scan-manga.com`
-- support CrunchyScan et Scan-Hentai avec cookies dédiés, analyse catalogue, couvertures et téléchargement CBZ
+- support de `crunchyscan.org` (en remplacement de `crunchyscan.fr`) et de `scan-hentai.net`, avec cookies dédiés, analyse catalogue, couvertures et téléchargement CBZ
+- les URL CrunchyScan acceptées utilisent désormais `https://crunchyscan.org/lecture-en-ligne/<slug>`; le challenge Cloudflare reste présent et nécessite les cookies de session du domaine `.org`
 - récupération CrunchyScan / Scan-Hentai via Playwright obligatoire : le lecteur expose des blobs chiffrés générés côté navigateur, donc SushiDL réutilise une session navigateur unique au lieu de tenter des téléchargements directs lents et bruyants
 - Playwright CrunchyScan / Scan-Hentai est invisible pendant les téléchargements; seul le repli manuel ouvre le navigateur habituel après une détection Cloudflare
 - les images lazy CrunchyScan / Scan-Hentai disposent d'une récupération lente ciblée avant toute réinitialisation complète du lecteur, pour fiabiliser les chapitres hétérogènes
@@ -188,6 +189,13 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.18.33
+- CrunchyScan :
+  - remplacement de `crunchyscan.fr` par `crunchyscan.org` dans la validation des URL, les catalogues, les chapitres, les cookies Playwright, les sondes d'authentification et `ComicInfo.xml`,
+  - migration automatique de l'ancien lien CrunchyScan livré dans `config.json`,
+  - maintien de la validation manuelle du challenge Cloudflare à l'entrée du site,
+  - validation du catalogue et du lecteur sur les captures HTML de Dragon Daily, avec 67 chapitres détectés et prise en charge des images `blob:` du chapitre 67.
 
 ### 11.16.4
 - CrunchyScan / Scan-Hentai :
