@@ -7,6 +7,12 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.33] - 2026-09-03
+
+### Corrections
+- CrunchyScan : migration de `crunchyscan.fr` vers `crunchyscan.org` pour les catalogues, chapitres, cookies, sondes d'authentification et métadonnées ComicInfo.
+- CrunchyScan : validation du parseur sur les captures HTML réelles de Dragon Daily (catalogue et chapitre 67), dont le lecteur conserve ses images `blob:`.
+
 ## [11.18.32] - 2026-07-13
 
 ### Ameliorations

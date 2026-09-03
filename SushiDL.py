@@ -366,8 +366,8 @@ def get_supported_site_from_host(host):
         return "hentaizone.xyz"
     if value == "scan-manga.com" or value.endswith(".scan-manga.com"):
         return "scan-manga.com"
-    if value == "crunchyscan.fr" or value.endswith(".crunchyscan.fr"):
-        return "crunchyscan.fr"
+    if value == "crunchyscan.org" or value.endswith(".crunchyscan.org"):
+        return "crunchyscan.org"
     if value == "scan-hentai.net" or value.endswith(".scan-hentai.net"):
         return "scan-hentai.net"
     return ""
@@ -422,7 +422,7 @@ def get_cookie_domain_from_host(host):
         "ortegascans.fr": "ortega",
         "hentaizone.xyz": "hentaizone",
         "scan-manga.com": "scanmanga",
-        "crunchyscan.fr": "crunchyscan",
+        "crunchyscan.org": "crunchyscan",
         "scan-hentai.net": "scanhentai",
     }
     return mapping.get(site, "")
@@ -445,7 +445,7 @@ def get_site_domain_key(url):
         "ortegascans.fr": "ortega",
         "hentaizone.xyz": "hentaizone",
         "scan-manga.com": "scanmanga",
-        "crunchyscan.fr": "crunchyscan",
+        "crunchyscan.org": "crunchyscan",
         "scan-hentai.net": "scanhentai",
     }
     return mapping.get(site) or normalize_hostname(urlparse(url).hostname) or "-"
@@ -482,7 +482,7 @@ def is_valid_catalogue_url(url):
         match = re.match(r"^/manga/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     elif site == "scan-manga.com":
         match = re.match(r"^/\d+(?:-\d+)?/([^/?#]+)\.html$", path, flags=re.IGNORECASE)
-    elif site in ("crunchyscan.fr", "scan-hentai.net"):
+    elif site in ("crunchyscan.org", "scan-hentai.net"):
         match = re.match(r"^/lecture-en-ligne/([^/?#]+)/?$", path, flags=re.IGNORECASE)
     else:
         return False
@@ -1186,8 +1186,8 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.32"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.fr/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
+APP_VERSION = "11.18.33"
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.org/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
 MIN_FREE_DISK_BYTES = 256 * 1024 * 1024
@@ -1313,7 +1313,7 @@ DEFAULT_APP_CONFIG = {
         "cookie_ortega": "https://ortegascans.fr",
         "cookie_hentaizone": "https://hentaizone.xyz",
         "cookie_scanmanga": "https://www.scan-manga.com",
-        "cookie_crunchyscan": "https://crunchyscan.fr",
+        "cookie_crunchyscan": "https://crunchyscan.org",
         "cookie_scanhentai": "https://scan-hentai.net",
         "user_agent": "https://httpbin.org/user-agent",
         "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-r%C3%A9cup%C3%A9rer-user-agent-et-cf_clearance",
@@ -1329,7 +1329,7 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "ortega": "https://ortegascans.fr/serie/moby-dick",
     "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
     "scanmanga": "https://www.scan-manga.com/16363/Death-Penalty.html",
-    "crunchyscan": "https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo",
+    "crunchyscan": "https://crunchyscan.org/lecture-en-ligne/hajime-no-ippo",
     "scanhentai": "https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved",
 }
 CF_CHALLENGE_MARKERS = (
@@ -1482,8 +1482,17 @@ def load_app_config():
     try:
         with CONFIG_PATH.open("r", encoding="utf-8-sig") as f:
             raw = json.load(f)
+        # Migre uniquement l'ancien lien CrunchyScan livré par défaut. Les liens
+        # personnalisés restent intacts.
+        config_migrated = False
+        raw_manual_links = raw.get("manual_links") if isinstance(raw, dict) else None
+        if isinstance(raw_manual_links, dict):
+            old_crunchyscan_link = str(raw_manual_links.get("cookie_crunchyscan") or "").strip().rstrip("/")
+            if old_crunchyscan_link.lower() == "https://crunchyscan.fr":
+                raw_manual_links["cookie_crunchyscan"] = "https://crunchyscan.org"
+                config_migrated = True
         merged = _merge_config(DEFAULT_APP_CONFIG, raw)
-        if merged != raw:
+        if config_migrated or merged != raw:
             _write_json_file(CONFIG_PATH, merged)
         return merged
     except Exception as exc:
@@ -3482,7 +3491,7 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
         "ortega": "https://ortegascans.fr/serie/moby-dick",
         "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
         "scanmanga": "https://www.scan-manga.com/16363/Death-Penalty.html",
-        "crunchyscan": "https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo",
+        "crunchyscan": "https://crunchyscan.org/lecture-en-ligne/hajime-no-ippo",
         "scanhentai": "https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved",
     }
     if domain not in probe_urls:
@@ -3772,7 +3781,7 @@ COMICINFO_SOURCE_LABELS = {
     "ortega": "ortegascans.fr",
     "hentaizone": "hentaizone.xyz",
     "scanmanga": "scan-manga.com",
-    "crunchyscan": "crunchyscan.fr",
+    "crunchyscan": "crunchyscan.org",
     "scanhentai": "scan-hentai.net",
 }
 
@@ -4179,7 +4188,7 @@ def extract_manga_title_from_html(url, html_content):
                 title_text = title_text.split(" » ", 1)[0].strip()
             if title_text:
                 return normalize_manga_title_case(title_text)
-    if source_site in ("crunchyscan.fr", "scan-hentai.net"):
+    if source_site in ("crunchyscan.org", "scan-hentai.net"):
         for selector in ("h1", "meta[property='og:title']", "title"):
             node = soup.select_one(selector) if selector != "title" else soup.find("title")
             if not node:
@@ -4687,7 +4696,7 @@ def extract_series_metadata_from_html(url, html_content, title=""):
             if value:
                 metadata[key] = value
 
-    if get_supported_site_from_url(url) in ("crunchyscan.fr", "scan-hentai.net"):
+    if get_supported_site_from_url(url) in ("crunchyscan.org", "scan-hentai.net"):
         crunchy_metadata = extract_crunchy_family_series_metadata(soup)
         for key in ("writer", "penciller", "genre", "year", "month", "day", "status"):
             value = crunchy_metadata.get(key)
@@ -5769,14 +5778,14 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
         match_slug = re.match(r"^/\d+(?:-\d+)?/([^/?#]+)\.html$", path_value, flags=re.IGNORECASE)
         if match_slug:
             source_slug = match_slug.group(1).strip()
-    elif source_site in ("crunchyscan.fr", "scan-hentai.net"):
+    elif source_site in ("crunchyscan.org", "scan-hentai.net"):
         match_slug = re.match(r"^/lecture-en-ligne/([^/?#]+)/?$", path_value, flags=re.IGNORECASE)
         if match_slug:
             source_slug = match_slug.group(1).strip()
     pairs = []
     volume_metadata = {}
 
-    if source_site in ("crunchyscan.fr", "scan-hentai.net"):
+    if source_site in ("crunchyscan.org", "scan-hentai.net"):
         pairs, volume_metadata = parse_crunchy_family_chapters_from_html(url, soup, html_content)
         unique_pairs = [
             pair
@@ -7406,6 +7415,13 @@ def extract_cover_url_from_html(page_url, html_content):
             score += 30
         if source in ("srcset", "meta"):
             score += 10
+        if "/upload/manga/" in value:
+            score += 20
+        # Les captures « page web complète » réécrivent souvent la vraie
+        # couverture en chemin local *_files/cover.jpg. Cette copie ne doit pas
+        # gagner face à l'URL canonique encore présente dans le style ou les metas.
+        if "_files/" in value or "_files%2f" in value:
+            score -= 60
         match = re.search(r"-(\d{2,5})x(\d{2,5})(?:\.[a-z0-9]{3,5})(?:$|[?#])", value)
         if match:
             try:
@@ -7458,36 +7474,33 @@ def extract_cover_url_from_html(page_url, html_content):
         if img_url:
             break
 
-    if not img_url:
-        for node in soup.select(".summary_image, .thumb, .thumb-container, .post-thumb, .profile-manga, [style*='cover.jpg'], [style*='background-image']"):
-            style_value = (node.get("style") or "").strip()
-            if not style_value:
-                continue
-            match = re.search(r"background-image\s*:\s*url\(([^)]+)\)", style_value, flags=re.IGNORECASE)
-            if not match:
-                continue
-            candidate = resolve_cover_candidate(match.group(1))
-            if candidate:
-                add_candidate(candidate, "style")
-                img_url = candidate
-                break
+    for node in soup.select(".summary_image, .thumb, .thumb-container, .post-thumb, .profile-manga, [style*='cover.jpg'], [style*='background-image']"):
+        style_value = (node.get("style") or "").strip()
+        if not style_value:
+            continue
+        match = re.search(r"background-image\s*:\s*url\(([^)]+)\)", style_value, flags=re.IGNORECASE)
+        if not match:
+            continue
+        candidate = resolve_cover_candidate(match.group(1))
+        if candidate:
+            add_candidate(candidate, "style")
+            img_url = img_url or candidate
+            break
 
-    if not img_url:
-        for tag in soup.find_all("meta", attrs={"property": True}):
-            if tag["property"] in ["og:image", "og:image:secure_url"]:
-                candidate = resolve_cover_candidate((tag.get("content") or "").strip())
-                if candidate:
-                    add_candidate(candidate, "meta")
-                    img_url = candidate
-                    break
-    if not img_url:
-        for tag in soup.find_all("meta", attrs={"name": True}):
-            if (tag.get("name") or "").strip().lower() in ("twitter:image", "twitter:image:src"):
-                candidate = resolve_cover_candidate((tag.get("content") or "").strip())
-                if candidate:
-                    add_candidate(candidate, "meta")
-                    img_url = candidate
-                    break
+    for tag in soup.find_all("meta", attrs={"property": True}):
+        if tag["property"] in ["og:image", "og:image:secure_url"]:
+            candidate = resolve_cover_candidate((tag.get("content") or "").strip())
+            if candidate:
+                add_candidate(candidate, "meta")
+                img_url = img_url or candidate
+                break
+    for tag in soup.find_all("meta", attrs={"name": True}):
+        if (tag.get("name") or "").strip().lower() in ("twitter:image", "twitter:image:src"):
+            candidate = resolve_cover_candidate((tag.get("content") or "").strip())
+            if candidate:
+                add_candidate(candidate, "meta")
+                img_url = img_url or candidate
+                break
 
     if candidates:
         seen = {}
@@ -11633,7 +11646,7 @@ class MangaApp:
                 "ortega": "https://ortegascans.fr/",
                 "hentaizone": "https://hentaizone.xyz/",
                 "scanmanga": "https://www.scan-manga.com/",
-                "crunchyscan": "https://crunchyscan.fr/",
+                "crunchyscan": "https://crunchyscan.org/",
                 "scanhentai": "https://scan-hentai.net/",
             }
             probe_url = ua_probe_urls.get(domain, "")
@@ -15248,7 +15261,7 @@ class MangaApp:
         cookie_toonfr_link = get_manual_link("cookie_toonfr", "https://toonfr.com")
         cookie_hentaizone_link = get_manual_link("cookie_hentaizone", "https://hentaizone.xyz")
         cookie_scanmanga_link = get_manual_link("cookie_scanmanga", "https://www.scan-manga.com")
-        cookie_crunchyscan_link = get_manual_link("cookie_crunchyscan", "https://crunchyscan.fr")
+        cookie_crunchyscan_link = get_manual_link("cookie_crunchyscan", "https://crunchyscan.org")
         cookie_scanhentai_link = get_manual_link("cookie_scanhentai", "https://scan-hentai.net")
         self._attach_link_placeholder(
             self.cookie_fr_entry,
@@ -15302,7 +15315,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.cookie_crunchyscan_entry,
             self.cookie_crunchyscan,
-            'Cookie crunchyscan.fr: cf_clearance seul ou header Cookie complet.',
+            'Cookie crunchyscan.org: cf_clearance seul ou header Cookie complet.',
             cookie_crunchyscan_link,
         )
         self._attach_link_placeholder(
@@ -17691,8 +17704,8 @@ def run_self_test():
     check("url slug classique", is_valid_catalogue_url("https://sushiscan.net/catalogue/one-piece/"))
     check("url scan-manga serie", is_valid_catalogue_url("https://www.scan-manga.com/16363/Death-Penalty.html"))
     check("domain scan-manga", get_cookie_domain_from_url("https://www.scan-manga.com/16363/Death-Penalty.html") == "scanmanga")
-    check("url crunchyscan serie", is_valid_catalogue_url("https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo"))
-    check("domain crunchyscan", get_cookie_domain_from_url("https://crunchyscan.fr/lecture-en-ligne/hajime-no-ippo") == "crunchyscan")
+    check("url crunchyscan serie", is_valid_catalogue_url("https://crunchyscan.org/lecture-en-ligne/hajime-no-ippo"))
+    check("domain crunchyscan", get_cookie_domain_from_url("https://crunchyscan.org/lecture-en-ligne/hajime-no-ippo") == "crunchyscan")
     check("url scan-hentai serie", is_valid_catalogue_url("https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved"))
     check("domain scan-hentai", get_cookie_domain_from_url("https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved") == "scanhentai")
     check("url scan-manga chapitre refusee", not is_valid_catalogue_url("https://www.scan-manga.com/lecture-en-ligne/Death-Penalty-Chapitre-56-FR_545712.html"))
@@ -17717,12 +17730,12 @@ def run_self_test():
         "redaction log cookie",
         redact_sensitive_text("Cookie: cf_clearance=abc123; a=b") == "Cookie: [REDACTED]",
     )
-    playwright_cookies = parse_cookie_header_for_playwright("Cookie: cf_clearance=abc; session_id=def", "crunchyscan.fr")
+    playwright_cookies = parse_cookie_header_for_playwright("Cookie: cf_clearance=abc; session_id=def", "crunchyscan.org")
     check(
         "cookie playwright header",
-        bool(playwright_cookies and playwright_cookies[0].get("name") == "cf_clearance" and playwright_cookies[0].get("domain") == ".crunchyscan.fr"),
+        bool(playwright_cookies and playwright_cookies[0].get("name") == "cf_clearance" and playwright_cookies[0].get("domain") == ".crunchyscan.org"),
     )
-    raw_playwright_cookies = parse_cookie_header_for_playwright("raw-clearance-value", "crunchyscan.fr")
+    raw_playwright_cookies = parse_cookie_header_for_playwright("raw-clearance-value", "crunchyscan.org")
     check(
         "cookie playwright brut",
         bool(raw_playwright_cookies and raw_playwright_cookies[0].get("name") == "cf_clearance"),
@@ -17756,6 +17769,17 @@ def run_self_test():
         "cover scan-manga suffix preserve",
         build_high_res_cover_candidates("https://static.scan-manga.com/img/manga/Infinite_Evolution_Starting_from_Zero_1_7111.jpg")[0]
         == "https://static.scan-manga.com/img/manga/Infinite_Evolution_Starting_from_Zero_1_7111.jpg",
+    )
+    saved_crunchy_cover_html = """
+    <div style="background-image: url('http://crunchyscan.org/upload/manga/dragon-daily/cover.jpg?1')"></div>
+    <img class="manga_cover" src="./Dragon Daily _ Crunchyscan_files/cover.jpg">
+    """
+    check(
+        "cover crunchyscan capture complete",
+        extract_cover_url_from_html(
+            "https://crunchyscan.org/lecture-en-ligne/dragon-daily",
+            saved_crunchy_cover_html,
+        ) == "https://crunchyscan.org/upload/manga/dragon-daily/cover.jpg?1",
     )
     check_raises("suppression racine refusee", ValueError, lambda: remove_tree_safely(".", expected_parent="."))
 
@@ -17966,7 +17990,7 @@ def run_self_test():
     </body></html>
     """
     crunchy_pairs, crunchy_meta = parse_crunchy_family_chapters_from_html(
-        "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
+        "https://crunchyscan.org/lecture-en-ligne/shadows-house",
         BeautifulSoup(crunchy_html, "html.parser"),
         crunchy_html,
     )
@@ -17974,14 +17998,14 @@ def run_self_test():
     check("crunchyscan metadata domaine", bool(crunchy_pairs and crunchy_meta.get(crunchy_pairs[0][1], {}).get("domain") == "crunchyscan"))
     check(
         "crunchyscan titre nettoye",
-        extract_manga_title_from_html("https://crunchyscan.fr/lecture-en-ligne/shadows-house", crunchy_html) == "Shadows House",
+        extract_manga_title_from_html("https://crunchyscan.org/lecture-en-ligne/shadows-house", crunchy_html) == "Shadows House",
     )
     check(
         "crunchyscan couverture",
-        extract_cover_url_from_html("https://crunchyscan.fr/lecture-en-ligne/shadows-house", crunchy_html).startswith("https://crunchyscan.fr/upload/manga/"),
+        extract_cover_url_from_html("https://crunchyscan.org/lecture-en-ligne/shadows-house", crunchy_html).startswith("https://crunchyscan.org/upload/manga/"),
     )
     crunchy_series_meta = extract_series_metadata_from_html(
-        "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
+        "https://crunchyscan.org/lecture-en-ligne/shadows-house",
         crunchy_html,
         "Shadows House",
     )
@@ -17991,15 +18015,15 @@ def run_self_test():
     check("crunchyscan metadata auteur", crunchy_series_meta.get("writer") == "Somato")
     check("crunchyscan metadata artiste", crunchy_series_meta.get("penciller") == "Somato")
     crunchy_title, crunchy_sorted_pairs, _crunchy_sorted_meta = parse_manga_data_from_html(
-        "https://crunchyscan.fr/lecture-en-ligne/shadows-house",
+        "https://crunchyscan.org/lecture-en-ligne/shadows-house",
         crunchy_html,
         emit_logs=False,
     )
     check("crunchyscan tri naturel", [label for label, _ in crunchy_sorted_pairs] == ["Chapitre 227", "Chapitre 228"])
     crunchy_volume_pairs = [
-        (".Tome 14", "https://crunchyscan.fr/lecture-en-ligne/test/read/volume-14"),
-        (".Tome 2", "https://crunchyscan.fr/lecture-en-ligne/test/read/volume-2"),
-        (".Tome 10", "https://crunchyscan.fr/lecture-en-ligne/test/read/volume-10"),
+        (".Tome 14", "https://crunchyscan.org/lecture-en-ligne/test/read/volume-14"),
+        (".Tome 2", "https://crunchyscan.org/lecture-en-ligne/test/read/volume-2"),
+        (".Tome 10", "https://crunchyscan.org/lecture-en-ligne/test/read/volume-10"),
     ]
     normalized_volume_pairs = [(normalize_tome_label(label), link) for label, link in crunchy_volume_pairs]
     ordered_volume_pairs = [
