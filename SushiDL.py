@@ -21,6 +21,8 @@ import base64
 import zlib
 import hashlib
 import shutil
+import socket
+import subprocess
 import threading
 import time
 import datetime
@@ -1186,7 +1188,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.33"
+APP_VERSION = "11.18.34"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.org/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1232,6 +1234,8 @@ CRUNCHY_BLOB_FINAL_FETCH_TIMEOUT_MS = 6000
 CRUNCHY_BLOB_EVALUATION_TIMEOUT_MS = 15000
 CRUNCHY_READER_MAX_CONTEXT_ATTEMPTS = 4
 CRUNCHY_READER_CONTEXT_RECYCLE_CHAPTERS = 3
+CRUNCHY_MANUAL_VALIDATION_TIMEOUT_SECONDS = 180
+CBZ_MAX_PAGE_HEIGHT = 8000
 COOKIE_DOMAINS = (
     "fr",
     "net",
@@ -2205,6 +2209,13 @@ def reset_scanmanga_browser_context(state):
             context.close()
         except Exception:
             pass
+    browser = state.get("browser")
+    if browser is not None:
+        try:
+            browser.close()
+        except Exception:
+            pass
+    state["browser"] = None
     state["context"] = None
     state["page"] = None
     state["referer"] = ""
@@ -2580,7 +2591,9 @@ def download_preview_image_with_browser(img_url, referer_url, ua, cancel_event=N
 def new_crunchy_browser_state():
     return {
         "playwright": None, "browser": None, "context": None, "page": None,
-        "ua": "", "site": "", "persistent": True,
+        "ua": "", "site": "", "headless": None, "persistent": True,
+        "manual_validation_mode": False,
+        "external_chrome_process": None,
         "partial_blobs": {}, "partial_blob_order": [],
         "reader_preload_by_link": {}, "reader_preload_by_site": {},
         "completed_reader_chapters": 0,
@@ -2605,6 +2618,15 @@ def dispose_crunchy_browser_state(state):
         state["playwright"] = None
     state["ua"] = ""
     state["site"] = ""
+    state["headless"] = None
+    state["manual_validation_mode"] = False
+    process = state.get("external_chrome_process")
+    if process is not None and process.poll() is None:
+        try:
+            process.terminate()
+        except Exception:
+            pass
+    state["external_chrome_process"] = None
 
 
 def reset_crunchy_browser_context(state):
@@ -2623,9 +2645,18 @@ def reset_crunchy_browser_context(state):
     state["context"] = None
     state["page"] = None
     state["site"] = ""
+    state["headless"] = None
+    process = state.get("external_chrome_process")
+    if process is not None and process.poll() is None:
+        try:
+            process.terminate()
+            process.wait(timeout=5)
+        except Exception:
+            pass
+    state["external_chrome_process"] = None
 
 
-def get_crunchy_browser_page(state, url, ua=""):
+def get_crunchy_browser_page(state, url, ua="", visible=False):
     """Retourne une page Chromium réutilisée pour CrunchyScan et Scan-Hentai."""
     try:
         from playwright.sync_api import sync_playwright
@@ -2634,9 +2665,23 @@ def get_crunchy_browser_page(state, url, ua=""):
 
     safe_ua = (ua or DEFAULT_USER_AGENT).strip()
     site = get_site_domain_key(url)
+    desired_headless = not bool(visible)
     if state.get("playwright") is None:
         state["playwright"] = sync_playwright().start()
-    if state.get("context") is None or state.get("ua") != safe_ua or state.get("site") != site:
+    attached_browser = state.get("browser")
+    attached_browser_closed = False
+    if attached_browser is not None:
+        try:
+            attached_browser_closed = not attached_browser.is_connected()
+        except Exception:
+            attached_browser_closed = True
+    if (
+        state.get("context") is None
+        or attached_browser_closed
+        or state.get("ua") != safe_ua
+        or state.get("site") != site
+        or state.get("headless") != desired_headless
+    ):
         if state.get("context") is not None:
             try:
                 state["context"].close()
@@ -2645,7 +2690,7 @@ def get_crunchy_browser_page(state, url, ua=""):
         CRUNCHY_BROWSER_PROFILE_PATH.mkdir(parents=True, exist_ok=True)
         chromium = state["playwright"].chromium
         launch_options = {
-            "headless": True,
+            "headless": desired_headless,
             "user_agent": safe_ua,
             "locale": "fr-FR",
             "viewport": {"width": 1200, "height": 900},
@@ -2664,8 +2709,10 @@ def get_crunchy_browser_page(state, url, ua=""):
         state["page"] = None
         state["ua"] = safe_ua
         state["site"] = site
+        state["headless"] = desired_headless
         runtime_log(
-            f"Playwright {site}: session navigateur invisible initialisée.",
+            f"Playwright {site}: session navigateur "
+            f"{'invisible' if desired_headless else 'visible [BÊTA]'} initialisée.",
             level="info",
             context={"action": "playwright_session", "domain": site},
         )
@@ -2722,8 +2769,16 @@ def get_crunchy_challenge_state(page):
                 const box = frame.getBoundingClientRect();
                 return frame.offsetParent !== null && box.width >= 180 && box.height >= 40;
             });
-            const hasValidateButton = Array.from(document.querySelectorAll('button')).some(button =>
-                (button.innerText || button.textContent || '').trim().toLowerCase() === 'valider'
+            const validateButtons = Array.from(document.querySelectorAll('button')).filter(button => {
+                const box = button.getBoundingClientRect();
+                return (button.innerText || button.textContent || '').trim().toLowerCase() === 'valider' &&
+                    button.offsetParent !== null && box.width > 0 && box.height > 0;
+            });
+            const hasValidateButton = validateButtons.length > 0;
+            const imageNodes = Array.from(document.querySelectorAll('img.imageView, img[data-img]'));
+            const embeddedReaderTurnstile = hasValidateButton && imageNodes.length === 0 && (
+                hasVisibleFrame ||
+                Boolean(document.querySelector('form .cf-turnstile, form [name="cf-turnstile-response"]'))
             );
             return {
                 url: location.href,
@@ -2731,13 +2786,11 @@ def get_crunchy_challenge_state(page):
                 challenge: title.includes('just a moment') || title.includes('un instant') ||
                     text.includes('verification de securite') || text.includes('vérification de sécurité') ||
                     (text.includes('cloudflare') && text.includes('ray id')),
-                turnstile: hasValidateButton && (
-                    hasVisibleFrame ||
-                    Boolean(document.querySelector('.cf-turnstile, [name="cf-turnstile-response"]'))
-                ),
+                turnstile: embeddedReaderTurnstile,
+                readerTurnstile: embeddedReaderTurnstile,
                 forbidden: text.includes('error 403') || text.includes('http 403'),
-                imageCount: document.querySelectorAll('img.imageView, img[data-img]').length,
-                blobCount: Array.from(document.querySelectorAll('img.imageView, img[data-img]'))
+                imageCount: imageNodes.length,
+                blobCount: imageNodes
                     .filter(image => (image.currentSrc || image.getAttribute('src') || '').startsWith('blob:')).length,
                 readerContainer: Boolean(document.querySelector('#imageContainer, #readerarea'))
             };
@@ -2746,10 +2799,332 @@ def get_crunchy_challenge_state(page):
     )
 
 
+def should_start_crunchy_manual_validation_beta(challenge_state):
+    """Vrai pour un contrôle Cloudflare interactif rencontré dans un chapitre."""
+    if not isinstance(challenge_state, dict):
+        return False
+    interactive_challenge = bool(
+        challenge_state.get("challenge")
+        or (
+            challenge_state.get("readerTurnstile")
+            and challenge_state.get("turnstile")
+        )
+    )
+    return bool(
+        interactive_challenge
+        and not challenge_state.get("forbidden")
+        and int(challenge_state.get("imageCount") or 0) <= 0
+    )
+
+
+def find_system_chrome_executable():
+    """Retourne Google Chrome installé, sans télécharger de navigateur."""
+    candidates = []
+    for command in ("chrome.exe", "chrome"):
+        resolved = shutil.which(command)
+        if resolved:
+            candidates.append(Path(resolved))
+    for env_name in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)"):
+        base = os.environ.get(env_name)
+        if base:
+            candidates.append(Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe")
+    for candidate in candidates:
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError:
+            continue
+    return ""
+
+
+def wait_for_crunchy_manual_validation_signal(cancel_event=None):
+    """Attend que l'utilisateur confirme que le lecteur est réellement visible."""
+    app_cls = globals().get("MangaApp")
+    app = getattr(app_cls, "current_instance", None) if app_cls is not None else None
+    if app is None:
+        runtime_log(
+            "[BÊTA] Quand toutes les pages sont visibles dans Chrome, reviens dans cette console et appuie sur Entrée.",
+            level="warning",
+            context={"action": "cloudflare_manual_beta_console_signal"},
+        )
+        try:
+            input()
+            return True
+        except (EOFError, KeyboardInterrupt):
+            return False
+
+    done = threading.Event()
+    answer = {"confirmed": False}
+
+    def show_confirmation():
+        try:
+            answer["confirmed"] = bool(messagebox.askokcancel(
+                "CrunchyScan — validation BÊTA",
+                "1. Termine les deux contrôles Cloudflare dans Google Chrome.\n"
+                "2. Clique sur Valider.\n"
+                "3. Attends que les pages du chapitre soient visibles.\n\n"
+                "Ne ferme pas Chrome. Reviens ici et clique sur OK uniquement lorsque les pages sont affichées.",
+                parent=app.root,
+                icon="warning",
+            ))
+        finally:
+            done.set()
+
+    app.run_on_ui(show_confirmation)
+    deadline = time.monotonic() + CRUNCHY_MANUAL_VALIDATION_TIMEOUT_SECONDS
+    while not done.wait(0.2):
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        if time.monotonic() >= deadline:
+            return False
+    return answer["confirmed"]
+
+
+def open_crunchy_manual_validation_in_system_chrome(state, chapter_url, ua, cancel_event=None):
+    """Laisse Chrome valider seul, puis s'y connecte après confirmation."""
+    chrome_path = find_system_chrome_executable()
+    if not chrome_path:
+        return None
+    CRUNCHY_BROWSER_PROFILE_PATH.mkdir(parents=True, exist_ok=True)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        debugging_port = int(probe.getsockname()[1])
+    command = [
+        chrome_path,
+        f"--user-data-dir={CRUNCHY_BROWSER_PROFILE_PATH}",
+        f"--remote-debugging-port={debugging_port}",
+        "--remote-allow-origins=*",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-background-mode",
+        "--hide-crash-restore-bubble",
+        "--new-window",
+    ]
+    if ua:
+        command.append(f"--user-agent={ua}")
+    command.append(chapter_url)
+    try:
+        process = subprocess.Popen(command)
+    except Exception as exc:
+        runtime_log(
+            f"[BÊTA] Chrome système impossible à ouvrir: {exc}",
+            level="warning",
+            context={"action": "cloudflare_manual_beta_system_chrome"},
+        )
+        return None
+
+    runtime_log(
+        "[BÊTA] Valide Cloudflare dans Google Chrome et garde cette fenêtre ouverte. "
+        "Confirme ensuite dans la boîte de dialogue SushiDL lorsque les pages sont visibles.",
+        level="warning",
+        context={"action": "cloudflare_manual_beta_handoff"},
+    )
+    state["external_chrome_process"] = process
+    startup_deadline = time.monotonic() + 12
+    port_is_open = False
+    while time.monotonic() < startup_deadline:
+        if cancel_event is not None and cancel_event.is_set():
+            raise DownloadCancelled("Validation Cloudflare annulée.")
+        try:
+            with socket.create_connection(("127.0.0.1", debugging_port), timeout=0.2):
+                port_is_open = True
+                break
+        except OSError:
+            pass
+        if interruptible_sleep(cancel_event, 0.2):
+            raise DownloadCancelled("Validation Cloudflare annulée.")
+    if not port_is_open:
+        if process.poll() is None:
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except Exception:
+                pass
+        state["external_chrome_process"] = None
+        runtime_log(
+            "[BÊTA] Google Chrome n'a pas démarré correctement; retour au mode visible Playwright.",
+            level="warning",
+            context={"action": "cloudflare_manual_beta_chrome_fallback"},
+        )
+        return None
+
+    if not wait_for_crunchy_manual_validation_signal(cancel_event=cancel_event):
+        raise DownloadCancelled("Validation Cloudflare annulée ou non confirmée.")
+    if process.poll() is not None:
+        state["external_chrome_process"] = None
+        raise AuthError("[BÊTA] Google Chrome a été fermé avant l'extraction des images.")
+
+    browser = None
+    connect_deadline = time.monotonic() + 10
+    while browser is None and time.monotonic() < connect_deadline:
+        try:
+            browser = state["playwright"].chromium.connect_over_cdp(
+                f"http://127.0.0.1:{debugging_port}",
+                timeout=1500,
+            )
+        except Exception:
+            browser = None
+            if interruptible_sleep(cancel_event, 0.2):
+                raise DownloadCancelled("Validation Cloudflare annulée.")
+    if browser is None or not browser.contexts:
+        raise AuthError("[BÊTA] Connexion au Chrome validé impossible.")
+    context = browser.contexts[0]
+    page = None
+    for candidate in context.pages:
+        if normalize_image_url(candidate.url) == normalize_image_url(chapter_url):
+            page = candidate
+            break
+    if page is None and context.pages:
+        page = context.pages[-1]
+    if page is None:
+        raise AuthError("[BÊTA] Onglet du chapitre introuvable dans Google Chrome.")
+    state["browser"] = browser
+    state["context"] = context
+    state["page"] = page
+    state["ua"] = (ua or DEFAULT_USER_AGENT).strip()
+    state["site"] = get_site_domain_key(chapter_url)
+    state["headless"] = False
+    return page
+
+
+def complete_crunchy_manual_validation_beta(
+    state,
+    chapter_url,
+    cookie,
+    ua,
+    challenge_state=None,
+    cancel_event=None,
+):
+    """Ouvre le profil lecteur visible et attend une validation Cloudflare manuelle."""
+    site = get_site_domain_key(chapter_url)
+    embedded_reader = bool((challenge_state or {}).get("readerTurnstile"))
+    challenge_label = "Turnstile intégré au lecteur" if embedded_reader else "challenge Cloudflare"
+    runtime_log(
+        f"[BÊTA] {site}: {challenge_label} détecté. Une fenêtre Chrome dédiée va s'ouvrir; "
+        "valide le contrôle manuellement et clique sur Valider si ce bouton est affiché.",
+        level="warning",
+        context={"domain": site, "action": "cloudflare_manual_beta"},
+    )
+
+    # Le profil persistant conserve les cookies de la session invisible. La
+    # validation est d'abord confiée au vrai Chrome, sans piloter le challenge.
+    reset_crunchy_browser_context(state)
+    state["manual_validation_mode"] = True
+    page = open_crunchy_manual_validation_in_system_chrome(
+        state,
+        chapter_url,
+        ua,
+        cancel_event=cancel_event,
+    )
+    if page is not None:
+        runtime_log(
+            f"[BÊTA] {site}: validation confirmée; extraction dans la fenêtre Chrome actuelle.",
+            level="info",
+            context={"domain": site, "action": "cloudflare_manual_beta_connected"},
+        )
+    else:
+        page = get_crunchy_browser_page(state, chapter_url, ua, visible=True)
+    context = state.get("context")
+    # Après une validation dans Chrome, ne surtout pas réinjecter le cookie de
+    # configuration potentiellement ancien par-dessus la nouvelle session.
+    if context is not None and cookie and state.get("external_chrome_process") is None:
+        try:
+            host = normalize_hostname(urlparse(chapter_url).hostname)
+            context.add_cookies(parse_cookie_header_for_playwright(cookie, host))
+        except Exception as exc:
+            runtime_log(
+                f"[BÊTA] {site}: réinjection des cookies impossible: {exc}",
+                level="debug",
+                context={"domain": site, "action": "cloudflare_manual_beta_cookie"},
+            )
+    try:
+        page.bring_to_front()
+    except Exception:
+        pass
+    if state.get("external_chrome_process") is None:
+        try:
+            page.goto(chapter_url, wait_until="commit", timeout=10000)
+        except Exception:
+            # Une navigation engagée suffit: le polling ci-dessous observe ensuite
+            # soit le formulaire, soit les images générées après validation.
+            pass
+    try:
+        page.wait_for_selector("body", timeout=3000)
+    except Exception:
+        pass
+    if state.get("external_chrome_process") is None:
+        try:
+            page.evaluate(
+                """
+                () => {
+                    const existing = document.getElementById('sushidl-beta-validation-banner');
+                    if (existing) existing.remove();
+                    const banner = document.createElement('div');
+                    banner.id = 'sushidl-beta-validation-banner';
+                    banner.textContent = 'SushiDL — MODE BÊTA / EN DÉVELOPPEMENT : '
+                        + 'résous le contrôle Cloudflare puis clique sur Valider. '
+                        + 'Le téléchargement reprendra automatiquement.';
+                    Object.assign(banner.style, {
+                        position: 'fixed', top: '0', left: '0', right: '0', zIndex: '2147483647',
+                        padding: '12px 18px', background: '#6d28d9', color: '#ffffff',
+                        font: '600 14px Segoe UI, sans-serif', textAlign: 'center',
+                        boxShadow: '0 2px 12px rgba(0,0,0,.45)'
+                    });
+                    document.documentElement.appendChild(banner);
+                }
+                """
+            )
+        except Exception:
+            pass
+
+    deadline = time.monotonic() + CRUNCHY_MANUAL_VALIDATION_TIMEOUT_SECONDS
+    last_state = {}
+    while time.monotonic() < deadline:
+        if cancel_event is not None and cancel_event.is_set():
+            reset_crunchy_browser_context(state)
+            raise DownloadCancelled("Validation Cloudflare annulée.")
+        try:
+            if page.is_closed():
+                raise AuthError("[BÊTA] La fenêtre de validation a été fermée avant la fin.")
+            last_state = get_crunchy_challenge_state(page) or {}
+            if int(last_state.get("imageCount") or 0) > 0:
+                runtime_log(
+                    f"[BÊTA] {site}: validation terminée, lecteur disponible; reprise automatique.",
+                    level="success",
+                    context={"domain": site, "action": "cloudflare_manual_beta_done"},
+                )
+                return page
+            page.wait_for_timeout(250)
+        except (DownloadCancelled, AuthError):
+            reset_crunchy_browser_context(state)
+            raise
+        except Exception:
+            # Les navigations provoquées par le formulaire peuvent interrompre
+            # brièvement une évaluation; on laisse la page se stabiliser.
+            if interruptible_sleep(cancel_event, 0.25):
+                reset_crunchy_browser_context(state)
+                raise DownloadCancelled("Validation Cloudflare annulée.")
+
+    details = (
+        f"images={int(last_state.get('imageCount') or 0)}, "
+        f"turnstile={bool(last_state.get('turnstile'))}"
+    )
+    reset_crunchy_browser_context(state)
+    raise AuthError(
+        f"[BÊTA] Validation manuelle non terminée après "
+        f"{CRUNCHY_MANUAL_VALIDATION_TIMEOUT_SECONDS} secondes ({details})."
+    )
+
+
 def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, cancel_event=None, progress_callback=None):
     """Récupère les images blob du lecteur CrunchyScan/Scan-Hentai depuis une session navigateur unique."""
     chapter_url = normalize_image_url(link)
-    page = get_crunchy_browser_page(state, chapter_url, ua)
+    page = get_crunchy_browser_page(
+        state,
+        chapter_url,
+        ua,
+        visible=bool(state.get("manual_validation_mode")),
+    )
     context = state.get("context")
     if context is not None and cookie:
         try:
@@ -2776,17 +3151,28 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         pass
     challenge_state = get_crunchy_challenge_state(page)
     if isinstance(challenge_state, dict) and (challenge_state.get("turnstile") or challenge_state.get("challenge")):
-        runtime_log(
-            f"Cloudflare detecte dans le lecteur {site}: titre={challenge_state.get('title') or '?'} | "
-            f"images={challenge_state.get('imageCount', 0)} | blobs={challenge_state.get('blobCount', 0)} | "
-            f"conteneur={bool(challenge_state.get('readerContainer'))}.",
-            level="warning",
-            context={"domain": site, "action": "cloudflare_manual_fallback"},
-        )
-        reset_crunchy_browser_context(state)
-        raise AuthError(
-            "Detection Cloudflare dans le lecteur: les cookies de session sont requis avant relance."
-        )
+        if should_start_crunchy_manual_validation_beta(challenge_state):
+            page = complete_crunchy_manual_validation_beta(
+                state,
+                chapter_url,
+                cookie,
+                ua,
+                challenge_state=challenge_state,
+                cancel_event=cancel_event,
+            )
+            challenge_state = get_crunchy_challenge_state(page)
+        else:
+            runtime_log(
+                f"Cloudflare detecte dans le lecteur {site}: titre={challenge_state.get('title') or '?'} | "
+                f"images={challenge_state.get('imageCount', 0)} | blobs={challenge_state.get('blobCount', 0)} | "
+                f"conteneur={bool(challenge_state.get('readerContainer'))}.",
+                level="warning",
+                context={"domain": site, "action": "cloudflare_manual_fallback"},
+            )
+            reset_crunchy_browser_context(state)
+            raise AuthError(
+                "Detection Cloudflare dans le lecteur: les cookies de session sont requis avant relance."
+            )
     try:
         for selector in (
             "button.oui-avertissement-btn",
@@ -2804,38 +3190,51 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
     try:
         page.wait_for_selector("img.imageView, img[data-img]", timeout=5000)
     except Exception:
+        reader_recovered = False
         late_challenge_state = get_crunchy_challenge_state(page)
         if isinstance(late_challenge_state, dict) and (
             late_challenge_state.get("turnstile") or late_challenge_state.get("challenge")
         ):
-            runtime_log(
-                f"Cloudflare detecte après chargement du lecteur {site}: titre={late_challenge_state.get('title') or '?'} | "
-                f"images={late_challenge_state.get('imageCount', 0)} | blobs={late_challenge_state.get('blobCount', 0)} | "
-                f"conteneur={bool(late_challenge_state.get('readerContainer'))}.",
-                level="warning",
-                context={"domain": site, "action": "cloudflare_reader_late"},
+            if should_start_crunchy_manual_validation_beta(late_challenge_state):
+                page = complete_crunchy_manual_validation_beta(
+                    state,
+                    chapter_url,
+                    cookie,
+                    ua,
+                    challenge_state=late_challenge_state,
+                    cancel_event=cancel_event,
+                )
+                reader_recovered = True
+            else:
+                runtime_log(
+                    f"Cloudflare detecte après chargement du lecteur {site}: titre={late_challenge_state.get('title') or '?'} | "
+                    f"images={late_challenge_state.get('imageCount', 0)} | blobs={late_challenge_state.get('blobCount', 0)} | "
+                    f"conteneur={bool(late_challenge_state.get('readerContainer'))}.",
+                    level="warning",
+                    context={"domain": site, "action": "cloudflare_reader_late"},
+                )
+                reset_crunchy_browser_context(state)
+                raise AuthError(
+                    "Detection Cloudflare dans le lecteur: le formulaire Turnstile remplace les images. "
+                    "Renseigne les cookies de session requis avant de relancer."
+                )
+        if not reader_recovered:
+            diagnostic = page.evaluate(
+                """
+                () => ({
+                    title: document.title || '',
+                    url: location.href,
+                    images: document.querySelectorAll('img.imageView, img[data-img]').length,
+                    text: (document.body && document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 180)
+                })
+                """
             )
-            reset_crunchy_browser_context(state)
+            detail = ""
+            if isinstance(diagnostic, dict):
+                detail = f" | titre={diagnostic.get('title') or '?'} | images={diagnostic.get('images', 0)}"
             raise AuthError(
-                "Detection Cloudflare dans le lecteur: le formulaire Turnstile remplace les images. "
-                "Renseigne les cookies de session requis avant de relancer."
+                "Lecteur CrunchyScan/Scan-Hentai non chargé après l'ouverture du chapitre." + detail
             )
-        diagnostic = page.evaluate(
-            """
-            () => ({
-                title: document.title || '',
-                url: location.href,
-                images: document.querySelectorAll('img.imageView, img[data-img]').length,
-                text: (document.body && document.body.innerText || '').replace(/\\s+/g, ' ').slice(0, 180)
-            })
-            """
-        )
-        detail = ""
-        if isinstance(diagnostic, dict):
-            detail = f" | titre={diagnostic.get('title') or '?'} | images={diagnostic.get('images', 0)}"
-        raise AuthError(
-            "Lecteur CrunchyScan/Scan-Hentai non chargé après l'ouverture du chapitre." + detail
-        )
 
     total = int(page.evaluate("() => document.querySelectorAll('img.imageView, img[data-img]').length") or 0)
     if total <= 0:
@@ -3213,6 +3612,12 @@ def _fetch_crunchy_reader_blobs_once(state, link, cookie, ua, max_images=None, c
         level="success",
         context={"action": "playwright_images_done", "domain": site},
     )
+    if state.get("manual_validation_mode"):
+        runtime_log(
+            f"[BÊTA] {site}: session visible conservée pour stabiliser les téléchargements suivants.",
+            level="info",
+            context={"action": "cloudflare_manual_beta_keep_visible", "domain": site},
+        )
     return blobs
 
 
@@ -3584,6 +3989,87 @@ def remove_tree_safely(folder_path, expected_parent=None):
         raise ValueError(f"Refus suppression racine: {target}")
     if target.exists():
         shutil.rmtree(target)
+
+
+def split_oversized_cbz_images(folder_path, max_height=CBZ_MAX_PAGE_HEIGHT):
+    """Découpe les bandes webtoon trop hautes pour les lecteurs CBZ courants."""
+    limit = max(1000, int(max_height or CBZ_MAX_PAGE_HEIGHT))
+    split_images = 0
+    output_pages = 0
+    supported = {".jpg", ".jpeg", ".png", ".webp"}
+    for root, _, files in os.walk(folder_path):
+        for filename in sorted(files):
+            source = Path(root) / filename
+            suffix = source.suffix.lower()
+            if suffix not in supported:
+                continue
+            temporary_parts = []
+            final_parts = []
+            backup = source.with_name(f".{source.name}.sushidl-long")
+            try:
+                with Image.open(source) as opened:
+                    image = ImageOps.exif_transpose(opened)
+                    width, height = image.size
+                    if height <= limit:
+                        continue
+                    part_count = int(math.ceil(height / limit))
+                    part_height = int(math.ceil(height / part_count))
+                    digits = max(3, len(str(part_count)))
+                    for part_index in range(part_count):
+                        top = part_index * part_height
+                        bottom = min(height, top + part_height)
+                        part = image.crop((0, top, width, bottom))
+                        final_path = source.with_name(
+                            f"{source.stem}_{part_index + 1:0{digits}d}{suffix}"
+                        )
+                        temp_path = source.with_name(
+                            f".{source.stem}_{part_index + 1:0{digits}d}.sushidl-tmp{suffix}"
+                        )
+                        save_options = {}
+                        if suffix in {".jpg", ".jpeg"}:
+                            if part.mode != "RGB":
+                                part = part.convert("RGB")
+                            save_options = {"format": "JPEG", "quality": 95, "subsampling": 0}
+                        elif suffix == ".png":
+                            save_options = {"format": "PNG", "compress_level": 6}
+                        else:
+                            save_options = {"format": "WEBP", "quality": 95, "method": 4}
+                        part.save(temp_path, **save_options)
+                        temporary_parts.append(temp_path)
+                        final_parts.append(final_path)
+
+                os.replace(source, backup)
+                try:
+                    for temp_path, final_path in zip(temporary_parts, final_parts):
+                        os.replace(temp_path, final_path)
+                except Exception:
+                    for final_path in final_parts:
+                        try:
+                            final_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+                    os.replace(backup, source)
+                    raise
+                backup.unlink(missing_ok=True)
+                split_images += 1
+                output_pages += len(final_parts)
+            except Exception as exc:
+                for temp_path in temporary_parts:
+                    try:
+                        temp_path.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                if backup.exists() and not source.exists():
+                    try:
+                        os.replace(backup, source)
+                    except OSError:
+                        pass
+                runtime_log(
+                    f"Découpage CBZ ignoré pour {filename}: {exc}",
+                    level="warning",
+                    context={"action": "cbz_split_oversized"},
+                )
+    return split_images, output_pages
 
 
 def archive_cbz(folder_path, title, volume, remove_source=True, expected_image_count=None):
@@ -6981,6 +7467,14 @@ def download_volume(
                     )
             except Exception as report_exc:
                 logger(f"Rapport pages manquantes non genere: {report_exc}", level="warning")
+
+        split_images, split_pages = split_oversized_cbz_images(folder)
+        if split_images:
+            logger(
+                f"Compatibilité CBZ: {split_images} image(s) webtoon trop haute(s) "
+                f"découpée(s) en {split_pages} pages (maximum {CBZ_MAX_PAGE_HEIGHT}px).",
+                level="info",
+            )
 
         if comicinfo_enabled:
             try:
@@ -17752,6 +18246,30 @@ def run_self_test():
         "refus cookie distinct du challenge lecteur",
         not is_reader_cloudflare_challenge("HTTP Error 403"),
     )
+    check(
+        "turnstile lecteur lance validation beta",
+        should_start_crunchy_manual_validation_beta(
+            {"readerTurnstile": True, "turnstile": True, "imageCount": 0}
+        ),
+    )
+    check(
+        "turnstile commentaires ignore par validation beta",
+        not should_start_crunchy_manual_validation_beta(
+            {"readerTurnstile": False, "turnstile": True, "imageCount": 6}
+        ),
+    )
+    check(
+        "challenge entree lance validation beta",
+        should_start_crunchy_manual_validation_beta(
+            {"readerTurnstile": False, "turnstile": False, "challenge": True, "imageCount": 0}
+        ),
+    )
+    check(
+        "erreur 403 ignoree par validation beta",
+        not should_start_crunchy_manual_validation_beta(
+            {"challenge": True, "forbidden": True, "imageCount": 0}
+        ),
+    )
     headers = build_request_headers(
         "https://sushiscan.net/catalogue/one-piece/",
         "abc123",
@@ -17785,6 +18303,22 @@ def run_self_test():
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_root = Path(tmp)
+        tall_folder = tmp_root / "Tall"
+        tall_folder.mkdir()
+        Image.new("RGB", (24, 2001), (120, 80, 40)).save(tall_folder / "001.jpg", quality=90)
+        split_count, split_page_count = split_oversized_cbz_images(tall_folder, max_height=1000)
+        split_paths = sorted(tall_folder.glob("*.jpg"))
+        split_heights = []
+        for split_path in split_paths:
+            with Image.open(split_path) as split_image:
+                split_heights.append(split_image.height)
+        check(
+            "decoupage page webtoon haute",
+            split_count == 1
+            and split_page_count == 3
+            and [path.name for path in split_paths] == ["001_001.jpg", "001_002.jpg", "001_003.jpg"]
+            and split_heights == [667, 667, 667],
+        )
         folder = tmp_root / "Title" / "Chapitre 1"
         folder.mkdir(parents=True)
         for idx in range(1, 4):

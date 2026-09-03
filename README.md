@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.33`
+Version actuelle : `11.18.34`
 
 ## Ce qui change sur `main`
 
@@ -189,6 +189,27 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.18.34
+- CrunchyScan / Scan-Hentai — validation assistée **BÊTA / EN DÉVELOPPEMENT** pour certains tomes ou chapitres protégés :
+  - prise en charge expérimentale du **double challenge Cloudflare** rencontré sur certains liens : d'abord la page d'entrée `Un instant...`, puis un second Turnstile intégré qui remplace le lecteur,
+  - ouverture du vrai Google Chrome avec le profil dédié de SushiDL sans connexion de Playwright pendant la vérification,
+  - validation manuelle obligatoire des deux contrôles par l'utilisateur dans cette même session,
+  - après apparition des images, confirmation via une boîte de dialogue SushiDL sans fermer Chrome,
+  - connexion tardive au lecteur déjà validé puis extraction dans cette même fenêtre,
+  - découpage automatique des bandes webtoon dépassant 8 000 px de hauteur pour éviter les CBZ illisibles dans certains lecteurs.
+
+> **Important — intégration BÊTA :** cette procédure vise uniquement les tomes/chapitres sur lesquels CrunchyScan ou Scan-Hentai impose ces deux challenges successifs. Elle peut encore échouer ou redemander une validation selon le lien, la session et les changements de Cloudflare. SushiDL ne résout ni ne contourne les challenges automatiquement.
+
+Pour un lien protégé par le double challenge :
+
+1. Résoudre la page Cloudflare `Un instant...` dans la fenêtre Google Chrome ouverte par SushiDL.
+2. Résoudre le second contrôle intégré au lecteur, puis cliquer sur `Valider`.
+3. Attendre que les pages du tome/chapitre soient réellement visibles et les faire défiler si nécessaire.
+4. Garder Google Chrome ouvert, revenir dans SushiDL et cliquer sur `OK` dans la boîte de dialogue **CrunchyScan — validation BÊTA**.
+5. Laisser la fenêtre ouverte pendant l'extraction ; SushiDL reprend dans la session déjà validée.
+
+Les bandes webtoon très hautes sont ensuite découpées en segments de 8 000 px maximum avant la création du CBZ. Cette mesure évite les pages noires et les plantages des lecteurs limités par la taille maximale des textures.
 
 ### 11.18.33
 - CrunchyScan :

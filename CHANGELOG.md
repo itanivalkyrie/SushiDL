@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.18.34] - 2026-09-03
+
+### Bêta
+- CrunchyScan / Scan-Hentai : ajout d'une validation assistée en développement pour la page Cloudflare `Un instant...` rencontrée à l'ouverture d'un chapitre et pour le Turnstile intégré qui remplace parfois le lecteur. Le contrôle reste entièrement dans Google Chrome sans connexion Playwright; une boîte de dialogue permet ensuite de signaler que les pages sont visibles avant la connexion tardive et l'extraction dans la même fenêtre.
+- Le mode est signalé `[BÊTA]` dans les journaux et dans la boîte de dialogue de confirmation. Il ne résout ni ne contourne automatiquement le challenge Cloudflare.
+- Les images webtoon de plus de 8 000 px de haut sont découpées avant archivage afin d'éviter les limites de texture et les plantages de certains lecteurs CBZ.
+
 ## [11.18.33] - 2026-09-03
 
 ### Corrections
