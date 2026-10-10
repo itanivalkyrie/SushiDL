@@ -7,6 +7,13 @@ Le format de version suit la regle `X.Y.Z` :
 - `Y` = amelioration / nouvelle fonctionnalite secondaire
 - `Z` = correctif (bugfix)
 
+## [11.19.0] - 2026-09-03
+
+### Ajouts
+- Extension **BÊTA / EN DÉVELOPPEMENT** du flux de validation manuelle aux autres domaines supportés lorsqu'un blocage contient des marqueurs explicites Cloudflare/Turnstile pendant l'analyse ou le téléchargement.
+- Gestion expérimentale des tomes/chapitres soumis à deux contrôles successifs : validation dans un profil Chrome isolé par domaine, confirmation manuelle une fois le contenu visible, récupération tardive des cookies puis relance automatique à un thread.
+- La détection exclut les pages absentes `404/410` et reste limitée à une tentative assistée par tome/chapitre.
+
 ## [11.18.34] - 2026-09-03
 
 ### Bêta

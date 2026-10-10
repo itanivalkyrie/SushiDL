@@ -1189,7 +1189,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
-APP_VERSION = "11.18.34"
+APP_VERSION = "11.19.0"
 REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.(?:com|fr)/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.org/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
@@ -1285,6 +1285,8 @@ CRUNCHY_BROWSER_LOCK = threading.Lock()
 CRUNCHY_BROWSER_THREAD = None
 CRUNCHY_BROWSER_TASKS = None
 CRUNCHY_BROWSER_PROFILE_PATH = BASE_DIR / ".sushidl_crunchy_browser"
+CLOUDFLARE_BROWSER_PROFILE_ROOT = BASE_DIR / ".sushidl_cloudflare_browsers"
+CLOUDFLARE_MANUAL_BETA_LOCK = threading.Lock()
 READER_BLOB_STAGE_PATH = BASE_DIR / ".sushidl_reader_blobs"
 SCANMANGA_IMAGE_HOSTS = {
     "cdn.scan-manga.com",
@@ -1339,6 +1341,7 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
 }
 CF_CHALLENGE_MARKERS = (
     "just a moment",
+    "un instant",
     "checking your browser",
     "cf-browser-verification",
     "__cf_chl",
@@ -1962,6 +1965,34 @@ def is_cloudflare_challenge_page(content):
     if not text:
         return True
     return any(marker in text for marker in CF_CHALLENGE_MARKERS)
+
+
+def is_blocking_cloudflare_challenge_page(content):
+    """Évite de confondre un widget secondaire avec une page entièrement bloquée."""
+    text = (content or "").lower()
+    if not text or not is_cloudflare_challenge_page(text):
+        return False
+    content_markers = (
+        "id=\"readerarea\"",
+        "id='readerarea'",
+        "reading-content",
+        "ts_reader.run",
+        "listing-chapters_wrap",
+        "wp-manga-chapter",
+        "chapter-link",
+        "manga_cover",
+    )
+    return not any(marker in text for marker in content_markers)
+
+
+def is_embedded_reader_turnstile_page(content):
+    """Détecte le second Turnstile lorsqu'il remplace le contenu du lecteur."""
+    text = (content or "").lower()
+    if not text:
+        return False
+    has_turnstile = "cf-turnstile" in text or "challenges.cloudflare.com" in text
+    has_validation = bool(re.search(r">\s*valider\s*<", text))
+    return has_turnstile and has_validation
 
 
 def strip_html_tags(text):
@@ -2628,9 +2659,12 @@ def dispose_crunchy_browser_state(state):
     process = state.get("external_chrome_process")
     if process is not None and process.poll() is None:
         try:
-            process.terminate()
+            process.wait(timeout=3)
         except Exception:
-            pass
+            try:
+                process.terminate()
+            except Exception:
+                pass
     state["external_chrome_process"] = None
 
 
@@ -2842,13 +2876,13 @@ def find_system_chrome_executable():
     return ""
 
 
-def wait_for_crunchy_manual_validation_signal(cancel_event=None):
+def wait_for_crunchy_manual_validation_signal(cancel_event=None, site_label="CrunchyScan"):
     """Attend que l'utilisateur confirme que le lecteur est réellement visible."""
     app_cls = globals().get("MangaApp")
     app = getattr(app_cls, "current_instance", None) if app_cls is not None else None
     if app is None:
         runtime_log(
-            "[BÊTA] Quand toutes les pages sont visibles dans Chrome, reviens dans cette console et appuie sur Entrée.",
+            "[BÊTA] Quand le contenu attendu est visible dans Chrome, reviens dans cette console et appuie sur Entrée.",
             level="warning",
             context={"action": "cloudflare_manual_beta_console_signal"},
         )
@@ -2864,11 +2898,11 @@ def wait_for_crunchy_manual_validation_signal(cancel_event=None):
     def show_confirmation():
         try:
             answer["confirmed"] = bool(messagebox.askokcancel(
-                "CrunchyScan — validation BÊTA",
-                "1. Termine les deux contrôles Cloudflare dans Google Chrome.\n"
-                "2. Clique sur Valider.\n"
-                "3. Attends que les pages du chapitre soient visibles.\n\n"
-                "Ne ferme pas Chrome. Reviens ici et clique sur OK uniquement lorsque les pages sont affichées.",
+                f"{site_label} — validation BÊTA",
+                "1. Termine le ou les contrôles Cloudflare dans Google Chrome.\n"
+                "2. Clique sur Valider si ce bouton est affiché.\n"
+                "3. Attends que le contenu attendu (liste ou pages) soit visible.\n\n"
+                "Ne ferme pas Chrome. Reviens ici et clique sur OK uniquement lorsque le contenu est affiché.",
                 parent=app.root,
                 icon="warning",
             ))
@@ -2885,18 +2919,26 @@ def wait_for_crunchy_manual_validation_signal(cancel_event=None):
     return answer["confirmed"]
 
 
-def open_crunchy_manual_validation_in_system_chrome(state, chapter_url, ua, cancel_event=None):
+def open_crunchy_manual_validation_in_system_chrome(
+    state,
+    chapter_url,
+    ua,
+    cancel_event=None,
+    profile_path=None,
+    site_label="CrunchyScan",
+):
     """Laisse Chrome valider seul, puis s'y connecte après confirmation."""
     chrome_path = find_system_chrome_executable()
     if not chrome_path:
         return None
-    CRUNCHY_BROWSER_PROFILE_PATH.mkdir(parents=True, exist_ok=True)
+    browser_profile = Path(profile_path or CRUNCHY_BROWSER_PROFILE_PATH)
+    browser_profile.mkdir(parents=True, exist_ok=True)
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.bind(("127.0.0.1", 0))
         debugging_port = int(probe.getsockname()[1])
     command = [
         chrome_path,
-        f"--user-data-dir={CRUNCHY_BROWSER_PROFILE_PATH}",
+        f"--user-data-dir={browser_profile}",
         f"--remote-debugging-port={debugging_port}",
         "--remote-allow-origins=*",
         "--no-first-run",
@@ -2953,7 +2995,10 @@ def open_crunchy_manual_validation_in_system_chrome(state, chapter_url, ua, canc
         )
         return None
 
-    if not wait_for_crunchy_manual_validation_signal(cancel_event=cancel_event):
+    if not wait_for_crunchy_manual_validation_signal(
+        cancel_event=cancel_event,
+        site_label=site_label,
+    ):
         raise DownloadCancelled("Validation Cloudflare annulée ou non confirmée.")
     if process.poll() is not None:
         state["external_chrome_process"] = None
@@ -2990,6 +3035,100 @@ def open_crunchy_manual_validation_in_system_chrome(state, chapter_url, ua, canc
     state["site"] = get_site_domain_key(chapter_url)
     state["headless"] = False
     return page
+
+
+def is_double_cloudflare_beta_candidate(status_code=None, reason=""):
+    """Détecte un blocage explicitement associé à Cloudflare/Turnstile."""
+    text = normalize_metadata_text(str(reason or "")).lower()
+    explicit_markers = (
+        "cloudflare",
+        "turnstile",
+        "just a moment",
+        "un instant",
+        "verification de securite",
+        "vérification de sécurité",
+        "protection serveur",
+        "réponse html",
+        "reponse html",
+    )
+    return any(marker in text for marker in explicit_markers) and status_code not in (404, 410)
+
+
+def playwright_cookies_to_header(cookies):
+    """Transforme les cookies du navigateur en header réutilisable par le client HTTP."""
+    values = {}
+    for item in cookies or []:
+        if not isinstance(item, dict):
+            continue
+        name = sanitize_cookie_value(item.get("name"))
+        value = sanitize_cookie_value(item.get("value"))
+        if name and value:
+            values[name] = value
+    def cookie_priority(name):
+        lowered = name.lower()
+        if lowered == "cf_clearance":
+            return 0
+        if lowered.startswith("__cf"):
+            return 1
+        if any(marker in lowered for marker in ("session", "xsrf", "csrf", "wordpress")):
+            return 2
+        if lowered.startswith(("_ga", "_gid", "_fbp", "utm")):
+            return 4
+        return 3
+
+    ordered_names = sorted(values, key=lambda name: (cookie_priority(name), name.lower()))
+    return sanitize_cookie_header("; ".join(f"{name}={values[name]}" for name in ordered_names))
+
+
+def complete_generic_double_cloudflare_beta(url, ua, domain, cancel_event=None):
+    """Valide manuellement Cloudflare pour un autre site et récupère sa session."""
+    safe_url = normalize_image_url(url)
+    safe_domain = normalize_metadata_text(domain or get_site_domain_key(safe_url)).lower()
+    if not safe_url or safe_domain not in COOKIE_DOMAINS:
+        return ""
+    if safe_domain in ("crunchyscan", "scanhentai"):
+        return ""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as exc:
+        raise AuthError(f"Validation Cloudflare BÊTA indisponible: installe playwright ({exc}).")
+
+    with CLOUDFLARE_MANUAL_BETA_LOCK:
+        state = new_crunchy_browser_state()
+        try:
+            state["playwright"] = sync_playwright().start()
+            profile_path = CLOUDFLARE_BROWSER_PROFILE_ROOT / sanitize_folder_name(safe_domain)
+            site_label = normalize_hostname(urlparse(safe_url).hostname) or safe_domain
+            runtime_log(
+                f"[BÊTA] {site_label}: vérification Cloudflare renforcée détectée; "
+                "ouverture de la validation assistée.",
+                level="warning",
+                context={"action": "cloudflare_double_beta", "domain": safe_domain},
+            )
+            page = open_crunchy_manual_validation_in_system_chrome(
+                state,
+                safe_url,
+                ua,
+                cancel_event=cancel_event,
+                profile_path=profile_path,
+                site_label=site_label,
+            )
+            if page is None or state.get("context") is None:
+                return ""
+            cookies = state["context"].cookies([safe_url])
+            cookie_header = playwright_cookies_to_header(cookies)
+            if not cookie_header:
+                raise AuthError(
+                    f"[BÊTA] {site_label}: aucun cookie de session récupéré après validation."
+                )
+            runtime_log(
+                f"[BÊTA] {site_label}: session Cloudflare récupérée; reprise automatique.",
+                level="success",
+                context={"action": "cloudflare_double_beta_done", "domain": safe_domain},
+            )
+            return cookie_header
+        finally:
+            dispose_crunchy_browser_state(state)
 
 
 def complete_crunchy_manual_validation_beta(
@@ -6144,12 +6283,14 @@ def fetch_scanmanga_images(link, cookie, ua, max_images=None, emit_logs=True, ca
         timeout=20,
     )
     status_code = int(getattr(page_response, "status_code", 0) or 0)
+    page_html = page_response.text or ""
+    if is_blocking_cloudflare_challenge_page(page_html) or is_embedded_reader_turnstile_page(page_html):
+        raise AuthError("Scan-Manga: challenge Cloudflare/Turnstile détecté dans le lecteur.")
     if status_code != 200:
         raise AuthError(f"Scan-Manga: page lecteur inaccessible (HTTP {status_code}).")
     if cancel_event is not None and cancel_event.is_set():
         raise DownloadCancelled("Téléchargement annulé.")
 
-    page_html = page_response.text or ""
     novel_chapter = extract_scanmanga_novel_chapter(page_html)
     if novel_chapter:
         novel_title, paragraphs = novel_chapter
@@ -6554,6 +6695,12 @@ def fetch_manga_analysis(url, cookie, ua, progress_callback=None, emit_logs=True
     if callable(progress_callback):
         progress_callback("fetch")
     r = make_request(url, cookie, ua)
+    response_text = r.text or ""
+    if (
+        is_blocking_cloudflare_challenge_page(response_text)
+        or is_embedded_reader_turnstile_page(response_text)
+    ):
+        raise AuthError("Challenge Cloudflare/Turnstile détecté à la place du catalogue.")
     if r.status_code != 200:
         final_url = getattr(r, "url", "") or ""
         detail = f"HTTP {r.status_code}"
@@ -6568,7 +6715,7 @@ def fetch_manga_analysis(url, cookie, ua, progress_callback=None, emit_logs=True
             raise AuthError(f"Accès refusé ou URL invalide ({detail})")
         raise SushiDLError(f"Accès refusé ou URL invalide ({detail})")
 
-    html_content = r.text or ""
+    html_content = response_text
     if callable(progress_callback):
         progress_callback("parse")
     site = get_supported_site_from_url(url)
@@ -6581,6 +6728,8 @@ def fetch_manga_analysis(url, cookie, ua, progress_callback=None, emit_logs=True
                 html_content,
                 emit_logs=False,
             )
+        except AuthError:
+            raise
         except Exception as exc:
             parse_error = exc
             title = extract_manga_title_from_html(url, html_content)
@@ -6958,6 +7107,8 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
             if images:
                 store_cached_image_urls(link, images, max_images=max_images)
                 return images
+        except AuthError:
+            raise
         except Exception as exc:
             if emit_logs:
                 runtime_log(
@@ -7054,12 +7205,21 @@ def get_images(link, cookie, ua, retries=3, delay=2, debug_mode=False, cancel_ev
                 if images:
                     return images
 
+                if is_blocking_cloudflare_challenge_page(body):
+                    raise AuthError("Challenge Cloudflare détecté à la place du lecteur.")
+                if is_embedded_reader_turnstile_page(body):
+                    raise AuthError(
+                        "Second challenge Cloudflare Turnstile détecté à la place des images."
+                    )
+
                 if emit_logs:
                     runtime_log(
                         f"Aucune image trouvée en accès direct (tentative {attempt}/{attempt_count}).",
                         level="warning",
                         context={"action": "get_images"},
                     )
+            except AuthError:
+                raise
             except Exception as e:
                 message = str(e)
                 interpretation = interpret_curl_error(message)
@@ -7175,6 +7335,7 @@ def download_volume(
 
     active_cookie = (cookie or "").strip()
     can_prompt_cookie_retry = True
+    browser_beta_attempted = False
     force_resume_after_cookie_refresh = False
     current_download_threads = clamp_download_threads(download_threads)
     volume_started_at = time.perf_counter()
@@ -7346,6 +7507,55 @@ def download_volume(
             report_error("download", sample_reason, sample_status)
             if cancel_event.is_set():
                 return None
+
+            cloudflare_beta_candidate = any(
+                is_double_cloudflare_beta_candidate(
+                    failure.get("status_code"),
+                    failure.get("reason"),
+                )
+                for failure in hard_failures
+            )
+            if (
+                cloudflare_beta_candidate
+                and not browser_beta_attempted
+                and target_domain in COOKIE_DOMAINS
+                and target_domain not in ("crunchyscan", "scanhentai")
+                and referer_url
+            ):
+                browser_beta_attempted = True
+                try:
+                    browser_cookie = complete_generic_double_cloudflare_beta(
+                        referer_url,
+                        ua,
+                        target_domain,
+                        cancel_event=cancel_event,
+                    )
+                except DownloadCancelled:
+                    return None
+                except Exception as beta_exc:
+                    browser_cookie = ""
+                    logger(
+                        f"Validation Cloudflare BÊTA non aboutie: {beta_exc}",
+                        level="warning",
+                    )
+                if browser_cookie:
+                    active_cookie = browser_cookie
+                    if app and hasattr(app, "apply_browser_cookie_header"):
+                        try:
+                            app.apply_browser_cookie_header(target_domain, browser_cookie, ua)
+                        except Exception as store_exc:
+                            logger(
+                                f"Session navigateur utilisable mais sauvegarde impossible: {store_exc}",
+                                level="warning",
+                            )
+                    current_download_threads = 1
+                    force_resume_after_cookie_refresh = True
+                    logger(
+                        "[BÊTA] Session issue de Google Chrome appliquée. Relance du tome/chapitre "
+                        "avec reprise intelligente et 1 thread.",
+                        level="success",
+                    )
+                    continue
 
             if should_reduce_threads_for_failures(hard_failures) and current_download_threads > 1:
                 current_download_threads = max(1, current_download_threads // 2)
@@ -15915,6 +16125,31 @@ class MangaApp:
             return self.run_on_ui(cookie_var.get, wait=True, default="").strip()
         return ""
 
+    def apply_browser_cookie_header(self, domain, cookie_header, ua=""):
+        """Enregistre une session validée dans Chrome pour les requêtes suivantes."""
+        safe_header = sanitize_cookie_header(cookie_header)
+        if domain not in COOKIE_DOMAINS or not safe_header:
+            return False
+
+        def apply_ui():
+            cookie_var = self._get_cookie_var_for_domain(domain)
+            if cookie_var is None:
+                return False
+            cookie_var.set(safe_header)
+            self.cookie_sources[domain] = "browser-beta"
+            self.cookie_user_agents[domain] = (ua or self.ua.get() or DIRECT_USER_AGENT_DEFAULT).strip()
+            self.cookie_headers[domain] = safe_header
+            self.last_known_cookies[domain] = safe_header
+            self._mark_cookie_updated(domain, safe_header)
+            self.update_cookie_status(validate=False)
+            self.update_runtime_status()
+            return True
+
+        applied = bool(self.run_on_ui(apply_ui, wait=True, default=False))
+        if applied:
+            self.persist_settings()
+        return applied
+
     def get_direct_user_agent(self):
         """UA direct (champ UI), utilisé avec cookies manuels."""
         return self.run_on_ui(self.ua.get, wait=True, default="").strip() or DIRECT_USER_AGENT_DEFAULT
@@ -15963,6 +16198,7 @@ class MangaApp:
         safe_volume = normalize_tome_label(volume_label or "") or "Chapitre"
         domain = self.get_domain_from_url(safe_link)
         cookie_refresh_attempted = False
+        browser_beta_attempted = False
         extraction_state = {"done": -1, "total": 0, "timestamp": 0.0}
         resumed_images = load_volume_resume_images(
             getattr(self, "download_output_root", ROOT_FOLDER), self.title, safe_volume, safe_link
@@ -16013,6 +16249,36 @@ class MangaApp:
                 raise
             except Exception as exc:
                 reason = str(exc)
+                if (
+                    domain in COOKIE_DOMAINS
+                    and domain not in ("crunchyscan", "scanhentai")
+                    and not browser_beta_attempted
+                    and is_double_cloudflare_beta_candidate(None, reason)
+                ):
+                    browser_beta_attempted = True
+                    try:
+                        browser_cookie = complete_generic_double_cloudflare_beta(
+                            safe_link,
+                            ua,
+                            domain,
+                            cancel_event=cancel_event,
+                        )
+                    except DownloadCancelled:
+                        raise
+                    except Exception as beta_exc:
+                        browser_cookie = ""
+                        self.log(
+                            f"Validation Cloudflare BÊTA non aboutie pour {safe_volume}: {beta_exc}",
+                            level="warning",
+                        )
+                    if browser_cookie:
+                        self.apply_browser_cookie_header(domain, browser_cookie, ua)
+                        cookie_refresh_attempted = True
+                        self.log(
+                            f"[BÊTA] Session Chrome appliquée; nouvelle extraction de {safe_volume}.",
+                            level="success",
+                        )
+                        continue
                 if domain in ("crunchyscan", "scanhentai") and is_manual_cloudflare_fallback(reason):
                     self.log(
                         f"Cloudflare détecté pour {safe_volume}: arrêt sans renouvellement de cookie.",
@@ -16935,6 +17201,37 @@ class MangaApp:
         def retry_analysis_after_cookie_update(reason):
             if not allow_cookie_retry or domain not in COOKIE_DOMAINS:
                 return False
+            if (
+                domain not in ("crunchyscan", "scanhentai")
+                and is_double_cloudflare_beta_candidate(None, reason)
+            ):
+                try:
+                    browser_cookie = complete_generic_double_cloudflare_beta(
+                        url,
+                        ua_for_url,
+                        domain,
+                        cancel_event=None,
+                    )
+                except Exception as beta_exc:
+                    browser_cookie = ""
+                    self.log(
+                        f"Validation Cloudflare BÊTA non aboutie pendant l'analyse: {beta_exc}",
+                        level="warning",
+                    )
+                if browser_cookie:
+                    try:
+                        self.apply_browser_cookie_header(domain, browser_cookie, ua_for_url)
+                    except Exception as store_exc:
+                        self.log(
+                            f"Impossible de sauvegarder la session Chrome: {store_exc}",
+                            level="warning",
+                        )
+                    self.log(
+                        "[BÊTA] Session Cloudflare récupérée. Relance automatique de l'analyse...",
+                        level="success",
+                    )
+                    self.run_on_ui(lambda: self.load_volumes(allow_cookie_retry=False, use_analysis_cache=False))
+                    return True
             if not should_offer_cookie_refresh(None, reason):
                 return False
             self.log(
@@ -18293,6 +18590,76 @@ def run_self_test():
             {"challenge": True, "forbidden": True, "imageCount": 0}
         ),
     )
+    check(
+        "double cloudflare autres sites detecte",
+        is_double_cloudflare_beta_candidate(403, "Réponse HTML (protection serveur ou Cloudflare)"),
+    )
+    check(
+        "page cloudflare bloquante detectee",
+        is_blocking_cloudflare_challenge_page(
+            "<html><head><title>Just a moment...</title></head><body>challenge-platform</body></html>"
+        ),
+    )
+    check(
+        "widget secondaire hors page bloquante",
+        not is_blocking_cloudflare_challenge_page(
+            '<div id="readerarea"><img src="page.jpg"></div><script src="challenge-platform.js"></script>'
+        ),
+    )
+    check(
+        "second turnstile lecteur detecte",
+        is_embedded_reader_turnstile_page(
+            '<form><div class="cf-turnstile"></div><button>Valider</button></form>'
+        ),
+    )
+    check(
+        "simple erreur 403 hors beta",
+        not is_double_cloudflare_beta_candidate(403, "HTTP Error 403"),
+    )
+    check(
+        "page absente hors beta cloudflare",
+        not is_double_cloudflare_beta_candidate(404, "Cloudflare"),
+    )
+    check(
+        "cookies navigateur convertis en header",
+        playwright_cookies_to_header(
+            [
+                {"name": "session_id", "value": "def"},
+                {"name": "cf_clearance", "value": "abc"},
+            ]
+        ) == "cf_clearance=abc; session_id=def",
+    )
+    class FakeCloudflareResponse:
+        status_code = 403
+        url = "https://sushiscan.net/catalogue/cloudflare-beta-test/"
+        text = "<html><head><title>Just a moment...</title></head><body>challenge-platform</body></html>"
+
+    previous_make_request = globals()["make_request"]
+    try:
+        globals()["make_request"] = lambda *_args, **_kwargs: FakeCloudflareResponse()
+        check_raises(
+            "challenge propage par extraction autres sites",
+            AuthError,
+            lambda: get_images(
+                "https://sushiscan.net/cloudflare-beta-test/chapitre-1/",
+                "",
+                "UA-test",
+                retries=1,
+                emit_logs=False,
+            ),
+        )
+        check_raises(
+            "challenge propage par analyse autres sites",
+            AuthError,
+            lambda: fetch_manga_analysis(
+                "https://sushiscan.net/catalogue/cloudflare-beta-test/",
+                "",
+                "UA-test",
+                emit_logs=False,
+            ),
+        )
+    finally:
+        globals()["make_request"] = previous_make_request
     headers = build_request_headers(
         "https://sushiscan.net/catalogue/one-piece/",
         "abc123",

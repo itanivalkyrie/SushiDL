@@ -15,7 +15,7 @@ SushiDL cible un usage simple :
 - telecharger les pages dans un dossier local
 - generer des archives `.cbz` si souhaite
 
-Version actuelle : `11.18.34`
+Version actuelle : `11.19.0`
 
 ## Ce qui change sur `main`
 
@@ -189,6 +189,14 @@ Captures d'ecran :
 </p>
 
 ## Nouveautes recentes
+
+### 11.19.0
+- Extension **BÊTA / EN DÉVELOPPEMENT** de la validation assistée aux autres sites pris en charge par SushiDL : SushiScan `.fr/.net`, Mangas Origines, Hentai Origines, ToonFR, OrtegaScans, HentaiZone et Scan-Manga.
+- Le mode ne se déclenche pas sur chaque erreur réseau ou simple page absente : SushiDL recherche des marqueurs explicites de protection Cloudflare, de Turnstile ou de réponse HTML de challenge pendant l'analyse ou le téléchargement.
+- Lorsqu'un tome/chapitre présente potentiellement le **double challenge Cloudflare** (page d'entrée puis Turnstile intégré), Google Chrome s'ouvre avec un profil isolé pour le domaine. L'utilisateur réalise manuellement le ou les contrôles, attend le contenu, garde Chrome ouvert puis confirme dans la boîte de dialogue **validation BÊTA**.
+- Après confirmation, SushiDL se connecte tardivement, récupère les cookies de la session validée, les sauvegarde pour le domaine et relance automatiquement avec un seul thread et la reprise intelligente.
+
+> **Limite de la BÊTA :** ce mécanisme est un secours expérimental pour certains tomes/chapitres protégés. Il ne résout ni ne contourne Cloudflare automatiquement, ne garantit pas que tous les challenges seront acceptés et ne remplace pas la saisie manuelle des cookies lorsque le site refuse la session navigateur.
 
 ### 11.18.34
 - CrunchyScan / Scan-Hentai — validation assistée **BÊTA / EN DÉVELOPPEMENT** pour certains tomes ou chapitres protégés :
