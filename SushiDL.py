@@ -358,7 +358,8 @@ def get_supported_site_from_host(host):
         return "sushiscan.net"
     if value == "mangas-origines.fr" or value.endswith(".mangas-origines.fr"):
         return "mangas-origines.fr"
-    if value == "hentai-origines.fr" or value.endswith(".hentai-origines.fr"):
+    if any(value == host or value.endswith(f".{host}") for host in ("hentai-origines.com", "hentai-origines.fr")):
+        # Identifiant interne commun pour les deux domaines ; l'URL conserve son host.
         return "hentai-origines.fr"
     if value == "toonfr.com" or value.endswith(".toonfr.com"):
         return "toonfr.com"
@@ -1189,7 +1190,7 @@ def download_image_to_file(img_url, filename, headers, max_try=4, delay=2, cance
 # Expressions régulières et constantes globales
 APP_NAME = "SushiDL"
 APP_VERSION = "11.18.34"
-REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.fr/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.org/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
+REGEX_URL = r"^https://(?:sushiscan\.(?:fr|net)/catalogue|mangas-origines\.fr/oeuvre|hentai-origines\.(?:com|fr)/manga|toonfr\.com/webtoon|ortegascans\.fr/serie|hentaizone\.xyz/manga|crunchyscan\.org/lecture-en-ligne|scan-hentai\.net/lecture-en-ligne)/[^/?#\s]+/?$|^https://www\.scan-manga\.com/\d+(?:-\d+)?/[^/?#\s]+\.html$"  # Formats d'URL valides
 ROOT_FOLDER = "DL SushiScan"  # Dossier racine pour les téléchargements
 DEFAULT_DOWNLOAD_THREADS = 3
 MIN_FREE_DISK_BYTES = 256 * 1024 * 1024
@@ -1312,7 +1313,7 @@ DEFAULT_APP_CONFIG = {
         "cookie_fr": "https://sushiscan.fr",
         "cookie_net": "https://sushiscan.net",
         "cookie_origines": "https://mangas-origines.fr",
-        "cookie_hentai": "https://hentai-origines.fr",
+        "cookie_hentai": "https://hentai-origines.com",
         "cookie_toonfr": "https://toonfr.com",
         "cookie_ortega": "https://ortegascans.fr",
         "cookie_hentaizone": "https://hentaizone.xyz",
@@ -1328,7 +1329,7 @@ STARTUP_COOKIE_LISTING_PROBE_URLS = {
     "fr": "https://sushiscan.fr/catalogue/one-piece/",
     "net": "https://sushiscan.net/catalogue/one-piece/",
     "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
-    "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
+    "hentai": "https://hentai-origines.com/manga/stop-smoking/",
     "toonfr": "https://toonfr.com/webtoon/ma-brute/",
     "ortega": "https://ortegascans.fr/serie/moby-dick",
     "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
@@ -1491,6 +1492,10 @@ def load_app_config():
         config_migrated = False
         raw_manual_links = raw.get("manual_links") if isinstance(raw, dict) else None
         if isinstance(raw_manual_links, dict):
+            old_hentai_link = str(raw_manual_links.get("cookie_hentai") or "").strip().rstrip("/")
+            if old_hentai_link.lower() == "https://hentai-origines.fr":
+                raw_manual_links["cookie_hentai"] = "https://hentai-origines.com"
+                config_migrated = True
             old_crunchyscan_link = str(raw_manual_links.get("cookie_crunchyscan") or "").strip().rstrip("/")
             if old_crunchyscan_link.lower() == "https://crunchyscan.fr":
                 raw_manual_links["cookie_crunchyscan"] = "https://crunchyscan.org"
@@ -3891,7 +3896,7 @@ def evaluate_cookie_and_challenge(domain, cookie, ua, probe_url=None):
         "fr": "https://sushiscan.fr/catalogue/one-piece/",
         "net": "https://sushiscan.net/catalogue/one-piece/",
         "origines": "https://mangas-origines.fr/oeuvre/826-solo-leveling/",
-        "hentai": "https://hentai-origines.fr/manga/stop-smoking/",
+        "hentai": "https://hentai-origines.com/manga/stop-smoking/",
         "toonfr": "https://toonfr.com/webtoon/ma-brute/",
         "ortega": "https://ortegascans.fr/serie/moby-dick",
         "hentaizone": "https://hentaizone.xyz/manga/stepmothers-friends/",
@@ -4262,7 +4267,7 @@ COMICINFO_SOURCE_LABELS = {
     "fr": "sushiscan.fr",
     "net": "sushiscan.net",
     "origines": "mangas-origines.fr",
-    "hentai": "hentai-origines.fr",
+    "hentai": "hentai-origines.com",
     "toonfr": "toonfr.com",
     "ortega": "ortegascans.fr",
     "hentaizone": "hentaizone.xyz",
@@ -6370,7 +6375,7 @@ def parse_manga_data_from_html(url, html_content, emit_logs=True):
             site_host = "mangas-origines.fr"
             path_prefix = "oeuvre"
         else:
-            site_host = "hentai-origines.fr"
+            site_host = source_host
             path_prefix = "manga"
         pattern_abs = re.compile(
             rf"https?://(?:www\.)?{re.escape(site_host)}/{path_prefix}/{re.escape(source_slug)}/(chapitre-[^\"'<>/\s]+(?:/[^\"'<>/\s]+)*)/?",
@@ -12135,7 +12140,7 @@ class MangaApp:
                 "fr": "https://sushiscan.fr/",
                 "net": "https://sushiscan.net/",
                 "origines": "https://mangas-origines.fr/",
-                "hentai": "https://hentai-origines.fr/",
+                "hentai": "https://hentai-origines.com/",
                 "toonfr": "https://toonfr.com/",
                 "ortega": "https://ortegascans.fr/",
                 "hentaizone": "https://hentaizone.xyz/",
@@ -14760,7 +14765,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.url_entry,
             self.url,
-            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/ ou https://www.scan-manga.com/1234/slug.html",
+            "https://sushiscan.fr/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.com/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/ ou https://www.scan-manga.com/1234/slug.html",
             None,
         )
 
@@ -15751,7 +15756,7 @@ class MangaApp:
         cookie_fr_link = get_manual_link("cookie_fr", "https://sushiscan.fr")
         cookie_net_link = get_manual_link("cookie_net", "https://sushiscan.net")
         cookie_origines_link = get_manual_link("cookie_origines", "https://mangas-origines.fr")
-        cookie_hentai_link = get_manual_link("cookie_hentai", "https://hentai-origines.fr")
+        cookie_hentai_link = get_manual_link("cookie_hentai", "https://hentai-origines.com")
         cookie_toonfr_link = get_manual_link("cookie_toonfr", "https://toonfr.com")
         cookie_hentaizone_link = get_manual_link("cookie_hentaizone", "https://hentaizone.xyz")
         cookie_scanmanga_link = get_manual_link("cookie_scanmanga", "https://www.scan-manga.com")
@@ -15778,7 +15783,7 @@ class MangaApp:
         self._attach_link_placeholder(
             self.cookie_hentai_entry,
             self.cookie_hentai,
-            'Cookie cf_clearance hentai-origines.fr (cliquer pour ouvrir le site si besoin).',
+            'Cookie cf_clearance hentai-origines.com (cliquer pour ouvrir le site si besoin).',
             cookie_hentai_link,
         )
         self._attach_link_placeholder(
@@ -16871,7 +16876,7 @@ class MangaApp:
         url = self.url.get().strip()
         if not is_valid_catalogue_url(url):
             self.log(
-                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.fr/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/ ou https://www.scan-manga.com/1234/slug.html.",
+                "URL invalide. Formats attendus: https://sushiscan.fr|net/catalogue/slug/ ou https://mangas-origines.fr/oeuvre/slug/ ou https://hentai-origines.com/manga/slug/ ou https://toonfr.com/webtoon/slug/ ou https://ortegascans.fr/serie/slug/ ou https://hentaizone.xyz/manga/slug/ ou https://www.scan-manga.com/1234/slug.html.",
                 level="error",
             )
             self._set_analysis_status_label("URL invalide", success=False)
@@ -18193,8 +18198,26 @@ def run_self_test():
 
     check(
         "url emoji percent-encoded",
-        is_valid_catalogue_url("https://hentai-origines.fr/manga/hunter-to-nakama-no-wild-na-seikatsu-%e2%99%a5/"),
+        is_valid_catalogue_url("https://hentai-origines.com/manga/hunter-to-nakama-no-wild-na-seikatsu-%e2%99%a5/"),
     )
+    check("url hentai ancien domaine", is_valid_catalogue_url("https://hentai-origines.fr/manga/beautiful-days/"))
+    hentai_url = "https://hentai-origines.com/manga/beautiful-days/"
+    check("url hentai com", is_valid_catalogue_url(hentai_url))
+    check("url hentai com sans slash", is_valid_catalogue_url(hentai_url.rstrip("/")))
+    check("url hentai com www", is_valid_catalogue_url(hentai_url.replace("://", "://www.")))
+    check("domain cookie hentai com", get_cookie_domain_from_url(hentai_url) == "hentai")
+    check("domain parseur hentai com", get_site_domain_key(hentai_url) == "hentai")
+    check("extraction collage hentai com", extract_supported_catalogue_url(f"Lien : {hentai_url}") == hentai_url)
+    check("url hentai faux domaine refuse", not is_valid_catalogue_url("https://hentai-origines.com.example.org/manga/beautiful-days/"))
+    check("url hentai chapitre refuse", not is_valid_catalogue_url(hentai_url + "chapitre-1/"))
+    check("url hentai liste conserve com", build_mangas_origines_list_url(hentai_url + "chapitre-1/p/2/") == hentai_url + "chapitre-1/?style=list")
+    check("url hentai regex com", bool(re.fullmatch(REGEX_URL, hentai_url)))
+    hentai_title, hentai_pairs, _ = parse_manga_data_from_html(
+        hentai_url,
+        '<h1>Beautiful Days</h1><script>"https://hentai-origines.com/manga/beautiful-days/chapitre-1/"</script>',
+        emit_logs=False,
+    )
+    check("parseur hentai com liens script", hentai_pairs == [("Chapitre 1", hentai_url + "chapitre-1/")])
     check("url slug classique", is_valid_catalogue_url("https://sushiscan.net/catalogue/one-piece/"))
     check("url scan-manga serie", is_valid_catalogue_url("https://www.scan-manga.com/16363/Death-Penalty.html"))
     check("domain scan-manga", get_cookie_domain_from_url("https://www.scan-manga.com/16363/Death-Penalty.html") == "scanmanga")
@@ -18204,12 +18227,12 @@ def run_self_test():
     check("domain scan-hentai", get_cookie_domain_from_url("https://scan-hentai.net/lecture-en-ligne/even-a-hopeless-romantic-wants-to-be-loved") == "scanhentai")
     check("url scan-manga chapitre refusee", not is_valid_catalogue_url("https://www.scan-manga.com/lecture-en-ligne/Death-Penalty-Chapitre-56-FR_545712.html"))
     check("domain key", get_site_domain_key("https://ortegascans.fr/serie/moby-dick") == "ortega")
-    check("url percent invalide refuse", not is_valid_catalogue_url("https://hentai-origines.fr/manga/bad%zz/"))
-    check("url slash encode refuse", not is_valid_catalogue_url("https://hentai-origines.fr/manga/bad%2fslug/"))
+    check("url percent invalide refuse", not is_valid_catalogue_url("https://hentai-origines.com/manga/bad%zz/"))
+    check("url slash encode refuse", not is_valid_catalogue_url("https://hentai-origines.com/manga/bad%2fslug/"))
     check(
         "extraction collage url",
-        extract_supported_catalogue_url("x https://hentai-origines.fr/manga/test-%e2%99%a5/ y")
-        == "https://hentai-origines.fr/manga/test-%e2%99%a5/",
+        extract_supported_catalogue_url("x https://hentai-origines.com/manga/test-%e2%99%a5/ y")
+        == "https://hentai-origines.com/manga/test-%e2%99%a5/",
     )
     check(
         "cookie brut",

@@ -572,7 +572,7 @@ Pour le detail complet des versions : voir `CHANGELOG.md`.
 - `https://sushiscan.fr`
 - `https://sushiscan.net`
 - `https://mangas-origines.fr`
-- `https://hentai-origines.fr`
+- `https://hentai-origines.com`
 - `https://toonfr.com`
 - `https://ortegascans.fr`
 - `https://hentaizone.xyz`
@@ -581,7 +581,7 @@ Formats d'URL catalogue attendus :
 - `https://sushiscan.fr/catalogue/<slug>/`
 - `https://sushiscan.net/catalogue/<slug>/`
 - `https://mangas-origines.fr/oeuvre/<slug>/`
-- `https://hentai-origines.fr/manga/<slug>/`
+- `https://hentai-origines.com/manga/<slug>/`
 - `https://toonfr.com/webtoon/<slug>/`
 - `https://ortegascans.fr/serie/<slug>/`
 - `https://hentaizone.xyz/manga/<slug>/`
@@ -720,7 +720,7 @@ Exemple de structure `config.json` :
     "cookie_fr": "https://sushiscan.fr",
     "cookie_net": "https://sushiscan.net",
     "cookie_origines": "https://mangas-origines.fr",
-    "cookie_hentai": "https://hentai-origines.fr",
+    "cookie_hentai": "https://hentai-origines.com",
     "user_agent": "https://httpbin.org/user-agent",
     "cookie_help": "https://github.com/itanivalkyrie/SushiDL?tab=readme-ov-file#-recuperer-user-agent-et-cf_clearance"
   }
